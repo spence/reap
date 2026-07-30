@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
   pub roots: Vec<String>,
   pub exclude: Vec<String>,
+  pub quarantine: QuarantineConfig,
 }
 
 impl Default for Config {
@@ -21,6 +22,7 @@ impl Default for Config {
     Config {
       roots: vec!["~/src".to_string()],
       exclude: vec![],
+      quarantine: QuarantineConfig::default(),
     }
   }
 }
@@ -28,6 +30,36 @@ impl Default for Config {
 impl Config {
   pub fn expanded_roots(&self) -> Vec<PathBuf> {
     self.roots.iter().map(|r| expand(r)).collect()
+  }
+
+  /// Resolved quarantine location: configured `quarantine.dir` (e.g. an
+  /// external drive) or the machine-local default under the state dir.
+  pub fn quarantine_dir(&self) -> PathBuf {
+    match &self.quarantine.dir {
+      Some(s) if !s.trim().is_empty() => expand(s),
+      _ => crate::util::state_dir().join("quarantine"),
+    }
+  }
+}
+
+/// Per-machine quarantine policy. `dir: null` -> `<state dir>/quarantine`.
+/// With `auto_purge: false`, a bare `reap purge` deletes nothing on this
+/// machine -- only explicit selectors (`--id`/`--owner`/`--all`) purge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct QuarantineConfig {
+  pub dir: Option<String>,
+  pub auto_purge: bool,
+  pub purge_after_days: u32,
+}
+
+impl Default for QuarantineConfig {
+  fn default() -> Self {
+    QuarantineConfig {
+      dir: None,
+      auto_purge: true,
+      purge_after_days: 30,
+    }
   }
 }
 
@@ -62,7 +94,7 @@ pub fn write_default_config() -> std::io::Result<bool> {
   Ok(true)
 }
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
   PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
 }
 

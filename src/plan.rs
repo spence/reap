@@ -729,7 +729,7 @@ fn entry_mtime(path: &Path) -> f64 {
     .unwrap_or(0.0)
 }
 
-fn mtime_secs(m: &Metadata) -> f64 {
+pub(crate) fn mtime_secs(m: &Metadata) -> f64 {
   m.modified()
     .ok()
     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
@@ -809,6 +809,7 @@ mod tests {
       target: "target".to_string(),
       keep,
       policy,
+      stores: vec![],
       has_file: false,
     }
   }

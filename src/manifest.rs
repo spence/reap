@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -57,8 +57,44 @@ impl Default for Policy {
   }
 }
 
-/// The on-disk shape of `.reap.json`. Unknown fields are ignored (tolerant
-/// reader); missing fields fall back to the defaults above.
+/// A declared artifact store (`"version": 2`): a project-relative directory
+/// whose direct children (benchmark runs, log batches) reap may delete under
+/// `retention`. Parsed strictly -- an unknown field here is an error, because
+/// a typo'd protection must not silently vanish from destructive policy.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Store {
+  pub path: String,
+  #[serde(default = "default_unit")]
+  pub unit: String,
+  pub retention: Retention,
+}
+
+/// Store retention. `keep_last` and `min_age_hours` are unconditional
+/// protections; `max_age_days` / `max_bytes` are the only deletion triggers,
+/// and at least one is required.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Retention {
+  pub keep_last: usize,
+  pub min_age_hours: f64,
+  pub max_age_days: Option<f64>,
+  pub max_bytes: Option<u64>,
+}
+
+impl Default for Retention {
+  fn default() -> Self {
+    Retention {
+      keep_last: 1,
+      min_age_hours: 24.0,
+      max_age_days: None,
+      max_bytes: None,
+    }
+  }
+}
+
+/// The on-disk shape of `.reap.json`. Unknown top-level fields are ignored
+/// (tolerant reader, v1 compat); the destructive `stores` subtree is strict.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 struct ManifestFile {
@@ -66,6 +102,7 @@ struct ManifestFile {
   target: String,
   keep: Keep,
   policy: Policy,
+  stores: Vec<Store>,
 }
 
 impl Default for ManifestFile {
@@ -75,6 +112,7 @@ impl Default for ManifestFile {
       target: "target".to_string(),
       keep: Keep::default(),
       policy: Policy::default(),
+      stores: vec![],
     }
   }
 }
@@ -86,6 +124,7 @@ pub struct Manifest {
   pub target: String,
   pub keep: Keep,
   pub policy: Policy,
+  pub stores: Vec<Store>,
   pub has_file: bool,
 }
 
@@ -120,6 +159,23 @@ pub fn load_manifest(project_dir: &Path) -> Result<Manifest, ManifestError> {
   } else {
     ManifestFile::default()
   };
+  if file.version > 2 {
+    return Err(ManifestError(format!(
+      "{}: unsupported version {} (this reap understands 1 and 2)",
+      path.display(),
+      file.version
+    )));
+  }
+  if !file.stores.is_empty() {
+    if file.version < 2 {
+      return Err(ManifestError(format!(
+        "{}: \"stores\" requires \"version\": 2",
+        path.display()
+      )));
+    }
+    validate_stores(&file.stores, &file.target)
+      .map_err(|e| ManifestError(format!("{}: {}", path.display(), e)))?;
+  }
   let mut policy = file.policy;
   policy.keep_recent = policy.keep_recent.max(1);
   if policy.min_age_minutes.is_nan() || policy.min_age_minutes < 0.0 {
@@ -130,8 +186,73 @@ pub fn load_manifest(project_dir: &Path) -> Result<Manifest, ManifestError> {
     target: file.target,
     keep: file.keep,
     policy,
+    stores: file.stores,
     has_file,
   })
+}
+
+/// Static validation of store declarations (destructive policy fails closed):
+/// exact project-relative paths, no globs or `..`, no overlap with each other
+/// or with the target dir, and at least one retention trigger.
+fn validate_stores(stores: &[Store], target: &str) -> Result<(), String> {
+  let mut seen: Vec<PathBuf> = Vec::new();
+  for s in stores {
+    let raw = s.path.trim_matches('/');
+    if raw.is_empty() {
+      return Err("store path is empty".to_string());
+    }
+    if s.path.starts_with('/') {
+      return Err(format!("store path {:?} must be project-relative", s.path));
+    }
+    if s.path.contains('*') || s.path.contains('?') || s.path.contains('[') {
+      return Err(format!("store path {:?} must be exact (no globs)", s.path));
+    }
+    let p = PathBuf::from(raw);
+    if p.components().any(|c| !matches!(c, Component::Normal(_))) {
+      return Err(format!(
+        "store path {:?} must not contain '.' or '..'",
+        s.path
+      ));
+    }
+    if s.unit != "children" {
+      return Err(format!(
+        "store {:?}: unsupported unit {:?} (only \"children\")",
+        s.path, s.unit
+      ));
+    }
+    let r = &s.retention;
+    if r.max_age_days.is_none() && r.max_bytes.is_none() {
+      return Err(format!(
+        "store {:?}: retention needs max_age_days and/or max_bytes",
+        s.path
+      ));
+    }
+    if r.min_age_hours.is_nan() || r.min_age_hours < 0.0 {
+      return Err(format!("store {:?}: bad min_age_hours", s.path));
+    }
+    if matches!(r.max_age_days, Some(d) if d.is_nan() || d < 0.0) {
+      return Err(format!("store {:?}: bad max_age_days", s.path));
+    }
+    let t = Path::new(target);
+    if !t.is_absolute() && (p.starts_with(t) || t.starts_with(&p)) {
+      return Err(format!("store path {:?} overlaps the target dir", s.path));
+    }
+    for prev in &seen {
+      if p.starts_with(prev) || prev.starts_with(&p) {
+        return Err(format!(
+          "store paths {:?} and {:?} overlap",
+          prev.display(),
+          p.display()
+        ));
+      }
+    }
+    seen.push(p);
+  }
+  Ok(())
+}
+
+fn default_unit() -> String {
+  "children".to_string()
 }
 
 /// Walk up from `start` to the nearest dir with a `.reap.json` or `Cargo.toml`.
@@ -142,5 +263,76 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
       return Some(cur);
     }
     cur = cur.parent()?.to_path_buf();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  static N: AtomicUsize = AtomicUsize::new(0);
+
+  fn write_manifest(json: &str) -> PathBuf {
+    let n = N.fetch_add(1, Ordering::SeqCst);
+    let d = std::env::temp_dir().join(format!("reap-man-{}-{}", std::process::id(), n));
+    fs::create_dir_all(&d).unwrap();
+    fs::write(d.join(MANIFEST_NAME), json).unwrap();
+    d
+  }
+
+  #[test]
+  fn stores_parse_and_version_gate() {
+    let ok = write_manifest(
+      r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":3,"max_age_days":30}}]}"#,
+    );
+    let m = load_manifest(&ok).unwrap();
+    assert_eq!(m.stores.len(), 1);
+    assert_eq!(m.stores[0].retention.keep_last, 3);
+    assert_eq!(m.stores[0].unit, "children");
+    let _ = fs::remove_dir_all(&ok);
+
+    for (bad, why) in [
+      (
+        r#"{"stores":[{"path":"x","retention":{"max_age_days":1}}]}"#,
+        "stores without version 2",
+      ),
+      (r#"{"version":3}"#, "unknown future version"),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"keep_lastt":3,"max_age_days":1}}]}"#,
+        "unknown retention field",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"keep_last":3}}]}"#,
+        "retention without a trigger",
+      ),
+    ] {
+      let d = write_manifest(bad);
+      assert!(load_manifest(&d).is_err(), "must reject: {}", why);
+      let _ = fs::remove_dir_all(&d);
+    }
+  }
+
+  #[test]
+  fn store_path_safety() {
+    for bad in [
+      r#"{"version":2,"stores":[{"path":"/abs","retention":{"max_age_days":1}}]}"#,
+      r#"{"version":2,"stores":[{"path":"../up","retention":{"max_age_days":1}}]}"#,
+      r#"{"version":2,"stores":[{"path":"a/*","retention":{"max_age_days":1}}]}"#,
+      r#"{"version":2,"stores":[{"path":"target/logs","retention":{"max_age_days":1}}]}"#,
+      r#"{"version":2,"stores":[{"path":"a","retention":{"max_age_days":1}},{"path":"a/b","retention":{"max_age_days":1}}]}"#,
+      r#"{"version":2,"stores":[{"path":"x","unit":"tree","retention":{"max_age_days":1}}]}"#,
+    ] {
+      let d = write_manifest(bad);
+      assert!(load_manifest(&d).is_err(), "must reject: {}", bad);
+      let _ = fs::remove_dir_all(&d);
+    }
+
+    // v1 manifests keep working and stay tolerant of unknown top-level fields.
+    let v1 = write_manifest(r#"{"keep":{"paths":["prebuilt/"]},"future_field":1}"#);
+    let m = load_manifest(&v1).unwrap();
+    assert!(m.stores.is_empty());
+    assert_eq!(m.keep.paths, vec!["prebuilt/"]);
+    let _ = fs::remove_dir_all(&v1);
   }
 }

@@ -2,7 +2,7 @@
 name = "reap"
 version = "0.1.0"
 edition = "2021"
-description = "Safe, per-project reclamation of Cargo build artifacts"
+description = "Reclaims superseded Cargo build artifacts and retires declared temporary checkouts"
 license = "MIT"
 
 [[bin]]

@@ -2,131 +2,157 @@
 name: reap
 description: >-
   Use when a machine is low on disk or you're asked to reclaim space from Cargo
-  target/ trees, OR when a Rust project vendors something non-regenerable into
-  target/ that a pruner must be told to keep. `reap` is a global CLI that
-  auto-discovers every cargo target dir (by its CACHEDIR.TAG marker) under
-  configured roots and safely deletes regenerable build output, keeping what the
-  current build links. To reclaim: `reap sweep` then `reap sweep --apply` — no
-  registration, no per-project setup. Safe to run mid-build. A project only needs
-  a `.reap.json` for a genuine exception; most need none. If `reap` is missing,
-  install it with `cargo install --git https://github.com/spence/reap`.
+  target/ trees; BEFORE creating a temporary checkout, worktree, benchmark
+  clone, or cross-machine project copy (lease it at creation, even when the
+  user didn't mention cleanup); when a project dir accumulates output run after
+  run (declare a reap store); when deciding whether old copies or quarantine
+  entries are still needed (list by owner, ask the owner); or when a Rust
+  project vendors something non-regenerable into target/. `reap` deletes only
+  what a marker, manifest, or lease proves disposable: `reap sweep --apply`
+  compacts cargo targets, `reap stores --apply` cleans declared stores,
+  `reap lease`/`reap retire` move expired temp dirs into a recoverable
+  quarantine, `reap purge` empties it after a grace period. If missing:
+  `cargo install --git https://github.com/spence/reap`.
 ---
 
-# reap — safe, auto-discovering reclamation of Cargo build artifacts
+# reap — evidence-driven disk reclamation
 
-`reap` is a global Rust CLI (`~/.cargo/bin/reap`; source + this skill live in the
-repo `github.com/spence/reap`, checked out at `~/src/reap`). It reclaims disk from
-Rust `target/` trees under one hard invariant:
+`reap` is a global Rust CLI (`~/.cargo/bin/reap`; source + this skill live in
+the repo `github.com/spence/reap`, checked out at `~/src/reap`). One rule
+governs everything it does:
 
-> **Run it anytime — even while a project is building or running — and nothing
-> of value is lost; everything with no value anymore is removed.**
+> **Age never grants permission to delete. Deletion requires standing evidence
+> of non-value — a cargo cache marker, a declared store, or a lease — and age
+> only delays it.** Every command is a dry-run until `--apply`.
 
-It discovers target dirs automatically (no registry) and cleans each with safe
-global-default policy.
-
-**If `reap` is not on PATH**, install it globally straight from GitHub (no
-crates.io involved):
-
-```bash
-cargo install --git https://github.com/spence/reap
-```
-
-## 1. Reclaim disk (the common job)
+## 1. Reclaim cargo build output (the common job)
 
 ```bash
 reap                       # bare == DRY-RUN sweep of every discovered target dir
-reap sweep --apply         # actually reclaim across all of them
-reap clean <dir>           # reclaim one project dir or target dir (implies apply)
-reap plan  <dir>           # dry-run one
-reap list                  # list discovered target dirs
+reap sweep --apply         # reclaim across all of them
+reap clean <dir>           # one project or target dir (implies apply)
+reap plan  <dir>           # dry-run one;  reap list  shows what's discovered
 ```
 
-Discovery walks the configured roots (default `~/src`) for cargo's `CACHEDIR.TAG`
-marker; it needs no registration and self-limits to dirs that actually have build
-output. Add `--quick` to skip byte-measurement (faster on a nearly-full disk; use
-`df` before/after for the freed total), `--verbose` to list paths. Tune policy
-per run: `--keep-recent N`, `--stale-debug DAYS`, `--no-incremental`,
-`--min-age-minutes M`.
+Discovery walks configured roots (default `~/src`) for cargo's `CACHEDIR.TAG`
+marker; no registration. Add `--quick` to skip sizing on a critically full
+disk; tune per run with `--keep-recent N`, `--stale-debug DAYS`,
+`--min-age-minutes M`, `--no-incremental`. The 10-minute min-age brake makes
+overlap with a running build unlikely, but it is not a lock — prefer applying
+when no build is writing. Worst case: cargo recompiles a crate.
 
-**Authorization (owner, standing):** any agent may run `reap --apply`
-autonomously to recover from low disk space, then continue its task — no dry-run
-or permission prompt required first. This is a narrow, owner-granted exception
-for this verified-safe tool.
+## 2. Temporary checkouts: lease at creation, retire when expired
 
-## 2. Declare an exception — only when a project actually has one
+Worktrees, benchmark clones, cross-machine copies, scratch experiments —
+declare them disposable **the moment you create them**, while intent is fresh:
 
-**Do NOT scaffold a `.reap.json` in every project.** Structural containment +
-the min-age guard protect everything automatically, so the vast majority of Rust
-projects need no manifest and are cleaned correctly with zero config. A
-`.reap.json`'s presence is meaningful signal that a project is unusual.
+```bash
+reap lease add <dir> --ttl 48h --scratch --owner <agent/session> --purpose "..."
+reap lease renew <dir>          # still using it
+reap lease release <dir>        # became permanent: drop lease, keep directory
+reap lease list
+```
 
-Add one **only** when a project has something reap cannot detect:
+- `--scratch` = disposable even if dirty/unpushed. Without it, retirement
+  requires clean + fully pushed + no stashes (recoverable elsewhere).
+- `--owner` (or `$REAP_OWNER`): name the creating agent/session. When you copy
+  a project to ANOTHER machine (e.g. for benchmarking), lease the copy on that
+  machine with yourself as owner — whoever later sweeps that machine sees who
+  to ask.
 
-- It **vendors/prebuilds a non-regenerable blob *inside* a prunable subdir**
-  (`<profile>/{deps,.fingerprint,build,incremental}`) — a downloaded static lib,
-  a generated corpus placed there. Declare it in `keep.paths`/`keep.names`. (If
-  it lives *elsewhere* under `target/` — a sibling dir, a custom output dir — it's
-  already safe by structural containment; you don't need to declare it.)
-- It wants a **project-specific policy** that shouldn't be a global default.
+When leases expire:
 
-If you add such a thing mid-project, update the project's `.reap.json` so an
-outside agent can `reap clean` at any time and lose nothing. Validate with
-`reap check`.
+```bash
+reap retire                     # dry-run: what would move, and why/why not
+reap retire --apply             # move expired leased dirs into the quarantine
+reap retire <dir> --now --apply # finished early with a specific one
+```
 
-## How it stays safe (three guards)
+Retire re-validates everything first: identity marker, expiry, a 10-minute
+quiet brake, no nested mounts, cwd outside the tree, no nested lease, and git
+recoverability for non-scratch. Worktrees get `git worktree prune` on their
+main repo. Nothing is deleted — the directory MOVES to the quarantine
+(per-machine location, can be an external drive) and stays restorable:
 
-1. **Structural containment** — reap only ever deletes inside
-   `<profile>/{deps,.fingerprint,build,incremental}` for `debug`/`release` (and
-   one level of `target/<name>/<profile>/`). Final binaries, sibling trees (e.g.
-   a vendored prebuilt lib), anything else under `target/` are never enumerated.
-2. **Min-age — a brake, never a trigger.** Age never *causes* a deletion. What
-   makes something deletable is being a superseded older-duplicate hash, an
-   `incremental/` cache, or an opt-in stale-profile wipe. Min-age then *removes*
-   from that candidate set anything modified within `min_age_minutes` (default
-   10), so an in-flight build never has files pulled from under it.
-3. **Manifest protections** — declared `keep.paths`/`keep.names`, plus an
-   abort-assertion that aborts the whole run with NO changes if a protected path
-   ever slips into a candidate set.
+```bash
+reap quarantine                  # list entries; --owner <name> filters
+reap quarantine restore <id>
+reap purge                       # dry-run: entries past the grace period
+reap purge --apply               # delete those (self-refuses if auto_purge=false)
+reap purge --owner <name> --apply  # explicit selectors bypass auto_purge
+```
 
-Worst case if a prune is wrong: Cargo recompiles one crate. Never a full rebuild,
-never corruption — a missing dep is self-healing.
+## 3. Accumulating outputs: declare a store
 
-## Exception manifest (`.reap.json`) reference
-
-Every field is optional; precedence is **CLI flag > manifest > built-in default**.
+When a project dir fills with run-after-run output (bench results, logs),
+declare it in `.reap.json` (version 2) and arm it once:
 
 ```json
 {
-  "keep": {
-    "paths": ["prebuilt/", "vendor/"],
-    "names": ["libvendored*.a"]
-  },
-  "policy": { "stale_profile_days": { "debug": 21 } }
+  "version": 2,
+  "stores": [{
+    "path": "bench/results",
+    "retention": { "keep_last": 10, "min_age_hours": 24,
+                   "max_age_days": 30, "max_bytes": 10737418240 }
+  }]
 }
 ```
 
-- `keep.paths` — slash-bounded path fragments/globs never deleted. `"foo/"`
-  protects the *directory* `.../foo/...`, not a crate *named* `libfoo-<hash>.rlib`
-  in `deps/` (that compiled crate is regenerable and prunable).
-- `keep.names` — basename globs (e.g. a prebuilt `*.a`).
-- `keep.profiles` — the profile preserved as fallback when a sibling is
-  stale-cleaned (default `["release"]`).
-- `policy` — `keep_recent`, `prune_incremental`, `prune_build_scripts`,
-  `min_age_minutes`, `stale_profile_days`; all have safe defaults.
+```bash
+reap stores --init [dir]   # create + arm (writes the REAP-STORE.TAG marker)
+reap stores [--apply]      # all projects under the roots, or one dir
+```
+
+Units are direct children only. `keep_last` + `min_age_hours` are always
+protected; `max_age_days`/`max_bytes` are the only triggers (≥1 required).
+Unknown fields under `stores` are hard errors (a typo'd protection must not
+vanish silently). Unarmed stores are reported but never applied.
+
+## 4. Exception manifest (v1, unchanged)
+
+Most projects need NO `.reap.json`. Add `keep.paths`/`keep.names` only when
+something non-regenerable lives inside `<profile>/{deps,.fingerprint,build,incremental}`,
+or for a project-specific policy. Validate with `reap check`.
+
+## Survey what exists
+
+```bash
+reap inventory             # read-only: size, idle, git state, lease status
+```
+
+Suggestions only — unregistered directories are never deletion candidates.
+
+## Authorization (owner, standing)
+
+Any agent may run these autonomously, no prompt or prior dry-run needed:
+
+- `reap sweep --apply` / `reap clean` — cargo artifacts, whenever disk is low;
+- `reap stores --apply` — declared **and armed** stores only;
+- `reap retire --apply` — **expired** leases only;
+- `reap lease add --scratch` on directories the agent itself creates;
+- bare `reap purge --apply` (auto-selection) — during low-disk recovery only;
+  it self-refuses on machines configured `auto_purge: false`.
+
+NOT standing — ask the user, or the recorded owner, first:
+
+- `reap purge --all` / `--owner` / `--id`;
+- `reap retire --now`;
+- leasing a directory the agent did not create.
 
 ## Config (`~/.config/reap/config.json`)
 
-Optional; absent → defaults (`roots = ["~/src"]`). Set discovery roots / excludes:
-
 ```json
-{ "roots": ["~/src"], "exclude": ["*/vendor/*"] }
+{ "roots": ["~/src"], "exclude": [],
+  "quarantine": { "dir": null, "auto_purge": true, "purge_after_days": 30 } }
 ```
 
-`reap config --init` writes the default; `reap config` prints the effective one.
-Cargo's own `~/.cargo/{registry,git}` caches (they carry the marker too), `.git`,
-and `node_modules` are always skipped.
+`quarantine.dir: null` → `~/.local/state/reap/quarantine`; point it at a big
+external drive per machine, and set `auto_purge: false` there to make the
+quarantine keep-forever (only explicit selectors purge). Machine state
+(leases, quarantine index) lives in `~/.local/state/reap/`. `reap config`
+prints effective values; `reap config --init` writes the default file.
 
 ---
 
-reap is a Rust binary (source in `~/src/reap`). Self-test after changes:
-`cargo test` in `~/src/reap`.
+Source in `~/src/reap`. Self-test after changes: `cargo test`; `install.sh`
+installs the binary and homes this skill.

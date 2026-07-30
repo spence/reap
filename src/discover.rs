@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::manifest::MANIFEST_NAME;
 use crate::plan::{fnmatch, CARGO_CACHEDIR_SIGNATURE};
 
 /// Dir names never descended into (cargo's own caches carry `CACHEDIR.TAG` too).
@@ -100,6 +101,61 @@ pub fn discover_targets(roots: &[PathBuf], exclude: &[String]) -> DiscoverResult
   }
   result.targets.sort();
   result
+}
+
+/// Walk `roots` for project dirs carrying a `.reap.json` (same skip/symlink
+/// rules as target discovery). Descent is pruned at cargo target dirs --
+/// manifests never live inside build output.
+pub fn discover_manifests(roots: &[PathBuf], exclude: &[String]) -> (Vec<PathBuf>, Vec<String>) {
+  let mut found = Vec::new();
+  let mut errors = Vec::new();
+  let mut seen: HashSet<PathBuf> = HashSet::new();
+  let mut stack: Vec<PathBuf> = roots.iter().filter(|r| r.is_dir()).cloned().collect();
+  while let Some(dir) = stack.pop() {
+    let rd = match fs::read_dir(&dir) {
+      Ok(rd) => rd,
+      Err(e) => {
+        errors.push(format!("{}: {}", dir.display(), e));
+        continue;
+      }
+    };
+    let mut tag_present = false;
+    let mut manifest_here = false;
+    let mut children: Vec<(PathBuf, String)> = Vec::new();
+    for entry in rd.flatten() {
+      let ft = match entry.file_type() {
+        Ok(f) => f,
+        Err(_) => continue,
+      };
+      if ft.is_dir() {
+        children.push((
+          entry.path(),
+          entry.file_name().to_string_lossy().into_owned(),
+        ));
+      } else if entry.file_name().to_str() == Some("CACHEDIR.TAG") {
+        tag_present = true;
+      } else if entry.file_name().to_str() == Some(MANIFEST_NAME) {
+        manifest_here = true;
+      }
+    }
+    if tag_present && is_cargo_target_dir(&dir) {
+      continue;
+    }
+    if manifest_here {
+      let canon = fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+      if seen.insert(canon.clone()) {
+        found.push(canon);
+      }
+    }
+    for (p, name) in children {
+      if SKIP_DIRS.contains(&name.as_str()) || is_excluded(&p, &name, exclude) {
+        continue;
+      }
+      stack.push(p);
+    }
+  }
+  found.sort();
+  (found, errors)
 }
 
 fn is_excluded(path: &Path, name: &str, exclude: &[String]) -> bool {
@@ -219,6 +275,23 @@ mod tests {
     let disc = discover_targets(&[root.clone()], &["*/vendor/*".to_string()]);
     assert!(has(&disc, "keep"), "non-excluded kept");
     assert!(!has(&disc, "vendor"), "excluded path suppressed");
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn manifest_discovery() {
+    let root = tmp();
+    fs::create_dir_all(root.join("projA")).unwrap();
+    fs::write(root.join("projA/.reap.json"), "{}").unwrap();
+    make_target(&root.join("projA/target"), true);
+    fs::write(root.join("projA/target/.reap.json"), "{}").unwrap();
+    fs::create_dir_all(root.join("node_modules/x")).unwrap();
+    fs::write(root.join("node_modules/x/.reap.json"), "{}").unwrap();
+    fs::create_dir_all(root.join("plain")).unwrap();
+
+    let (found, _errs) = discover_manifests(&[root.clone()], &[]);
+    assert_eq!(found.len(), 1, "one project manifest");
+    assert!(found[0].ends_with("projA"));
     let _ = fs::remove_dir_all(&root);
   }
 
