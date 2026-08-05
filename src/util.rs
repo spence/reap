@@ -26,11 +26,14 @@ pub enum GitError {
 }
 
 /// Byte/entry counts, newest non-`.git` mtime, and mount uniformity for a
-/// tree. Symlinks are counted as links, never followed.
+/// tree. Symlinks are counted as links, never followed. Special files
+/// (sockets, fifos, devices) are counted separately: they have no copyable
+/// content and are skipped by [`copy_tree`].
 pub struct TreeStats {
   pub bytes: u64,
   pub files: u64,
   pub links: u64,
+  pub special: u64,
   pub newest_mtime: f64,
   /// First path found on a different device than the root (a nested mount).
   pub foreign_dev: Option<PathBuf>,
@@ -45,6 +48,7 @@ pub fn tree_stats(root: &Path, skip_root_names: &[&str]) -> TreeStats {
     bytes: 0,
     files: 0,
     links: 0,
+    special: 0,
     newest_mtime: 0.0,
     foreign_dev: None,
   };
@@ -90,12 +94,14 @@ pub fn tree_stats(root: &Path, skip_root_names: &[&str]) -> TreeStats {
           st.newest_mtime = mt;
         }
         stack.push((entry.path(), in_git));
-      } else {
+      } else if ft.is_file() {
         st.files += 1;
         st.bytes += meta.len();
         if !under_git && mt > st.newest_mtime {
           st.newest_mtime = mt;
         }
+      } else {
+        st.special += 1;
       }
     }
   }
@@ -103,7 +109,9 @@ pub fn tree_stats(root: &Path, skip_root_names: &[&str]) -> TreeStats {
 }
 
 /// Copy `src` into freshly-created `dst`. Symlinks are recreated verbatim,
-/// never followed. Returns (files, bytes, links) for move verification.
+/// never followed; special files (sockets, fifos, devices) are skipped --
+/// they have no copyable content, and a dead socket is worthless without its
+/// listener. Returns (files, bytes, links) for move verification.
 pub fn copy_tree(src: &Path, dst: &Path) -> io::Result<(u64, u64, u64)> {
   let (mut files, mut bytes, mut links) = (0u64, 0u64, 0u64);
   fs::create_dir_all(dst)?;
@@ -126,7 +134,7 @@ pub fn copy_tree(src: &Path, dst: &Path) -> io::Result<(u64, u64, u64)> {
           let _ = fs::set_permissions(&to, m.permissions());
         }
         stack.push((entry.path(), to));
-      } else {
+      } else if ft.is_file() {
         bytes += fs::copy(entry.path(), &to)?;
         files += 1;
       }
@@ -358,11 +366,13 @@ mod tests {
     symlink("a/one.txt", src.join("ln")).unwrap();
     fs::create_dir_all(src.join(".git/objects")).unwrap();
     fs::write(src.join(".git/objects/x"), b"gitgit").unwrap();
+    let _sock = std::os::unix::net::UnixListener::bind(src.join("a/pg.sock")).unwrap();
 
     let st = tree_stats(&src, &[".reap-lease"]);
     assert_eq!(st.files, 3, "two files + git object; marker skipped");
     assert_eq!(st.bytes, 5 + 6 + 6);
     assert_eq!(st.links, 1);
+    assert_eq!(st.special, 1, "socket counted as special, not file");
     assert!(st.foreign_dev.is_none());
 
     let dst = root.join("dst");
@@ -372,6 +382,10 @@ mod tests {
     assert_eq!(links, 1);
     assert_eq!(fs::read(dst.join("a/b/two.txt")).unwrap(), b"world!");
     assert!(fs::symlink_metadata(dst.join("ln")).unwrap().is_symlink());
+    assert!(
+      fs::symlink_metadata(dst.join("a/pg.sock")).is_err(),
+      "socket skipped by copy (no copyable content)"
+    );
 
     let moved_to = root.join("moved");
     match move_dir(&dst, &moved_to).unwrap() {

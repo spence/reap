@@ -251,8 +251,11 @@ pub fn execute_retire(
   let slot = entries_dir(qdir).join(&lease.id);
   fs::create_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
   let dest = slot.join(&name);
-  let moved = move_dir(&src, &dest)
-    .map_err(|e| format!("move {} -> {}: {}", src.display(), dest.display(), e))?;
+  let moved = move_dir(&src, &dest).map_err(|e| {
+    // Failed before anything landed in the slot; don't leave an empty orphan.
+    let _ = fs::remove_dir(&slot);
+    format!("move {} -> {}: {}", src.display(), dest.display(), e)
+  })?;
   let _ = fs::remove_file(dest.join(LEASE_MARKER));
   if let Some(main) = main_repo {
     // The moved dir was a linked worktree; clear its stale admin record.
