@@ -6,12 +6,12 @@
 //! projects need no manifest at all -- structural containment + the min-age guard
 //! do the protecting either way. reap never scaffolds one; its presence is signal.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 pub const MANIFEST_NAME: &str = ".reap.json";
 
@@ -68,6 +68,16 @@ pub struct Store {
   #[serde(default = "default_unit")]
   pub unit: String,
   pub retention: Retention,
+  #[serde(default, deserialize_with = "declared_series")]
+  pub series: Option<Vec<StoreSeries>>,
+}
+
+/// A named sequence of direct store children selected by one `*` in a basename.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoreSeries {
+  pub name: String,
+  pub pattern: String,
 }
 
 /// Store retention. `keep_last` and `min_age_hours` are unconditional
@@ -227,11 +237,41 @@ fn validate_stores(stores: &[Store], target: &str) -> Result<(), String> {
         s.path
       ));
     }
-    if r.min_age_hours.is_nan() || r.min_age_hours < 0.0 {
+    if !r.min_age_hours.is_finite() || r.min_age_hours < 0.0 {
       return Err(format!("store {:?}: bad min_age_hours", s.path));
     }
-    if matches!(r.max_age_days, Some(d) if d.is_nan() || d < 0.0) {
+    if matches!(r.max_age_days, Some(d) if !d.is_finite() || d < 0.0) {
       return Err(format!("store {:?}: bad max_age_days", s.path));
+    }
+    let mut series_names = HashSet::new();
+    let mut series_patterns = HashSet::new();
+    if matches!(&s.series, Some(series) if series.is_empty()) {
+      return Err(format!(
+        "store {:?}: declared series cannot be empty",
+        s.path
+      ));
+    }
+    for series in s.series.iter().flatten() {
+      if series.name.is_empty()
+        || !series
+          .name
+          .bytes()
+          .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        || !series_names.insert(&series.name)
+      {
+        return Err(format!("store {:?}: bad or duplicate series name", s.path));
+      }
+      let parts: Vec<&str> = series.pattern.split('*').collect();
+      if parts.len() != 2
+        || (parts[0].is_empty() && parts[1].is_empty())
+        || series.pattern.contains(['/', '\\', '?', '[', ']'])
+        || !series_patterns.insert(&series.pattern)
+      {
+        return Err(format!(
+          "store {:?}: bad or duplicate series pattern {:?} (use one '*' in a basename)",
+          s.path, series.pattern
+        ));
+      }
     }
     let t = Path::new(target);
     if !t.is_absolute() && (p.starts_with(t) || t.starts_with(&p)) {
@@ -253,6 +293,13 @@ fn validate_stores(stores: &[Store], target: &str) -> Result<(), String> {
 
 fn default_unit() -> String {
   "children".to_string()
+}
+
+fn declared_series<'de, D>(deserializer: D) -> Result<Option<Vec<StoreSeries>>, D::Error>
+where
+  D: Deserializer<'de>,
+{
+  Vec::<StoreSeries>::deserialize(deserializer).map(Some)
 }
 
 /// Walk up from `start` to the nearest dir with a `.reap.json` or `Cargo.toml`.
@@ -290,7 +337,16 @@ mod tests {
     assert_eq!(m.stores.len(), 1);
     assert_eq!(m.stores[0].retention.keep_last, 3);
     assert_eq!(m.stores[0].unit, "children");
+    assert!(m.stores[0].series.is_none(), "v2 default remains global");
     let _ = fs::remove_dir_all(&ok);
+
+    let named = write_manifest(
+      r#"{"version":2,"stores":[{"path":"bench/results","retention":{"max_age_days":30},"series":[{"name":"run","pattern":"run.*"}]}]}"#,
+    );
+    let m = load_manifest(&named).unwrap();
+    assert_eq!(m.stores[0].series.as_ref().unwrap()[0].name, "run");
+    assert_eq!(m.stores[0].series.as_ref().unwrap()[0].pattern, "run.*");
+    let _ = fs::remove_dir_all(named);
 
     for (bad, why) in [
       (
@@ -305,6 +361,34 @@ mod tests {
       (
         r#"{"version":2,"stores":[{"path":"x","retention":{"keep_last":3}}]}"#,
         "retention without a trigger",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":[{"name":"run","pattern":"run.?"}]}]}"#,
+        "unknown pattern syntax",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":[{"name":"run","pattern":"run.**"}]}]}"#,
+        "multiple wildcard tokens",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":[{"name":"run","pattern":"*"}]}]}"#,
+        "unbounded wildcard",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":[]}]}"#,
+        "explicit empty series",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":null}]}"#,
+        "explicit null series",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":[{"name":"run","pattern":"run.*"},{"name":"run","pattern":"other.*"}]}]}"#,
+        "duplicate series name",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":[{"name":"run","pattern":"run.*","keep_last":3}]}]}"#,
+        "unknown series field",
       ),
     ] {
       let d = write_manifest(bad);

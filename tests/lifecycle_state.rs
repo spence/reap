@@ -459,6 +459,44 @@ fn stores_cli_removes_only_a_still_eligible_older_run() {
 }
 
 #[test]
+fn stores_cli_keeps_the_newest_unit_of_each_declared_series() {
+  let root = TestRoot::new();
+  let project = root.project("series-project");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":1,"min_age_hours":0,"max_age_days":30},"series":[{"name":"run","pattern":"run.*"},{"name":"temporary","pattern":"temporary.*"}]}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let store = project.join("bench/results");
+  for (name, days) in [
+    ("run.old", 50),
+    ("run.new", 2),
+    ("temporary.old", 60),
+    ("temporary.latest", 40),
+    ("unclaimed", 70),
+  ] {
+    let path = store.join(name);
+    fs::write(&path, name).unwrap();
+    let age = FileTime::from_unix_time(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - days * 86400,
+      0,
+    );
+    set_file_mtime(&path, age).unwrap();
+  }
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(!store.join("run.old").exists());
+  assert!(!store.join("temporary.old").exists());
+  for name in ["run.new", "temporary.latest", "unclaimed", "REAP-STORE.TAG"] {
+    assert!(store.join(name).is_file(), "{name} survives");
+  }
+}
+
+#[test]
 fn active_cargo_build_keeps_an_old_cleanup_candidate() {
   let root = TestRoot::new();
   let project = root.project("active-cargo");

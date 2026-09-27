@@ -420,7 +420,11 @@ in `.reap.json` and let `reap stores` enforce retention:
         "min_age_hours": 24,
         "max_age_days": 30,
         "max_bytes": 10737418240
-      }
+      },
+      "series": [
+        { "name": "run", "pattern": "run.*" },
+        { "name": "full", "pattern": "full.*" }
+      ]
     }
   ]
 }
@@ -429,7 +433,15 @@ in `.reap.json` and let `reap stores` enforce retention:
 Semantics:
 
 * units are the store's direct children (one directory or file per run);
-* `keep_last` and `min_age_hours` are unconditional protections;
+* optional `series` groups direct children by basename. Each pattern has
+  exactly one `*` matching a nonempty span, some literal text, and no other
+  glob syntax. A child must match at most one series; unmatched children are
+  protected and excluded from the `max_bytes` budget. Ambiguous matches or
+  malformed declarations stop the store without deleting anything;
+* `keep_last` protects the newest units in **each** declared series;
+  `min_age_hours` protects every unit regardless of series. Without `series`,
+  version 2 stores retain their existing single, store-wide `keep_last` and
+  `max_bytes` behavior;
 * `max_age_days` and `max_bytes` are the only deletion triggers, and at least
   one must be present; size trimming removes the oldest children first;
 * stores parse strictly: `"version": 2` is required, and an unknown field

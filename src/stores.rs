@@ -18,7 +18,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
-use crate::manifest::{load_manifest, Manifest, Store};
+use crate::manifest::{load_manifest, Manifest, Store, StoreSeries};
 use crate::plan::{human, mtime_secs, now_secs};
 
 pub const STORE_MARKER: &str = "REAP-STORE.TAG";
@@ -346,17 +346,27 @@ fn plan_one(store: &Store, rel: String, dir: PathBuf, now: f64) -> Result<StoreP
     mtime: f64,
     bytes: u64,
     eligible: bool,
+    series: Option<usize>,
     stamp: FileStamp,
     tree_fingerprint: Option<u64>,
   }
   let mut children: Vec<Child> = Vec::new();
   let mut notes = Vec::new();
+  let mut unmatched = 0usize;
   let rd = fs::read_dir(&dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
   for entry in rd {
     let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
-    let name = entry.file_name().to_string_lossy().into_owned();
+    let file_name = entry.file_name();
+    let name = file_name.to_string_lossy().into_owned();
     if name == STORE_MARKER {
       continue;
+    }
+    let series = match &store.series {
+      None => Some(0),
+      Some(declared) => match_series(file_name.to_str(), declared)?,
+    };
+    if series.is_none() {
+      unmatched += 1;
     }
     let meta =
       fs::symlink_metadata(entry.path()).map_err(|e| format!("{}: {e}", entry.path().display()))?;
@@ -391,19 +401,35 @@ fn plan_one(store: &Store, rel: String, dir: PathBuf, now: f64) -> Result<StoreP
       mtime,
       bytes,
       eligible,
+      series,
       stamp: FileStamp::from_meta(&meta),
       tree_fingerprint,
     });
+  }
+  if unmatched > 0 {
+    notes.push(format!(
+      "{unmatched} child(ren) match no declared series -- protected"
+    ));
   }
 
   // Newest first; the first keep_last stay unconditionally.
   children.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(Ordering::Equal));
   let r = &store.retention;
   let age_floor = now - r.min_age_hours * 3600.0;
+  let mut seen_per_series = vec![0usize; store.series.as_ref().map_or(1, Vec::len)];
   let excluded: Vec<bool> = children
     .iter()
-    .enumerate()
-    .map(|(i, c)| i < r.keep_last || c.mtime > age_floor || !c.eligible)
+    .map(|c| {
+      let keep_last = match c.series {
+        Some(series) => {
+          let keep = seen_per_series[series] < r.keep_last;
+          seen_per_series[series] += 1;
+          keep
+        }
+        None => true,
+      };
+      keep_last || c.mtime > age_floor || !c.eligible
+    })
     .collect();
 
   let total_bytes: u64 = children.iter().map(|c| c.bytes).sum();
@@ -420,7 +446,7 @@ fn plan_one(store: &Store, rel: String, dir: PathBuf, now: f64) -> Result<StoreP
     let mut live: u64 = children
       .iter()
       .enumerate()
-      .filter(|(i, _)| chosen[*i].is_none())
+      .filter(|(i, c)| chosen[*i].is_none() && c.series.is_some())
       .map(|(_, c)| c.bytes)
       .sum();
     // Oldest first among the remaining unprotected children.
@@ -468,6 +494,29 @@ fn plan_one(store: &Store, rel: String, dir: PathBuf, now: f64) -> Result<StoreP
     notes,
     authority,
   })
+}
+
+fn match_series(name: Option<&str>, series: &[StoreSeries]) -> Result<Option<usize>, String> {
+  let Some(name) = name else {
+    return Ok(None);
+  };
+  let mut matched = None;
+  for (index, declared) in series.iter().enumerate() {
+    let (prefix, suffix) = declared
+      .pattern
+      .split_once('*')
+      .ok_or_else(|| format!("invalid series pattern {:?}", declared.pattern))?;
+    if name.starts_with(prefix)
+      && name.ends_with(suffix)
+      && name.len() > prefix.len() + suffix.len()
+    {
+      if matched.is_some() {
+        return Err(format!("{name:?} matches more than one declared series"));
+      }
+      matched = Some(index);
+    }
+  }
+  Ok(matched)
 }
 
 /// Resolve a declared store to its canonical dir. `Ok(None)` when it does not
@@ -590,6 +639,7 @@ mod tests {
         path: "bench/results".to_string(),
         unit: "children".to_string(),
         retention,
+        series: None,
       }],
       has_file: true,
     }
@@ -719,6 +769,92 @@ mod tests {
       "still-over note when protections hold"
     );
     let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn named_series_keep_their_own_newest_run() {
+    let root = tmp();
+    let store = root.join("bench/results");
+    fs::create_dir_all(&store).unwrap();
+    write_marker(&store).unwrap();
+    let now = now_secs();
+    run_dir(&store, "run.old", now as i64 - 50 * DAY, 100);
+    run_dir(&store, "run.new", now as i64 - 2 * DAY, 100);
+    run_dir(&store, "temporary.old", now as i64 - 70 * DAY, 100);
+    run_dir(&store, "temporary.latest", now as i64 - 40 * DAY, 100);
+    run_dir(&store, "full.latest", now as i64 - 60 * DAY, 100);
+    run_dir(&store, "unclaimed", now as i64 - 80 * DAY, 100);
+    fs::write(
+      root.join(".reap.json"),
+      r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":1,"min_age_hours":0,"max_age_days":30},"series":[{"name":"run","pattern":"run.*"},{"name":"temporary","pattern":"temporary.*"},{"name":"full","pattern":"full.*"}]}]}"#,
+    )
+    .unwrap();
+    let manifest = load_manifest(&root).unwrap();
+    let plan = plan_stores(&manifest, now).unwrap().remove(0);
+    let names = cand_names(&plan);
+    assert_eq!(names, vec!["temporary.old", "run.old"]);
+    assert!(plan.notes.iter().any(|note| note.contains("1 child(ren)")));
+    let result = apply_store(&plan, &root);
+    assert_eq!(result.removed, 2);
+    assert!(result.errors.is_empty());
+    for name in ["run.new", "temporary.latest", "full.latest", "unclaimed"] {
+      assert!(store.join(name).is_dir(), "{name} survives");
+    }
+    let _ = fs::remove_dir_all(root);
+  }
+
+  #[test]
+  fn series_size_budget_excludes_unclaimed_children() {
+    let root = tmp();
+    let store = root.join("bench/results");
+    fs::create_dir_all(&store).unwrap();
+    write_marker(&store).unwrap();
+    let now = now_secs();
+    for (name, days, size) in [
+      ("run.old", 50, 100),
+      ("run.new", 2, 100),
+      ("temporary.old", 60, 100),
+      ("temporary.new", 3, 100),
+      ("unclaimed", 70, 1000),
+    ] {
+      run_dir(&store, name, now as i64 - days * DAY, size);
+    }
+    fs::write(
+      root.join(".reap.json"),
+      r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":1,"min_age_hours":0,"max_bytes":250},"series":[{"name":"run","pattern":"run.*"},{"name":"temporary","pattern":"temporary.*"}]}]}"#,
+    )
+    .unwrap();
+    let manifest = load_manifest(&root).unwrap();
+    let plan = plan_stores(&manifest, now).unwrap().remove(0);
+    assert_eq!(cand_names(&plan), vec!["temporary.old", "run.old"]);
+    assert!(!plan
+      .notes
+      .iter()
+      .any(|note| note.contains("over max_bytes")));
+    let result = apply_store(&plan, &root);
+    assert_eq!(result.removed, 2);
+    assert!(store.join("unclaimed/out.log").is_file());
+    assert!(store.join("run.new/out.log").is_file());
+    assert!(store.join("temporary.new/out.log").is_file());
+    let _ = fs::remove_dir_all(root);
+  }
+
+  #[test]
+  fn ambiguous_series_match_fails_the_whole_store_closed() {
+    let root = tmp();
+    let store = root.join("bench/results");
+    fs::create_dir_all(&store).unwrap();
+    write_marker(&store).unwrap();
+    run_dir(&store, "run.x.log", now_secs() as i64 - 50 * DAY, 100);
+    fs::write(
+      root.join(".reap.json"),
+      r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":0,"max_age_days":30},"series":[{"name":"run","pattern":"run.*"},{"name":"logs","pattern":"*.log"}]}]}"#,
+    )
+    .unwrap();
+    let manifest = load_manifest(&root).unwrap();
+    assert!(plan_stores(&manifest, now_secs()).is_err());
+    assert!(store.join("run.x.log/out.log").is_file());
+    let _ = fs::remove_dir_all(root);
   }
 
   #[test]

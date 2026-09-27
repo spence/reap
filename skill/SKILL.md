@@ -124,7 +124,9 @@ declare it in `.reap.json` (version 2) and arm it once:
   "stores": [{
     "path": "bench/results",
     "retention": { "keep_last": 10, "min_age_hours": 24,
-                   "max_age_days": 30, "max_bytes": 10737418240 }
+                   "max_age_days": 30, "max_bytes": 10737418240 },
+    "series": [{ "name": "run", "pattern": "run.*" },
+               { "name": "full", "pattern": "full.*" }]
   }]
 }
 ```
@@ -134,8 +136,13 @@ reap stores --init [dir]   # create + arm (writes the REAP-STORE.TAG marker)
 reap stores [--apply]      # all projects under the roots, or one dir
 ```
 
-Units are direct children only. `keep_last` + `min_age_hours` are always
-protected; `max_age_days`/`max_bytes` are the only triggers (≥1 required).
+Units are direct children only. Optional `series` matches basenames with one
+`*` standing for a nonempty span and at least one literal character; no other
+glob syntax is accepted. `keep_last` protects newest units **per series**;
+unmatched children stay protected and outside the `max_bytes` budget. Overlaps
+or malformed declarations fail closed. Without `series`, v2 stores retain the
+single global sequence. `min_age_hours` always protects;
+`max_age_days`/`max_bytes` are the only triggers (≥1 required).
 Unknown fields under `stores` are hard errors (a typo'd protection must not
 vanish silently). Unarmed stores are reported but never applied.
 `--apply` rechecks the manifest, armed marker, store path, retention, and each
