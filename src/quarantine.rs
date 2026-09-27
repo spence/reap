@@ -312,8 +312,8 @@ pub fn save_index(qdir: &Path, f: &IndexFile) -> io::Result<()> {
   write_json_atomic(&index_path(qdir), f)
 }
 
-/// Re-validate everything about a lease at retirement time. All checks run
-/// (not just the first failure) so a dry-run shows the full picture.
+/// Re-validate a lease at retirement time. Cheap refusal checks run before
+/// the tree walk; deep checks run only for a still-eligible lease.
 pub fn assess_retire(
   lease: &Lease,
   now: f64,
@@ -437,6 +437,10 @@ pub fn assess_retire_ignoring_dir_mtimes(
       .map(|o| format!("contains leased {} (release or retire it first)", o.path))
       .unwrap_or_default(),
   );
+
+  if !a.ok() {
+    return a;
+  }
 
   // One walk: activity brake, byte count, and mount uniformity together.
   let st = tree_stats_ignoring_dir_mtimes(&dir, &[LEASE_MARKER], ignored_dir_mtimes);

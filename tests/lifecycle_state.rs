@@ -2313,6 +2313,7 @@ fn active_nested_child_keeps_expired_parent_in_place() {
   let output = root.run(vec!["retire".to_string(), "--apply".to_string()]);
   assert!(!output.status.success());
   assert!(String::from_utf8_lossy(&output.stdout).contains("no-nested-lease"));
+  assert!(!String::from_utf8_lossy(&output.stdout).contains("quiet"));
   assert!(parent.join("payload").is_file());
   assert!(child.join("payload").is_file());
   assert!(!root.quarantine().join("index.json").exists());
@@ -2647,4 +2648,242 @@ fn lease_write_failure_after_retire_keeps_an_indexed_copy() {
     array(&root.quarantine().join("index.json"), "entries").len(),
     1
   );
+}
+
+fn maintenance_config(root: &TestRoot, scan: &Path) -> PathBuf {
+  fs::create_dir_all(root.quarantine()).unwrap();
+  let path = root.root.join("home/.config/reap/config.json");
+  fs::create_dir_all(path.parent().unwrap()).unwrap();
+  fs::write(
+    &path,
+    serde_json::to_vec(&json!({
+      "roots": [scan],
+      "quarantine": {"dir": root.quarantine(), "auto_purge": false}
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  path
+}
+
+#[test]
+fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
+  let root = TestRoot::new();
+  let project = root.project("project");
+  maintenance_config(&root, &project);
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"logs","retention":{"keep_last":1,"min_age_hours":0,"max_age_days":1}}]}"#,
+  )
+  .unwrap();
+  let logs = project.join("logs");
+  let old = logs.join("old-run");
+  let latest = logs.join("latest-run");
+  for dir in [&old, &latest] {
+    fs::create_dir_all(dir).unwrap();
+    fs::write(dir.join("output.log"), b"log").unwrap();
+  }
+  success(root.run(vec![
+    "stores".into(),
+    "--init".into(),
+    project.to_string_lossy().into_owned(),
+  ]));
+  let old_time = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 3 * 86400,
+    0,
+  );
+  set_file_mtime(old.join("output.log"), old_time).unwrap();
+  set_file_mtime(&old, old_time).unwrap();
+  let active = root.project("active-scratch");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "48h", "--scratch"],
+    &active,
+  )));
+  let unknown = root.project("unknown-old-dir");
+  set_file_mtime(&unknown, old_time).unwrap();
+
+  success(root.run(vec!["maintain".into()]));
+  assert!(old.join("output.log").is_file());
+  assert!(latest.join("output.log").is_file());
+  assert!(active.join("payload").is_file());
+  assert!(unknown.join("payload").is_file());
+  let receipt_path = root.state().join("maintenance-last.json");
+  let dry: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+  assert_eq!(dry["outcome"], "ok");
+  assert_eq!(dry["mode"], "dry-run");
+  assert_eq!(dry["stages"].as_array().unwrap().len(), 6);
+  assert_eq!(dry["stages"][5]["outcome"], "skipped");
+  assert!(dry["stages"][3]["stdout"]
+    .as_str()
+    .unwrap()
+    .contains("eligible"));
+
+  success(root.run(vec!["maintain".into(), "--apply".into()]));
+  assert!(!old.exists());
+  assert!(latest.join("output.log").is_file());
+  assert!(active.join("payload").is_file());
+  assert!(unknown.join("payload").is_file());
+  let after_first = fs::read(root.state().join("leases.json")).unwrap();
+  let applied: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+  assert_eq!(applied["outcome"], "ok");
+  assert!(applied["stages"][3]["stdout"]
+    .as_str()
+    .unwrap()
+    .contains("removed 1 item"));
+  assert!(applied["stages"][5]["reason"]
+    .as_str()
+    .unwrap()
+    .contains("auto_purge=false"));
+
+  success(root.run(vec!["maintain".into(), "--apply".into()]));
+  assert_eq!(
+    fs::read(root.state().join("leases.json")).unwrap(),
+    after_first
+  );
+  assert!(latest.join("output.log").is_file());
+  assert!(active.join("payload").is_file());
+  assert!(unknown.join("payload").is_file());
+  let status = root.run(vec!["status".into()]);
+  success(status.clone());
+  assert!(String::from_utf8_lossy(&status.stdout).contains("last maintenance: apply ok"));
+}
+
+#[test]
+fn maintenance_failure_receipt_names_next_step_without_touching_data() {
+  let root = TestRoot::new();
+  let project = root.project("project");
+  let config = maintenance_config(&root, &project);
+  fs::write(project.join(".reap.json"), b"{broken").unwrap();
+  failure(root.run(vec![
+    "maintain".into(),
+    "--apply".into(),
+    "--only".into(),
+    "stores".into(),
+  ]));
+  assert!(project.join("payload").is_file());
+  let receipt_path = root.state().join("maintenance-last.json");
+  let receipt: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+  assert_eq!(receipt["outcome"], "partial");
+  assert_eq!(receipt["stages"][0]["stage"], "stores");
+  assert_eq!(receipt["stages"][0]["next_action"], "reap stores");
+  let status = root.run(vec!["status".into()]);
+  success(status.clone());
+  assert!(String::from_utf8_lossy(&status.stdout).contains("failed stage(s): stores"));
+
+  let recoverable = root.project("recoverable");
+  let old_time = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 86400,
+    0,
+  );
+  set_file_mtime(recoverable.join("payload"), old_time).unwrap();
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &recoverable,
+  )));
+  failure(root.run(vec!["maintain".into(), "--apply".into()]));
+  assert!(!recoverable.exists());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 1);
+  let id = entries[0]["id"].as_str().unwrap();
+  assert!(root
+    .quarantine()
+    .join("entries")
+    .join(id)
+    .join("recoverable/payload")
+    .is_file());
+  let partial: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+  assert_eq!(partial["outcome"], "partial");
+  assert_eq!(partial["stages"][3]["outcome"], "failed");
+  assert_eq!(partial["stages"][4]["outcome"], "ok");
+
+  fs::write(&config, b"{broken").unwrap();
+  failure(root.run(vec!["maintain".into()]));
+  let invalid: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+  assert_eq!(invalid["outcome"], "failed");
+  assert!(invalid["error"]
+    .as_str()
+    .unwrap()
+    .contains("invalid config"));
+  assert!(project.join("payload").is_file());
+}
+
+#[test]
+fn maintenance_lock_refuses_overlap_without_replacing_the_receipt() {
+  let root = TestRoot::new();
+  let project = root.project("project");
+  maintenance_config(&root, &project);
+  success(root.run(vec!["maintain".into(), "--only".into(), "stores".into()]));
+  let receipt_path = root.state().join("maintenance-last.json");
+  let previous = fs::read(&receipt_path).unwrap();
+  let lock = fs::OpenOptions::new()
+    .read(true)
+    .write(true)
+    .open(root.state().join("maintenance.lock"))
+    .unwrap();
+  lock.lock().unwrap();
+  let overlap = root.run(vec!["maintain".into(), "--apply".into()]);
+  failure(overlap.clone());
+  assert!(String::from_utf8_lossy(&overlap.stderr).contains("maintenance already running"));
+  assert_eq!(fs::read(&receipt_path).unwrap(), previous);
+  assert!(project.join("payload").is_file());
+}
+
+#[test]
+fn maintenance_apply_diagnoses_broken_leases_without_repairing_them() {
+  let root = TestRoot::new();
+  let project = root.project("project");
+  maintenance_config(&root, &project);
+  let leased = root.project("leased");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &leased,
+  )));
+  fs::write(leased.join(".reap-lease"), b"wrong marker").unwrap();
+  let before = fs::read(root.state().join("leases.json")).unwrap();
+  success(root.run(vec![
+    "maintain".into(),
+    "--apply".into(),
+    "--only".into(),
+    "doctor-leases".into(),
+  ]));
+  assert_eq!(fs::read(root.state().join("leases.json")).unwrap(), before);
+  assert!(leased.join("payload").is_file());
+  let receipt: Value =
+    serde_json::from_slice(&fs::read(root.state().join("maintenance-last.json")).unwrap()).unwrap();
+  assert_eq!(receipt["stages"][0]["command"], "reap doctor");
+  assert!(receipt["stages"][0]["reason"]
+    .as_str()
+    .unwrap()
+    .contains("requires owner review"));
+  assert!(receipt["stages"][0]["stdout"]
+    .as_str()
+    .unwrap()
+    .contains("blocked 1"));
+}
+
+#[test]
+fn sweep_returns_failure_for_invalid_manifest_and_preserves_target() {
+  let root = TestRoot::new();
+  let project = root.project("project");
+  maintenance_config(&root, &project);
+  let target = project.join("target");
+  fs::create_dir(&target).unwrap();
+  fs::write(
+    target.join("CACHEDIR.TAG"),
+    b"Signature: 8a477f597d28d172789f06886806bc55",
+  )
+  .unwrap();
+  fs::write(target.join("artifact"), b"keep").unwrap();
+  fs::write(project.join(".reap.json"), b"{broken").unwrap();
+  let sweep = root.run(vec!["sweep".into(), "--apply".into()]);
+  failure(sweep);
+  assert!(target.join("artifact").is_file());
 }

@@ -11,7 +11,8 @@ description: >-
   entries are still needed (list by owner, ask the owner); when diagnosing
   missing or remounted leases or unindexed quarantine entries; or when a Rust
   project vendors something non-regenerable into target/; or when auditing
-  external roots for registered versus unknown directories. `reap` deletes only
+  external roots for registered versus unknown directories; or when setting up
+  one-shot maintenance. `reap` deletes only
   what a marker, manifest, or lease proves disposable: `reap sweep --apply`
   compacts cargo targets, `reap stores --apply` deletes or quarantines declared
   store output according to its manifest,
@@ -255,6 +256,8 @@ or for a project-specific policy. Validate with `reap check`.
 reap status                # fast free space and lifecycle health; no tree walk
 reap coverage              # one-level external-root audit; no cleanup candidates
 reap inventory             # read-only: size, idle, git state, lease status
+reap maintain              # one-shot dry-run; records stage results
+reap maintain --apply      # apply only the separately authorized cleanup stages
 ```
 
 `status` reports unavailable sizes as unknown, not zero; its quarantine bytes
@@ -268,11 +271,24 @@ owner is unknown when not recorded. Symlinks are not followed, and a managed
 parent does not authorize its children. `coverage` has no `--apply` mode;
 unregistered directories are never deletion candidates.
 
+`maintain` requires a valid machine config and an existing quarantine. It
+holds a maintenance lock, diagnoses leases and quarantine read-only, then runs
+Cargo, declared stores, expired leases, and policy-allowed purge in order.
+`--apply` never performs `doctor --apply`; that index repair still requires
+owner review. `--only STAGE` (see `reap maintain --help`) limits a run to one
+stage. Its latest receipt is `~/.local/state/reap/maintenance-last.json` and
+`status` reports the last result. Inspect the receipt for full bounded stage
+output, blocked reasons, and the next command after failure. Available-space
+deltas are observations that may include other writers, not exact attribution.
+With `auto_purge: false`, maintenance records purge as skipped.
+
 ## Authorization (owner, standing)
 
 Any agent may run these autonomously, no prompt or prior dry-run needed:
 
 - `reap sweep --apply` / `reap clean` — cargo artifacts, whenever disk is low;
+- `reap maintain --apply` — composes the standing cleanup paths above; doctor
+  stages remain diagnostic-only, and configured purge authority still applies;
 - `reap stores --apply` — declared **and armed** stores only, with their stated
   deletion or quarantine disposition;
 - `reap retire --apply` — **expired** leases only;

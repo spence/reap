@@ -59,6 +59,10 @@ fn volume(path: &Path) -> Result<Volume, String> {
   })
 }
 
+pub(crate) fn available_bytes(path: &Path) -> Result<u64, String> {
+  volume(path).map(|volume| volume.available)
+}
+
 pub fn run() -> i32 {
   let started = Instant::now();
   let (cfg, _) = load_config();
@@ -183,7 +187,14 @@ pub fn run() -> i32 {
     }
   }
 
-  println!("last maintenance: none recorded (one-shot maintenance is not installed)");
+  match crate::maintenance::last_status(&state) {
+    Ok(Some(summary)) => println!("last maintenance: {summary}"),
+    Ok(None) => println!("last maintenance: none recorded"),
+    Err(reason) => {
+      println!("last maintenance BLOCKED: {reason}");
+      errors += 1;
+    }
+  }
   let blocked_total: usize = blocked.values().map(|(count, _)| count).sum();
   println!(
     "\nblocked/review items: {} across {} reason(s)",

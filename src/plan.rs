@@ -1120,4 +1120,28 @@ mod tests {
 
     let _ = fs::remove_dir_all(&root);
   }
+
+  #[test]
+  fn apply_count_excludes_failed_removal_and_preserves_unselected_data() {
+    let root = tmpdir();
+    let removable = root.join("removable");
+    let vanished = root.join("vanished");
+    let protected = root.join("protected");
+    fs::write(&removable, b"old").unwrap();
+    fs::write(&protected, b"keep").unwrap();
+    let plan = Plan {
+      target: root.clone(),
+      missing: false,
+      categories: vec![Category {
+        label: "test".to_string(),
+        paths: vec![removable.clone(), vanished],
+        bytes: 3,
+      }],
+      total_bytes: 3,
+    };
+    assert_eq!(apply_plan(&plan), 1);
+    assert!(!removable.exists());
+    assert!(protected.is_file());
+    let _ = fs::remove_dir_all(&root);
+  }
 }

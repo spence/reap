@@ -20,6 +20,7 @@ mod discover;
 mod doctor;
 mod inventory;
 mod lease;
+mod maintenance;
 mod manifest;
 mod parents;
 mod plan;
@@ -237,6 +238,15 @@ enum Cmd {
   Status,
   /// Shallow read-only audit of configured roots and local registrations
   Coverage,
+  /// Run the guarded cleanup stages once and save a receipt
+  Maintain {
+    /// Actually apply the stages (default: dry-run)
+    #[arg(long)]
+    apply: bool,
+    /// Run one stage instead of the whole sequence
+    #[arg(long, value_enum)]
+    only: Option<maintenance::Stage>,
+  },
 }
 
 #[derive(Subcommand)]
@@ -363,6 +373,7 @@ fn main() {
     Some(Cmd::Inventory { quick }) => cmd_inventory(quick),
     Some(Cmd::Status) => status::run(),
     Some(Cmd::Coverage) => coverage::run(),
+    Some(Cmd::Maintain { apply, only }) => maintenance::run(apply, only),
   };
   exit(code);
 }
@@ -401,7 +412,7 @@ fn build_and_run(
   apply: bool,
   quick: bool,
   overrides: &PolicyArgs,
-) -> Result<Plan, RunError> {
+) -> Result<(Plan, usize), RunError> {
   let mut manifest = load_manifest(project_dir).map_err(|e| RunError::Manifest(e.0))?;
   if let Some(t) = forced_target {
     manifest.target = t.to_string_lossy().into_owned();
@@ -413,10 +424,8 @@ fn build_and_run(
     None
   };
   let plan = plan_project(&manifest, now_secs(), quick).map_err(|p| RunError::Protected(p.0))?;
-  if apply {
-    apply_plan(&plan);
-  }
-  Ok(plan)
+  let removed = if apply { apply_plan(&plan) } else { 0 };
+  Ok((plan, removed))
 }
 
 fn absolutize(p: &Path) -> PathBuf {
@@ -462,6 +471,13 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
   }
   if disc.targets.is_empty() {
     println!("no cargo target dirs found. Adjust roots with `reap config --init`.");
+    if !disc.errors.is_empty() {
+      eprintln!(
+        "error: sweep could not inspect {} path(s)",
+        disc.errors.len()
+      );
+      return 1;
+    }
     return 0;
   }
 
@@ -471,8 +487,17 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
     let project = target.parent().unwrap_or(target.as_path());
     let name = dir_label(project);
     match build_and_run(project, Some(target.as_path()), apply, quick, overrides) {
-      Ok(plan) => {
+      Ok((plan, removed)) => {
         print_plan(&name, &plan, apply, verbose, quick);
+        if apply {
+          println!(
+            "    removed {removed}/{} planned item(s)",
+            plan.item_count()
+          );
+          if removed != plan.item_count() {
+            errors += 1;
+          }
+        }
         grand += plan.total_bytes;
         println!();
       }
@@ -495,7 +520,7 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
     }
   }
 
-  let tag = if apply { "reclaimed" } else { "reclaimable" };
+  let tag = if apply { "planned" } else { "reclaimable" };
   let size = if quick {
     "(run without --quick to size)".to_string()
   } else {
@@ -515,7 +540,12 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
     println!(" Re-run `reap sweep --apply` to reclaim it.");
   }
   println!("{}", "=".repeat(62));
-  0
+  if errors > 0 {
+    eprintln!("error: sweep left {errors} target(s) or discovery path(s) unprocessed");
+    1
+  } else {
+    0
+  }
 }
 
 fn cmd_one(
@@ -552,7 +582,7 @@ fn cmd_one(
     }
   };
 
-  let plan = match build_and_run(
+  let (plan, removed) = match build_and_run(
     &project_dir,
     forced_target.as_deref(),
     apply,
@@ -585,6 +615,16 @@ fn cmd_one(
     }
   );
   print_plan(&dir_label(&project_dir), &plan, apply, verbose, quick);
+  if apply {
+    println!(
+      "    removed {removed}/{} planned item(s)",
+      plan.item_count()
+    );
+    if removed != plan.item_count() {
+      eprintln!("error: some planned Cargo artifacts were not removed");
+      return 1;
+    }
+  }
   if !apply && plan.total_bytes > 0 && !quick {
     println!(
       "\nRe-run with --apply to reclaim {}.",
@@ -2206,11 +2246,7 @@ fn print_plan(name: &str, plan: &Plan, apply_mode: bool, verbose: bool, quick: b
       }
     }
   }
-  let tag = if apply_mode {
-    "reclaimed"
-  } else {
-    "reclaimable"
-  };
+  let tag = if apply_mode { "planned" } else { "reclaimable" };
   let size = if quick {
     "(run without --quick to size)".to_string()
   } else {

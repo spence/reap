@@ -83,6 +83,15 @@ pub fn config_path() -> PathBuf {
 
 /// Returns the config and whether it came from a file (vs built-in defaults).
 pub fn load_config() -> (Config, bool) {
+  if let Ok(snapshot) = std::env::var("REAP_INTERNAL_CONFIG_SNAPSHOT") {
+    return match serde_json::from_str::<Config>(&snapshot) {
+      Ok(cfg) => (cfg, true),
+      Err(e) => {
+        eprintln!("error: invalid maintenance config snapshot: {e}");
+        std::process::exit(1);
+      }
+    };
+  }
   if let Ok(text) = fs::read_to_string(config_path()) {
     if let Ok(cfg) = serde_json::from_str::<Config>(&text) {
       return (cfg, true);

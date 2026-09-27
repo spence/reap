@@ -37,6 +37,7 @@ reap status           # fast capacity and lifecycle snapshot; no tree sizing
 reap coverage         # shallow audit of configured directories and registrations
 reap                  # dry-run every discovered target directory
 reap sweep --apply    # apply the proposed cleanup
+reap maintain          # guarded one-shot dry-run with a receipt
 
 reap create scratch ../bench-run --ttl 48h --owner agent-x --purpose "benchmark"
 reap retire --apply   # move expired leased dirs into the quarantine
@@ -171,6 +172,7 @@ Each command class has its own authority and cannot exceed it:
 | `reap retire`                   | leased directories whose lease expired, moved (not deleted) into the quarantine   |
 | `reap doctor`                   | lease or quarantine index only, with `--apply`; never directory contents         |
 | `reap purge`                    | quarantined entries past the machine's grace period, or an explicit selection     |
+| `reap maintain`                 | composes the guarded commands above; index diagnosis is read-only                |
 
 New deletion surfaces require an explicit declaration and local arming.
 
@@ -257,6 +259,9 @@ reap purge [--apply] [--all | --id ID | --owner NAME]
 reap status
 reap coverage
 reap inventory [--quick]
+
+# one-shot maintenance
+reap maintain [--apply] [--only doctor-leases|doctor-quarantine|cargo|stores|retire|purge]
 ```
 
 `reap plan` accepts either a project directory or a recognized target directory.
@@ -755,6 +760,28 @@ from state load through the move and index update. If an index write fails
 during retirement or restore, Reap attempts to move the unit back and exits
 nonzero; any failed rollback is reported with the data's location.
 
+## one-shot maintenance
+
+`reap maintain` requires a valid `~/.config/reap/config.json` and an existing
+quarantine directory. It holds a separate maintenance lock, then runs lease
+and quarantine diagnosis, Cargo compaction, declared stores, expired-lease
+retirement, and policy-allowed purge in that order. Dry-run is the default;
+`--apply` applies the four cleanup stages. Both doctor stages remain read-only
+even with `--apply`: index repair still requires owner review and a separate
+`reap doctor --apply`. `--only STAGE` runs one bounded stage.
+
+The command saves the latest per-stage receipt at
+`~/.local/state/reap/maintenance-last.json`. It includes each stage's command,
+bounded output and errors, result, next inspection command on failure, and
+observed before/after available bytes on the configured quarantine volume.
+Those volume deltas can include concurrent activity; they are not attributed
+bytes reclaimed. A failed stage leaves a nonzero overall result but does not
+silently authorize later work: each subsequent command independently rechecks
+its own authority and state. `reap status` shows the last result. A changed
+config or installed binary stops later stages; a concurrent maintenance run
+cannot replace the active run's receipt. If `auto_purge` is false, the purge
+stage is recorded as skipped, not bypassed.
+
 ## status, coverage, and inventory
 
 `reap status` reads filesystem capacity and local lease/quarantine indexes
@@ -766,9 +793,8 @@ inspection command. Cargo, store, and leased-tree reclaimable bytes are
 quarantine bytes are not a promise that purge will succeed. A missing or
 unreadable state source is reported, never treated as an empty index.
 
-The last-maintenance field says `none recorded` until one-shot maintenance
-ships and produces receipts. `status` does not run cleanup or grant new
-deletion authority.
+The last-maintenance field shows the latest receipt outcome, or `none recorded`.
+`status` does not run cleanup or grant new deletion authority.
 
 `reap coverage` reads the direct children of each `coverage_roots` directory
 and compares their exact paths with local leases, pending creations, managed
