@@ -696,6 +696,10 @@ minimum-age window, no nested mount points, the current directory is not
 inside the tree, no remaining nested lease, and, for non-scratch checkouts,
 that git shows the content recoverable elsewhere. An all-expired pass plans
 leased descendants before parents, then rechecks each under the state lock.
+On macOS, an observable open file or working-directory handle inside a leased
+tree also blocks retirement; failure to inspect open handles blocks it too.
+This is an additional brake, not proof that a tree without open handles is
+unused.
 A blocked or failed child keeps its parent in place; independently eligible
 siblings may still move. For indirect descendants, Reap verifies that only
 the planned child was removed before discounting the resulting directory

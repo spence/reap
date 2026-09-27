@@ -2187,6 +2187,47 @@ fn ignored_checkout_data_blocks_normal_retire_but_explicit_scratch_moves() {
   assert!(checkout.join("logs/local.log").is_file());
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn retire_preserves_a_quiet_expired_scratch_tree_with_an_open_file() {
+  let root = TestRoot::new();
+  let scratch = root.project("scratch-open-in-editor");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &scratch,
+  )));
+  make_tree_quiet(&scratch);
+  let lease_before = fs::read(root.state().join("leases.json")).unwrap();
+  let open = fs::File::open(scratch.join("payload")).unwrap();
+
+  let plan = root.run(args(&["retire", "{path}"], &scratch));
+  assert!(!plan.status.success());
+  assert!(String::from_utf8_lossy(&plan.stdout).contains("open-files"));
+
+  let attempted = root.run(args(&["retire", "{path}", "--apply"], &scratch));
+  assert!(!attempted.status.success());
+  assert!(String::from_utf8_lossy(&attempted.stdout).contains("open-files"));
+  assert!(scratch.join("payload").is_file());
+  assert_eq!(
+    fs::read(root.state().join("leases.json")).unwrap(),
+    lease_before
+  );
+  assert!(!root.quarantine().join("index.json").exists());
+
+  drop(open);
+  success(root.run(args(&["retire", "{path}", "--apply"], &scratch)));
+  assert!(!scratch.exists());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 1);
+  let id = entries[0]["id"].as_str().unwrap();
+  assert!(root
+    .quarantine()
+    .join("entries")
+    .join(id)
+    .join("scratch-open-in-editor/payload")
+    .is_file());
+}
+
 #[test]
 fn nested_retire_plans_and_moves_indirect_child_before_parent() {
   let root = TestRoot::new();

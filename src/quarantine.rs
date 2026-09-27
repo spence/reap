@@ -12,6 +12,8 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command};
 
 use serde::{Deserialize, Serialize};
 
@@ -445,6 +447,28 @@ pub fn assess_retire_ignoring_dir_mtimes(
     return a;
   }
 
+  #[cfg(target_os = "macos")]
+  {
+    match open_handle_within(&dir) {
+      Ok(Some(path)) => push(
+        &mut a.checks,
+        "open-files",
+        false,
+        format!("an open handle is inside the tree at {}", path.display()),
+      ),
+      Ok(None) => push(&mut a.checks, "open-files", true, String::new()),
+      Err(e) => push(
+        &mut a.checks,
+        "open-files",
+        false,
+        format!("cannot inspect open handles: {e}"),
+      ),
+    }
+    if !a.ok() {
+      return a;
+    }
+  }
+
   // One walk: activity brake, byte count, and mount uniformity together.
   let st = tree_stats_ignoring_dir_mtimes(&dir, &[LEASE_MARKER], ignored_dir_mtimes);
   a.bytes = st.bytes;
@@ -467,6 +491,32 @@ pub fn assess_retire_ignoring_dir_mtimes(
 
   git_checks(&mut a, &dir, lease.scratch);
   a
+}
+
+#[cfg(target_os = "macos")]
+fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> {
+  let output = Command::new("/usr/sbin/lsof")
+    .args(["-n", "-P", "-F0n"])
+    .output()
+    .map_err(|e| format!("running lsof: {e}"))?;
+  if !output.status.success() || !output.stderr.is_empty() {
+    return Err(format!(
+      "lsof returned {}: {}",
+      output.status,
+      String::from_utf8_lossy(&output.stderr)
+    ));
+  }
+  for field in output.stdout.split(|byte| *byte == 0) {
+    let field = field.strip_prefix(b"\n").unwrap_or(field);
+    let Some(name) = field.strip_prefix(b"n") else {
+      continue;
+    };
+    let path = Path::new(OsStr::from_bytes(name));
+    if path.is_absolute() && path.starts_with(dir) {
+      return Ok(Some(path.to_path_buf()));
+    }
+  }
+  Ok(None)
 }
 
 /// Move the leased dir into `<quarantine>/entries/<lease id>/<basename>` and
