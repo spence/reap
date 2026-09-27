@@ -29,6 +29,7 @@ Deletion requires standing evidence of non-value (a cargo cache marker, a
 declared store, a lease); age only delays it.
 
 ```bash
+reap status           # fast capacity and lifecycle snapshot; no tree sizing
 reap                  # dry-run every discovered target directory
 reap sweep --apply    # apply the proposed cleanup
 
@@ -247,6 +248,7 @@ reap quarantine restore <id> [--to PATH]
 reap purge [--apply] [--all | --id ID | --owner NAME]
 
 # read-only survey
+reap status
 reap inventory [--quick]
 ```
 
@@ -741,10 +743,23 @@ from state load through the move and index update. If an index write fails
 during retirement or restore, Reap attempts to move the unit back and exits
 nonzero; any failed rollback is reported with the data's location.
 
-## inventory
+## status and inventory
+
+`reap status` reads filesystem capacity and local lease/quarantine indexes
+without recursively sizing projects. It reports free space for configured
+roots and quarantine, lease health, pending creations, managed-parent counts,
+quarantine policy eligibility, and specific blocked records with a next
+inspection command. Cargo, store, and leased-tree reclaimable bytes are
+`unknown` until their respective dry-run planners inspect the trees; recorded
+quarantine bytes are not a promise that purge will succeed. A missing or
+unreadable state source is reported, never treated as an empty index.
+
+The last-maintenance field says `none recorded` until one-shot maintenance
+ships and produces receipts. `status` does not run cleanup or grant new
+deletion authority.
 
 ```bash
-reap inventory          # read-only; --quick skips sizing
+reap inventory          # read-only project survey
 ```
 
 Reports every project under the roots (a directory containing `.git` or
@@ -752,6 +767,8 @@ Reports every project under the roots (a directory containing `.git` or
 no-remote, stashes, worktree), and lease status. Inventory only suggests. An
 old clean clone can still hold value that git cannot prove recoverable, so
 unregistered directories are never deletion candidates.
+`inventory --quick` omits displayed sizes but still traverses project trees
+for activity; use `status` for an urgent disk-pressure check.
 
 ## current scope
 
@@ -762,7 +779,7 @@ The current implementation intentionally has a narrow layout model:
 * direct profiles under `target/`;
 * one nested namespace such as `target/<triple>/debug`;
 * Cargo-style 16-character metadata hashes;
-* no Cargo process or target-directory locking;
+* Cargo per-profile locking on local filesystems; no NFS lock guarantee;
 * no exact resolution of the currently linked build graph.
 
 Custom profile names are not currently compacted. Shared or unusually relocated
@@ -794,6 +811,7 @@ src/store_bindings.rs machine-local external store binding and identity guards
 src/lease.rs      machine-local leases and identity markers
 src/quarantine.rs retirement validation, moves, restore, and purge
 src/inventory.rs  read-only project survey
+src/status.rs     metadata-only capacity and lifecycle snapshot
 src/util.rs       tree stats, verified cross-device moves, state paths
 ```
 

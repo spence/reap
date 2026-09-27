@@ -24,6 +24,7 @@ mod parents;
 mod plan;
 mod provenance;
 mod quarantine;
+mod status;
 mod store_bindings;
 mod stores;
 mod util;
@@ -231,6 +232,8 @@ enum Cmd {
     #[arg(long)]
     quick: bool,
   },
+  /// Fast filesystem capacity and lifecycle state without recursive sizing
+  Status,
 }
 
 #[derive(Subcommand)]
@@ -355,6 +358,7 @@ fn main() {
       owner,
     }) => cmd_purge(apply, all, id, owner),
     Some(Cmd::Inventory { quick }) => cmd_inventory(quick),
+    Some(Cmd::Status) => status::run(),
   };
   exit(code);
 }

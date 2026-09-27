@@ -195,6 +195,54 @@ fn make_tree_quiet(root: &Path) {
 }
 
 #[test]
+fn status_is_metadata_only_and_reports_unknown_and_actionable_blocks() {
+  let root = TestRoot::new();
+  fs::create_dir_all(root.quarantine().join("entries/abcdef12")).unwrap();
+  let config = root.root.join("home/.config/reap/config.json");
+  fs::create_dir_all(config.parent().unwrap()).unwrap();
+  fs::write(
+    &config,
+    serde_json::to_vec(&json!({
+      "roots": [root.root],
+      "quarantine": {"dir": root.quarantine(), "auto_purge": false}
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  let leased = root.project("broken-lease");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &leased,
+  )));
+  let id = array(&root.state().join("leases.json"), "leases")[0]["id"]
+    .as_str()
+    .unwrap()
+    .to_string();
+  fs::write(leased.join(".reap-lease"), b"wrong marker").unwrap();
+
+  let output = root.run(vec!["status".into()]);
+  success(output.clone());
+  let text = String::from_utf8_lossy(&output.stdout);
+  assert!(text.contains("available of"));
+  assert!(text.contains("Cargo: unknown"));
+  assert!(text.contains("stores: unknown"));
+  assert!(text.contains("leased trees: unknown"));
+  assert!(text.contains("quarantine auto-purge: disabled"));
+  assert!(text.contains(&format!("lease {id}: .reap-lease missing or mismatched")));
+  assert!(text.contains(&format!("reap doctor --id {id}")));
+  assert!(text.contains("quarantine abcdef12: unindexed slot has no metadata"));
+  assert!(text.contains("reap doctor --quarantine --id abcdef12"));
+  assert!(text.contains("last maintenance: none recorded"));
+  assert!(text.contains("status time:"));
+
+  fs::write(root.state().join("leases.json"), b"{broken").unwrap();
+  let corrupt = root.run(vec!["status".into()]);
+  failure(corrupt.clone());
+  assert!(String::from_utf8_lossy(&corrupt.stdout).contains("leases BLOCKED"));
+  assert!(String::from_utf8_lossy(&corrupt.stdout).contains("quarantine auto-reclaimable: unknown"));
+}
+
+#[test]
 fn managed_parent_reports_external_worktrees_without_retiring_unleased_children() {
   let root = TestRoot::new();
   let source = root.project("source-project");

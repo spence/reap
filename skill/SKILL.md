@@ -240,10 +240,15 @@ or for a project-specific policy. Validate with `reap check`.
 ## Survey what exists
 
 ```bash
+reap status                # fast free space and lifecycle health; no tree walk
 reap inventory             # read-only: size, idle, git state, lease status
 ```
 
-Suggestions only — unregistered directories are never deletion candidates.
+`status` reports unavailable sizes as unknown, not zero; its quarantine bytes
+are recorded estimates, and blocked rows give an inspection command. Use
+`sweep`, `stores`, or `retire` dry-runs for exact candidates. `inventory`
+walks project trees even with `--quick`, so it is not the emergency status
+path. Suggestions only — unregistered directories are never deletion candidates.
 
 ## Authorization (owner, standing)
 
