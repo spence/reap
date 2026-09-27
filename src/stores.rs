@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use crate::lease::{load_leases, Lease};
 use crate::manifest::{load_manifest, Manifest, Store, StoreDisposition, StoreSeries};
 use crate::plan::{human, mtime_secs, now_secs};
+use crate::provenance::{self, Provenance};
 use crate::quarantine::{
   execute_store_retire, finalize_restore, load_index, save_index, StoreProvenance,
 };
@@ -106,6 +107,7 @@ pub struct StorePlan {
   pub candidates: Vec<StoreCandidate>,
   pub notes: Vec<String>,
   pub disposition: StoreDisposition,
+  pub creation_method: Option<String>,
   external: bool,
   authority: Option<StoreAuthority>,
 }
@@ -143,6 +145,7 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
             candidates: vec![],
             notes: vec![],
             disposition: s.disposition,
+            creation_method: s.creation_method.clone(),
             external: true,
             authority: None,
           });
@@ -165,6 +168,7 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
         candidates: vec![],
         notes: vec![],
         disposition: s.disposition,
+        creation_method: s.creation_method.clone(),
         external: false,
         authority: None,
       }),
@@ -315,6 +319,13 @@ pub fn quarantine_store(plan: &StorePlan, project_dir: &Path, qdir: &Path) -> St
       store: plan.rel.clone(),
       series: candidate.series.clone(),
     };
+    let origin = Provenance {
+      project: Some(provenance.project_path.clone()),
+      actor: provenance::from_env("REAP_OWNER"),
+      session: provenance::from_env("REAP_SESSION"),
+      host: Some(machine.clone()),
+      creation_method: plan.creation_method.clone(),
+    };
     let retired = match execute_store_retire(
       &candidate.path,
       candidate.bytes,
@@ -322,6 +333,7 @@ pub fn quarantine_store(plan: &StorePlan, project_dir: &Path, qdir: &Path) -> St
       &machine,
       now_secs() as i64,
       provenance,
+      origin,
     ) {
       Ok(retired) => retired,
       Err(e) => {
@@ -417,8 +429,9 @@ fn recheck_candidate(
     || current.dir != plan.dir
     || current.authority != plan.authority
     || current.disposition != plan.disposition
+    || current.creation_method != plan.creation_method
   {
-    return Err("store path, identity, disposition, or armed marker changed".to_string());
+    return Err("store declaration, path, identity, or armed marker changed".to_string());
   }
   let fresh = current
     .candidates
@@ -685,6 +698,7 @@ fn plan_one(
     candidates,
     notes,
     disposition: store.disposition,
+    creation_method: store.creation_method.clone(),
     external: store.resource.is_some(),
     authority,
   })
@@ -835,6 +849,7 @@ mod tests {
         unit: "children".to_string(),
         retention,
         disposition: StoreDisposition::Delete,
+        creation_method: None,
         series: None,
       }],
       has_file: true,

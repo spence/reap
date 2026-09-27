@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::util::{default_owner, new_id, new_token, write_json_atomic};
+use crate::provenance::{self, Provenance};
+use crate::util::{default_owner, hostname, new_id, new_token, write_json_atomic};
 
 pub const LEASE_MARKER: &str = ".reap-lease";
 
@@ -27,6 +28,8 @@ pub struct Lease {
   pub ino: u64,
   pub token: String,
   pub owner: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub provenance: Option<Provenance>,
   #[serde(default)]
   pub purpose: String,
   pub scratch: bool,
@@ -72,6 +75,10 @@ pub struct AddOpts {
   pub scratch: bool,
   pub owner: Option<String>,
   pub purpose: String,
+  pub project: Option<String>,
+  pub actor: Option<String>,
+  pub session: Option<String>,
+  pub creation_method: Option<String>,
 }
 
 pub fn leases_path(state: &Path) -> PathBuf {
@@ -131,6 +138,21 @@ pub fn add_lease(
       l.id
     ));
   }
+  let project = provenance::checked(opts.project, "project")?;
+  let actor = provenance::checked(
+    opts
+      .actor
+      .or_else(|| opts.owner.clone())
+      .or_else(|| provenance::from_env("REAP_OWNER")),
+    "actor",
+  )?;
+  let session = provenance::checked(
+    opts
+      .session
+      .or_else(|| provenance::from_env("REAP_SESSION")),
+    "session",
+  )?;
+  let creation_method = provenance::checked(opts.creation_method, "creation method")?;
   let lease = Lease {
     id: new_id(&key),
     path: key,
@@ -138,6 +160,13 @@ pub fn add_lease(
     ino: meta.ino(),
     token: new_token(&canon.to_string_lossy()),
     owner: opts.owner.unwrap_or_else(default_owner),
+    provenance: Some(Provenance {
+      project,
+      actor,
+      session,
+      host: Some(hostname()),
+      creation_method,
+    }),
     purpose: opts.purpose,
     scratch: opts.scratch,
     ttl_secs: opts.ttl_secs,
@@ -261,6 +290,10 @@ mod tests {
       scratch,
       owner: Some("agent-a".to_string()),
       purpose: "bench".to_string(),
+      project: None,
+      actor: None,
+      session: None,
+      creation_method: None,
     }
   }
 

@@ -59,6 +59,16 @@ reap lease list
 reap doctor                   # bounded, read-only lease-state diagnosis
 ```
 
+For reviewable attribution, `lease add` also accepts `--project <source-label>`,
+`--actor <creator>`, `--session <session>`, and
+`--creation-method <git-worktree|copy|...>`. The host is recorded locally.
+Supply the source project and creation method when known at creation time;
+do not backfill guesses into an old lease.
+Explicit `--owner` or `$REAP_OWNER` supplies actor when `--actor` is omitted;
+`$REAP_SESSION` can supply session. These fields never authorize deletion.
+Older records without them remain readable and list as `(unknown)`; do not
+infer an actor from an old free-form owner string.
+
 - `--scratch` = disposable even if dirty/unpushed. Without it, retirement
   requires clean + fully pushed + no stashes + no ignored local data with
   unproved recoverability. A non-Git directory is refused. `.gitignore` is not
@@ -161,6 +171,12 @@ the move does not free disk until purge; an external quarantine must already
 exist. Bare purge obeys machine `auto_purge` and grace; explicit selectors
 still require owner authorization. Legacy manifests stay on direct deletion
 until explicitly changed.
+
+Optional `"creation_method":"benchmark-run"` on a store records a project-
+supplied label for its runs; it does not arm the store or change eligibility.
+For quarantined output, explicit `$REAP_OWNER` and `$REAP_SESSION` supply
+actor and session; the local host and project path are recorded. Unspecified
+fields display as `(unknown)`.
 
 For output outside the repo, declare a store with `"resource":"benchmark-logs"`
 instead of `path`, retaining the same retention/series fields. On each machine,

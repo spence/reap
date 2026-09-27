@@ -67,6 +67,8 @@ impl TestRoot {
       .args(args)
       .env("HOME", self.root.join("home"))
       .env("XDG_STATE_HOME", self.root.join("state"))
+      .env_remove("REAP_OWNER")
+      .env_remove("REAP_SESSION")
       .current_dir(&self.root);
     command
   }
@@ -358,6 +360,7 @@ fn quarantine_doctor_rebuilds_only_valid_interrupted_entries() {
     "name": "interrupted",
     "original_path": lease["path"],
     "owner": lease["owner"],
+    "provenance": lease["provenance"],
     "purpose": lease["purpose"],
     "scratch": lease["scratch"],
     "machine": "test-host",
@@ -884,6 +887,187 @@ fn store_quarantine_purge_requires_machine_policy_or_explicit_selection() {
     }
     assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
   }
+}
+
+#[test]
+fn store_provenance_is_visible_but_does_not_arm_an_unbound_or_unmarked_store() {
+  let root = TestRoot::new();
+  let project = root.project("provenance-store");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"logs","disposition":"quarantine","creation_method":"benchmark-run","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}}]}"#,
+  )
+  .unwrap();
+  let store = project.join("logs");
+  fs::create_dir(&store).unwrap();
+  let old = store.join("old.log");
+  fs::write(&old, b"benchmark output").unwrap();
+  set_file_mtime(
+    &old,
+    FileTime::from_unix_time(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 40 * 86400,
+      0,
+    ),
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(old.is_file(), "provenance does not arm an unmarked store");
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let command = vec![
+    "stores".into(),
+    "--apply".into(),
+    project.to_string_lossy().into_owned(),
+  ];
+  success(
+    root
+      .command(&command)
+      .env("REAP_OWNER", "agent-store")
+      .env("REAP_SESSION", "session-store")
+      .output()
+      .unwrap(),
+  );
+  assert!(!old.exists());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 1);
+  let entry = &entries[0];
+  assert_eq!(
+    entry["provenance"]["project"],
+    project.to_string_lossy().as_ref()
+  );
+  assert_eq!(entry["provenance"]["actor"], "agent-store");
+  assert_eq!(entry["provenance"]["session"], "session-store");
+  assert_eq!(entry["provenance"]["creation_method"], "benchmark-run");
+  assert!(!entry["provenance"]["host"].as_str().unwrap().is_empty());
+  let listing = root.run(vec!["quarantine".into()]);
+  success(listing.clone());
+  let output = String::from_utf8_lossy(&listing.stdout);
+  assert!(output.contains("actor agent-store"));
+  assert!(output.contains("session session-store"));
+  assert!(output.contains("method benchmark-run"));
+
+  let id = entry["id"].as_str().unwrap();
+  let index_path = root.quarantine().join("index.json");
+  let mut index: Value = serde_json::from_slice(&fs::read(&index_path).unwrap()).unwrap();
+  index["entries"][0]
+    .as_object_mut()
+    .unwrap()
+    .remove("provenance");
+  fs::write(&index_path, serde_json::to_vec_pretty(&index).unwrap()).unwrap();
+  let sidecar = root
+    .quarantine()
+    .join("entries")
+    .join(id)
+    .join(".reap-entry.json");
+  let mut evidence: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+  evidence["entry"]
+    .as_object_mut()
+    .unwrap()
+    .remove("provenance");
+  fs::write(&sidecar, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
+  let listing = root.run(vec!["quarantine".into()]);
+  success(listing.clone());
+  let output = String::from_utf8_lossy(&listing.stdout);
+  assert!(output.contains(&format!("project {}  actor (unknown)", project.display())));
+  assert!(output.contains("method (unknown)"));
+  let doctor = root.run(vec![
+    "doctor".into(),
+    "--quarantine".into(),
+    "--id".into(),
+    id.into(),
+  ]);
+  success(doctor.clone());
+  assert!(String::from_utf8_lossy(&doctor.stdout).contains("indexed 1"));
+}
+
+#[test]
+fn lease_provenance_survives_retirement_and_legacy_records_show_unknowns() {
+  let root = TestRoot::new();
+  let new = root.project("provenance-lease");
+  success(root.run(vec![
+    "lease".into(),
+    "add".into(),
+    new.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "0".into(),
+    "--scratch".into(),
+    "--owner".into(),
+    "team".into(),
+    "--project".into(),
+    "reap".into(),
+    "--actor".into(),
+    "agent-bench".into(),
+    "--session".into(),
+    "session-42".into(),
+    "--creation-method".into(),
+    "git-worktree".into(),
+    "--purpose".into(),
+    "benchmark".into(),
+  ]));
+  let leases = array(&root.state().join("leases.json"), "leases");
+  assert_eq!(leases[0]["provenance"]["project"], "reap");
+  assert_eq!(leases[0]["provenance"]["actor"], "agent-bench");
+  assert_eq!(leases[0]["provenance"]["session"], "session-42");
+  assert_eq!(leases[0]["provenance"]["creation_method"], "git-worktree");
+  assert!(!leases[0]["provenance"]["host"].as_str().unwrap().is_empty());
+  let listing = root.run(vec!["lease".into(), "list".into()]);
+  success(listing.clone());
+  assert!(String::from_utf8_lossy(&listing.stdout).contains("actor agent-bench"));
+  success(root.run(vec![
+    "retire".into(),
+    new.to_string_lossy().into_owned(),
+    "--now".into(),
+    "--apply".into(),
+    "--min-age-minutes".into(),
+    "0".into(),
+  ]));
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries[0]["provenance"], leases[0]["provenance"]);
+  let listing = root.run(vec!["quarantine".into()]);
+  success(listing.clone());
+  let output = String::from_utf8_lossy(&listing.stdout);
+  assert!(output.contains("project reap"));
+  assert!(output.contains("actor agent-bench"));
+  assert!(output.contains("purpose benchmark"));
+
+  let old = root.project("legacy-lease");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &old,
+  )));
+  let lease_path = root.state().join("leases.json");
+  let mut state: Value = serde_json::from_slice(&fs::read(&lease_path).unwrap()).unwrap();
+  assert!(state["leases"][0]
+    .as_object_mut()
+    .unwrap()
+    .remove("provenance")
+    .is_some());
+  fs::write(&lease_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+  let listing = root.run(vec!["lease".into(), "list".into()]);
+  success(listing.clone());
+  let output = String::from_utf8_lossy(&listing.stdout);
+  assert!(output.contains("project (unknown)  actor (unknown)"));
+  success(root.run(vec![
+    "retire".into(),
+    old.to_string_lossy().into_owned(),
+    "--now".into(),
+    "--apply".into(),
+    "--min-age-minutes".into(),
+    "0".into(),
+  ]));
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 2);
+  let old_entry = entries
+    .iter()
+    .find(|entry| entry["name"] == "legacy-lease")
+    .unwrap();
+  assert!(old_entry.get("provenance").is_none());
+  let listing = root.run(vec!["quarantine".into()]);
+  success(listing.clone());
+  assert!(String::from_utf8_lossy(&listing.stdout).contains("project (unknown)  actor (unknown)"));
 }
 
 #[test]

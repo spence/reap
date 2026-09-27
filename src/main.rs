@@ -20,6 +20,7 @@ mod inventory;
 mod lease;
 mod manifest;
 mod plan;
+mod provenance;
 mod quarantine;
 mod store_bindings;
 mod stores;
@@ -40,6 +41,7 @@ use lease::{
 };
 use manifest::{find_project_root, load_manifest, Policy, StoreDisposition, MANIFEST_NAME};
 use plan::{apply_plan, human, now_secs, plan_project, Plan};
+use provenance::Provenance;
 use quarantine::{
   assess_retire, assess_retire_ignoring_dir_mtimes, diagnose_entry, entries_dir, execute_retire,
   finalize_restore, finalize_retire, load_index, orphaned_ids, purge_entry, restore_entry,
@@ -234,6 +236,18 @@ enum LeaseCmd {
     /// Why it exists (shown in lease + quarantine listings)
     #[arg(long)]
     purpose: Option<String>,
+    /// Project label or source path for owner review (not deletion authority)
+    #[arg(long)]
+    project: Option<String>,
+    /// Originating actor; defaults to explicit --owner or $REAP_OWNER
+    #[arg(long)]
+    actor: Option<String>,
+    /// Originating session; defaults to $REAP_SESSION when set
+    #[arg(long)]
+    session: Option<String>,
+    /// How this directory was created, for example git-worktree or copy
+    #[arg(long)]
+    creation_method: Option<String>,
   },
   /// Extend a lease (default: by its original TTL)
   Renew {
@@ -998,6 +1012,35 @@ fn print_and_apply_store(
 // Leases / retire / quarantine / purge / inventory
 // --------------------------------------------------------------------------- //
 
+fn print_provenance(
+  provenance: Option<&Provenance>,
+  fallback_project: Option<&str>,
+  fallback_host: Option<&str>,
+  purpose: &str,
+) {
+  let project = provenance
+    .and_then(|p| p.project.as_deref())
+    .or(fallback_project)
+    .unwrap_or("(unknown)");
+  let actor = provenance
+    .and_then(|p| p.actor.as_deref())
+    .unwrap_or("(unknown)");
+  let session = provenance
+    .and_then(|p| p.session.as_deref())
+    .unwrap_or("(unknown)");
+  let host = provenance
+    .and_then(|p| p.host.as_deref())
+    .or(fallback_host)
+    .unwrap_or("(unknown)");
+  let method = provenance
+    .and_then(|p| p.creation_method.as_deref())
+    .unwrap_or("(unknown)");
+  println!(
+    "    project {project}  actor {actor}  session {session}  host {host}  method {method}  purpose {}",
+    if purpose.is_empty() { "(unspecified)" } else { purpose }
+  );
+}
+
 fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
   let state = state_dir();
   let _lock = match lock_state(&state) {
@@ -1022,6 +1065,10 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
       scratch,
       owner,
       purpose,
+      project,
+      actor,
+      session,
+      creation_method,
     } => {
       let secs = match parse_ttl(&ttl) {
         Ok(s) => s,
@@ -1038,6 +1085,10 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
         scratch,
         owner,
         purpose: purpose.unwrap_or_default(),
+        project,
+        actor,
+        session,
+        creation_method,
       };
       match add_lease(&mut lf, &abs, opts, now, &forbidden) {
         Ok(l) => {
@@ -1150,6 +1201,7 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
             ""
           }
         );
+        print_provenance(l.provenance.as_ref(), None, None, &l.purpose);
       }
       println!("\nnegative expiry = expired (retirable with `reap retire --apply`).");
       0
@@ -1747,6 +1799,12 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
               store.series.as_deref().unwrap_or("(global)")
             );
           }
+          print_provenance(
+            e.provenance.as_ref(),
+            e.store.as_ref().map(|store| store.project_path.as_str()),
+            Some(&e.machine),
+            &e.purpose,
+          );
         }
         println!(
           "\n{} entr{}, {}  -- `reap quarantine restore <id>` recovers one",

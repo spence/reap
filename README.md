@@ -451,6 +451,11 @@ Semantics:
   units into indexed, recoverable quarantine instead; unknown values are
   rejected. Existing stores change behavior only if their manifest explicitly
   opts in;
+* an optional `"creation_method": "benchmark-run"` labels how that store's
+  runs were made for owner review; it cannot arm a store or make a child
+  eligible. For quarantined store output, an explicit `$REAP_OWNER` becomes
+  the actor and `$REAP_SESSION` the session. Unspecified fields display as
+  `(unknown)`;
 * stores parse strictly: `"version": 2` is required, and an unknown field
   anywhere under `stores` is an error, so a typo'd protection cannot silently
   disappear;
@@ -544,6 +549,23 @@ reap lease renew ../bench-copy          # still needed
 reap lease release ../bench-copy        # became permanent; drop the lease
 ```
 
+For owner review, registration can also carry structured attribution:
+
+```bash
+reap lease add ../bench-copy --ttl 48h --scratch \
+  --project reap --actor agent-x --session perf-42 --creation-method git-worktree \
+  --purpose "perf run"
+```
+
+`--project` is the source project label or path; `--actor` names the creator,
+and `--session` identifies a run or agent session. If `--actor` is omitted,
+an explicitly supplied `--owner` or `$REAP_OWNER` is recorded verbatim as the
+actor; `$REAP_SESSION` can supply the session. Reap records the local host.
+These fields are attribution only: they do not arm a store, create a lease
+marker, relax retirement checks, or authorize purge. Older leases without
+these fields remain readable and listings show `(unknown)` rather than
+guessing from a free-form owner string.
+
 A lease records the canonical path, filesystem identity (device and inode), an
 opaque token mirrored in a `.reap-lease` marker inside the directory, an
 owner, a purpose, and the TTL. `--scratch` marks the checkout disposable even
@@ -599,7 +621,8 @@ Linked worktrees additionally get `git worktree prune` run on their main
 repository after the move.
 
 Retirement is a move, not a delete. The entry lands in the quarantine with its
-owner, purpose, source machine, and original path recorded:
+owner, purpose, source machine, original path, and any supplied provenance
+recorded:
 
 ```bash
 reap quarantine                     # list; --owner filters by creator

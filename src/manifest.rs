@@ -59,7 +59,7 @@ impl Default for Policy {
 
 /// A declared artifact store (`"version": 2`). The direct children of a
 /// project-relative directory or locally bound named external resource
-/// (benchmark runs, log batches) may be deleted under
+/// (benchmark runs, log batches) may be evicted under
 /// `retention`. Parsed strictly -- an unknown field here is an error, because
 /// a typo'd protection must not silently vanish from destructive policy.
 #[derive(Debug, Clone, Deserialize)]
@@ -73,6 +73,7 @@ pub struct Store {
   pub retention: Retention,
   #[serde(default)]
   pub disposition: StoreDisposition,
+  pub creation_method: Option<String>,
   #[serde(default, deserialize_with = "declared_series")]
   pub series: Option<Vec<StoreSeries>>,
 }
@@ -95,7 +96,7 @@ pub struct StoreSeries {
 }
 
 /// Store retention. `keep_last` and `min_age_hours` are unconditional
-/// protections; `max_age_days` / `max_bytes` are the only deletion triggers,
+/// protections; `max_age_days` / `max_bytes` are the only eviction triggers,
 /// and at least one is required.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -263,6 +264,11 @@ fn validate_stores(stores: &[Store], target: &str) -> Result<(), String> {
         s.path, s.unit
       ));
     }
+    if let Some(method) = &s.creation_method {
+      if crate::provenance::clean(method).as_deref() != Some(method) {
+        return Err(format!("store {:?}: bad creation_method", s.path));
+      }
+    }
     let r = &s.retention;
     if r.max_age_days.is_none() && r.max_bytes.is_none() {
       return Err(format!(
@@ -393,10 +399,14 @@ mod tests {
     let _ = fs::remove_dir_all(external);
 
     let quarantined = write_manifest(
-      r#"{"version":2,"stores":[{"path":"logs","disposition":"quarantine","retention":{"max_age_days":1}}]}"#,
+      r#"{"version":2,"stores":[{"path":"logs","disposition":"quarantine","creation_method":"benchmark-run","retention":{"max_age_days":1}}]}"#,
     );
     let m = load_manifest(&quarantined).unwrap();
     assert_eq!(m.stores[0].disposition, StoreDisposition::Quarantine);
+    assert_eq!(
+      m.stores[0].creation_method.as_deref(),
+      Some("benchmark-run")
+    );
     let _ = fs::remove_dir_all(quarantined);
 
     for (bad, why) in [
@@ -456,6 +466,10 @@ mod tests {
       (
         r#"{"version":2,"stores":[{"path":"logs","disposition":"archive","retention":{"max_age_days":1}}]}"#,
         "unknown store disposition",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"logs","creation_method":"","retention":{"max_age_days":1}}]}"#,
+        "empty creation method",
       ),
     ] {
       let d = write_manifest(bad);

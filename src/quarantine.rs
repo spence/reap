@@ -2,9 +2,9 @@
 //! quarantine (recoverable, restorable), `purge` permanently deletes
 //! quarantined entries after a machine-local grace period.
 //!
-//! Every entry carries the owner recorded on its lease, so before purging a
-//! copy that another machine's agent parked here, that agent can be asked
-//! whether the files are still needed.
+//! Every entry carries an owner for review before explicit purge. Lease entries
+//! retain their creator's recorded owner; store entries record the evicting
+//! actor or local user.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::lease::{read_marker, Lease, LEASE_MARKER};
+use crate::provenance::Provenance;
 use crate::util::{
   default_owner, fmt_rel, git_capture, move_dir, move_unit, new_id, tree_stats_ignoring_dir_mtimes,
   write_json_atomic, GitError, Moved,
@@ -33,6 +34,8 @@ pub struct Entry {
   pub machine: String,
   pub bytes: u64,
   pub retired_unix: i64,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub provenance: Option<Provenance>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub store: Option<StoreProvenance>,
 }
@@ -496,6 +499,7 @@ pub fn execute_store_retire(
   machine: &str,
   now: i64,
   store: StoreProvenance,
+  provenance: Provenance,
 ) -> Result<Retired, String> {
   let meta = fs::symlink_metadata(source).map_err(|e| format!("{}: {e}", source.display()))?;
   if !meta.is_file() && !meta.is_dir() && !meta.file_type().is_symlink() {
@@ -540,6 +544,7 @@ pub fn execute_store_retire(
     machine: machine.to_string(),
     bytes,
     retired_unix: now,
+    provenance: Some(provenance),
     store: Some(store),
   };
   let evidence = EntryEvidence {
@@ -597,6 +602,7 @@ fn prepare_retire(
     machine: machine.to_string(),
     bytes,
     retired_unix: now,
+    provenance: lease.provenance.clone(),
     store: None,
   };
   let evidence = EntryEvidence {
@@ -886,6 +892,7 @@ pub fn diagnose_entry(
     || lease.dev != evidence.source_dev
     || lease.ino != evidence.source_ino
     || lease.owner != entry.owner
+    || lease.provenance != entry.provenance
     || lease.purpose != entry.purpose
     || lease.scratch != entry.scratch
   {
@@ -1071,6 +1078,10 @@ mod tests {
         scratch,
         owner: Some("agent-a".to_string()),
         purpose: "bench".to_string(),
+        project: None,
+        actor: None,
+        session: None,
+        creation_method: None,
       },
       now_secs() as i64 - 100,
       &[],
@@ -1153,6 +1164,12 @@ mod tests {
       diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
       EntryDiagnosis::Recoverable(Box::new(entry.clone()))
     );
+    let mut mismatched = leases.leases.clone();
+    mismatched[0].provenance.as_mut().unwrap().actor = Some("other-actor".to_string());
+    assert!(matches!(
+      diagnose_entry(&qdir, &lease.id, &index, &mismatched),
+      EntryDiagnosis::Blocked(_)
+    ));
     let mut index = index;
     index.entries.push(entry.clone());
     assert_eq!(
@@ -1550,6 +1567,7 @@ mod tests {
       machine: "m".to_string(),
       bytes: 1,
       retired_unix: now - age_days * 86400,
+      provenance: None,
       store: None,
     };
     idx.entries.push(entry("aged", "agent-a", 40));
