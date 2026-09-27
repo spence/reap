@@ -2953,6 +2953,96 @@ fn maintenance_apply_diagnoses_broken_leases_without_repairing_them() {
 }
 
 #[test]
+fn automatic_maintenance_preserves_held_and_marker_protected_quarantine_entries() {
+  let root = TestRoot::new();
+  let config = maintenance_config(&root, &root.root);
+  for name in ["held", "marker-protected", "eligible"] {
+    let dir = root.project(name);
+    success(root.run(args(
+      &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+      &dir,
+    )));
+    success(root.run(args(
+      &[
+        "retire",
+        "{path}",
+        "--now",
+        "--apply",
+        "--min-age-minutes",
+        "0",
+      ],
+      &dir,
+    )));
+  }
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  let id = |name: &str| {
+    entries.iter().find(|entry| entry["name"] == name).unwrap()["id"]
+      .as_str()
+      .unwrap()
+      .to_string()
+  };
+  let held = id("held");
+  let protected = id("marker-protected");
+  let eligible = id("eligible");
+  let slot = |id: &str, name: &str| root.quarantine().join("entries").join(id).join(name);
+  success(root.run(vec!["quarantine".into(), "hold".into(), held.clone()]));
+  fs::write(
+    slot(&protected, "marker-protected").join(".reap-lease"),
+    b"active marker",
+  )
+  .unwrap();
+  fs::write(
+    &config,
+    serde_json::to_vec(&json!({
+      "roots": [root.root],
+      "quarantine": {"dir": root.quarantine(), "auto_purge": true, "purge_after_days": 0}
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+
+  let dry = root.run(vec!["purge".into()]);
+  success(dry.clone());
+  let plan = String::from_utf8_lossy(&dry.stdout);
+  assert!(plan.contains(&format!("would purge {eligible}")));
+  assert!(!plan.contains(&format!("would purge {held}")));
+  assert!(!plan.contains(&format!("would purge {protected}")));
+
+  failure(root.run(vec![
+    "maintain".into(),
+    "--apply".into(),
+    "--only".into(),
+    "purge".into(),
+  ]));
+  assert!(slot(&held, "held").join("payload").is_file());
+  assert!(slot(&protected, "marker-protected")
+    .join("payload")
+    .is_file());
+  assert!(!slot(&eligible, "eligible").exists());
+  let index: Value =
+    serde_json::from_slice(&fs::read(root.quarantine().join("index.json")).unwrap()).unwrap();
+  assert_eq!(index["entries"].as_array().unwrap().len(), 2);
+  assert_eq!(index["held_ids"][0], held);
+  assert!(
+    String::from_utf8_lossy(&root.run(vec!["status".into()]).stdout)
+      .contains("quarantine holds: 1 indexed entry")
+  );
+
+  success(root.run(vec!["quarantine".into(), "unhold".into(), held]));
+  fs::remove_file(slot(&protected, "marker-protected").join(".reap-lease")).unwrap();
+  success(root.run(vec![
+    "maintain".into(),
+    "--apply".into(),
+    "--only".into(),
+    "purge".into(),
+  ]));
+  let index: Value =
+    serde_json::from_slice(&fs::read(root.quarantine().join("index.json")).unwrap()).unwrap();
+  assert!(index["entries"].as_array().unwrap().is_empty());
+  assert!(index["held_ids"].is_null());
+}
+
+#[test]
 fn sweep_returns_failure_for_invalid_manifest_and_preserves_target() {
   let root = TestRoot::new();
   let project = root.project("project");

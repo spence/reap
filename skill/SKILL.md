@@ -155,11 +155,24 @@ byte estimates (for example, with APFS compression or shared blocks).
 ```bash
 reap quarantine                  # list entries; --owner <name> filters
 reap quarantine restore <id>
+reap quarantine hold <id>        # exclude one entry from automatic purge
+reap quarantine unhold <id>      # release an owner-approved hold
 reap doctor --quarantine         # inspect indexed and unindexed slots
 reap purge                       # dry-run: entries past the grace period
 reap purge --apply               # delete those (self-refuses if auto_purge=false)
 reap purge --owner <name> --apply  # explicit selectors bypass auto_purge
 ```
+
+Automatic purge applies the machine's grace period to old and new indexed
+entries alike, but skips held entries, surviving lease markers, and entries
+whose quarantine metadata fails validation. It rechecks each entry before
+deleting it and refuses nested mounts or unreadable slots. Holds live in the
+quarantine index and appear in `quarantine list` and `status`. Explicit
+`purge --id`, `--owner`, or `--all` bypasses holds and marker/metadata checks,
+but not the path/mount guard; obtain owner authorization before using them.
+Do not unhold an owner-held entry without that owner's approval.
+`purge` dry-run traverses selected slots for mount safety; `status` remains
+metadata-only and its policy-eligible bytes are not an executable purge plan.
 
 `reap doctor --id <lease-id> --apply` repairs only the lease index. It drops a
 missing record only when a surviving canonical ancestor is on its recorded
@@ -287,6 +300,8 @@ stage. Its latest receipt is `~/.local/state/reap/maintenance-last.json` and
 output, blocked reasons, and the next command after failure. Available-space
 deltas are observations that may include other writers, not exact attribution.
 With `auto_purge: false`, maintenance records purge as skipped.
+With `auto_purge: true`, maintenance purges only indexed entries past the grace
+period that pass the hold and validation checks.
 
 ## Authorization (owner, standing)
 

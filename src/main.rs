@@ -52,9 +52,10 @@ use parents::ParentsCmd;
 use plan::{apply_plan, human, now_secs, plan_project, Plan};
 use provenance::Provenance;
 use quarantine::{
-  assess_retire, assess_retire_ignoring_dir_mtimes, diagnose_entry, entries_dir, execute_retire,
-  finalize_restore, finalize_retire, load_index, orphaned_ids, purge_entry, restore_entry,
-  rollback_restore, save_index, select_purge, EntryDiagnosis, PurgeSelect, RetireOpts, RetirePass,
+  assess_retire, assess_retire_ignoring_dir_mtimes, audit_purge_entry, diagnose_entry, entries_dir,
+  execute_retire, finalize_restore, finalize_retire, load_index, orphaned_ids, purge_entry,
+  restore_entry, rollback_restore, save_index, select_purge, EntryDiagnosis, PurgeSelect,
+  RetireOpts, RetirePass,
 };
 use stores::{
   apply_store, init_stores, marker_armed, plan_stores, quarantine_store, StorePlan, StoreState,
@@ -210,7 +211,7 @@ enum Cmd {
     #[arg(long)]
     quarantine: bool,
   },
-  /// List or restore quarantined entries
+  /// List, restore, or hold quarantined entries
   Quarantine {
     #[command(subcommand)]
     cmd: Option<QuarantineCmd>,
@@ -306,6 +307,10 @@ enum QuarantineCmd {
     #[arg(long)]
     to: Option<String>,
   },
+  /// Protect an indexed entry from automatic purge
+  Hold { id: String },
+  /// Allow an indexed entry to follow the machine's automatic purge policy
+  Unhold { id: String },
 }
 
 enum RunError {
@@ -1951,19 +1956,26 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
         let mut total = 0u64;
         for e in &entries {
           total += e.bytes;
+          let purpose = if e.purpose.is_empty() {
+            String::new()
+          } else {
+            format!("  ({})", e.purpose)
+          };
+          let hold = if idx.held_ids.contains(&e.id) {
+            "  [held from automatic purge]"
+          } else {
+            ""
+          };
           println!(
-            "{:<10} {:<9} {:>10} {:<22} {:<14} {}{}",
+            "{:<10} {:<9} {:>10} {:<22} {:<14} {}{}{}",
             e.id,
             fmt_rel(now - e.retired_unix),
             human(e.bytes),
             e.owner,
             e.machine,
             e.original_path,
-            if e.purpose.is_empty() {
-              String::new()
-            } else {
-              format!("  ({})", e.purpose)
-            },
+            purpose,
+            hold,
           );
           if let Some(store) = &e.store {
             println!(
@@ -2017,6 +2029,7 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
         Ok(dest) => {
           let mut idx = idx;
           idx.entries.retain(|x| x.id != id);
+          idx.held_ids.remove(&id);
           if let Err(e) = save_index(&qdir, &idx) {
             eprintln!("error: {}", e);
             if let Err(rollback) = rollback_restore(&qdir, &entry, &dest) {
@@ -2041,7 +2054,57 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
         }
       }
     }
+    QuarantineCmd::Hold { id } => {
+      if !idx.entries.iter().any(|entry| entry.id == id) {
+        eprintln!("error: no indexed quarantine entry with id {id}");
+        return 1;
+      }
+      let mut idx = idx;
+      if !idx.held_ids.insert(id.clone()) {
+        println!("quarantine entry {id} is already held");
+        return 0;
+      }
+      if let Err(e) = save_index(&qdir, &idx) {
+        eprintln!("error: {e}");
+        return 1;
+      }
+      println!("held quarantine entry {id} from automatic purge");
+      0
+    }
+    QuarantineCmd::Unhold { id } => {
+      let mut idx = idx;
+      if !idx.held_ids.remove(&id) {
+        eprintln!("error: quarantine entry {id} is not held");
+        return 1;
+      }
+      if let Err(e) = save_index(&qdir, &idx) {
+        eprintln!("error: {e}");
+        return 1;
+      }
+      println!("released quarantine entry {id} to automatic purge policy");
+      0
+    }
   }
+}
+
+fn auto_purge_safe(qdir: &Path, entry: &quarantine::Entry, idx: &quarantine::IndexFile) -> bool {
+  if idx.held_ids.contains(&entry.id) {
+    return false;
+  }
+  let payload = entries_dir(qdir).join(&entry.id).join(&entry.name);
+  let marker_gone = if entry.store.is_some()
+    && std::fs::symlink_metadata(&payload).is_ok_and(|meta| !meta.is_dir())
+  {
+    true
+  } else {
+    std::fs::symlink_metadata(payload.join(LEASE_MARKER))
+      .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+  };
+  marker_gone
+    && matches!(
+      diagnose_entry(qdir, &entry.id, idx, &[]),
+      EntryDiagnosis::Indexed
+    )
 }
 
 fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) -> i32 {
@@ -2085,20 +2148,7 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
         if !matches!(sel, PurgeSelect::Auto) {
           return true;
         }
-        let payload = entries_dir(&qdir).join(&entry.id).join(&entry.name);
-        let marker_gone = if entry.store.is_some()
-          && std::fs::symlink_metadata(&payload).is_ok_and(|meta| !meta.is_dir())
-        {
-          true
-        } else {
-          std::fs::symlink_metadata(payload.join(LEASE_MARKER))
-            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
-        };
-        let indexed = matches!(
-          diagnose_entry(&qdir, &entry.id, &idx, &[]),
-          EntryDiagnosis::Indexed
-        );
-        if !marker_gone || !indexed {
+        if !auto_purge_safe(&qdir, entry, &idx) {
           withheld += 1;
           return false;
         }
@@ -2139,21 +2189,36 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
     }
   );
   let mut total = 0u64;
+  let mut succeeded = 0usize;
+  let mut already_gone = 0usize;
   let mut rc = 0;
   for e in &picked {
-    total += e.bytes;
     if apply {
+      if matches!(sel, PurgeSelect::Auto) && !auto_purge_safe(&qdir, e, &idx) {
+        eprintln!("  {}: withheld after final automatic-purge check", e.id);
+        withheld += 1;
+        rc = 1;
+        continue;
+      }
       match purge_entry(&qdir, &e.id) {
-        Ok(()) => {
+        Ok(removed) => {
           idx.entries.retain(|x| x.id != e.id);
-          println!(
-            "  purged {}  {}  ({}, owner {}, was {})",
-            e.id,
-            e.name,
-            human(e.bytes),
-            e.owner,
-            e.original_path
-          );
+          idx.held_ids.remove(&e.id);
+          if removed {
+            total = total.saturating_add(e.bytes);
+            succeeded += 1;
+            println!(
+              "  purged {}  {}  ({}, owner {}, was {})",
+              e.id,
+              e.name,
+              human(e.bytes),
+              e.owner,
+              e.original_path
+            );
+          } else {
+            already_gone += 1;
+            println!("  {} already gone; dropped stale index row", e.id);
+          }
         }
         Err(err) => {
           eprintln!("  {}: {}", e.id, err);
@@ -2161,27 +2226,45 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
         }
       }
     } else {
-      println!(
-        "  would purge {}  {}  ({}, owner {}, retired {} ago)",
-        e.id,
-        e.name,
-        human(e.bytes),
-        e.owner,
-        fmt_rel(now - e.retired_unix)
-      );
+      match audit_purge_entry(&qdir, &e.id) {
+        Ok(true) => {
+          total = total.saturating_add(e.bytes);
+          println!(
+            "  would purge {}  {}  ({}, owner {}, retired {} ago)",
+            e.id,
+            e.name,
+            human(e.bytes),
+            e.owner,
+            fmt_rel(now - e.retired_unix)
+          );
+        }
+        Ok(false) => println!("  {} already gone; --apply drops stale index row", e.id),
+        Err(err) => {
+          eprintln!("  {}: REFUSED: {}", e.id, err);
+          rc = 1;
+        }
+      }
     }
   }
   for oid in &orphans {
     if apply {
       match purge_entry(&qdir, oid) {
-        Ok(()) => println!("  purged unindexed {}", oid),
+        Ok(true) => println!("  purged unindexed {}", oid),
+        Ok(false) => println!("  unindexed {} already gone", oid),
         Err(err) => {
           eprintln!("  {}: {}", oid, err);
           rc = 1;
         }
       }
     } else {
-      println!("  would purge unindexed {}", oid);
+      match audit_purge_entry(&qdir, oid) {
+        Ok(true) => println!("  would purge unindexed {}", oid),
+        Ok(false) => println!("  unindexed {} already gone", oid),
+        Err(err) => {
+          eprintln!("  {}: REFUSED: {}", oid, err);
+          rc = 1;
+        }
+      }
     }
   }
   if apply {
@@ -2192,9 +2275,12 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
     println!(
       "\n purged {} across {} entr{}",
       human(total),
-      picked.len(),
-      if picked.len() == 1 { "y" } else { "ies" }
+      succeeded,
+      if succeeded == 1 { "y" } else { "ies" }
     );
+    if already_gone > 0 {
+      println!(" dropped {already_gone} stale index row(s) with no slot");
+    }
   } else {
     println!("\n would purge {}; re-run with --apply", human(total));
   }

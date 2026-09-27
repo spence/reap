@@ -275,6 +275,14 @@ fn report_quarantine(
     .entries
     .iter()
     .fold(0, |total, entry| total.saturating_add(entry.bytes));
+  let held: Vec<_> = index
+    .entries
+    .iter()
+    .filter(|entry| index.held_ids.contains(&entry.id))
+    .collect();
+  let held_bytes: u64 = held
+    .iter()
+    .fold(0, |total, entry| total.saturating_add(entry.bytes));
   let now = crate::plan::now_secs() as i64;
   match quarantine::select_purge(
     &index,
@@ -299,6 +307,12 @@ fn report_quarantine(
     "quarantine: {} indexed entries, {} recorded bytes",
     index.entries.len(),
     human(recorded)
+  );
+  println!(
+    "quarantine holds: {} indexed {}, {} recorded bytes",
+    held.len(),
+    if held.len() == 1 { "entry" } else { "entries" },
+    human(held_bytes)
   );
   println!("protected/unknown outside indexed quarantine: unknown — no tree sizing performed");
 }

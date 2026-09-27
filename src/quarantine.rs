@@ -6,7 +6,7 @@
 //! retain their creator's recorded owner; store entries record the evicting
 //! actor or local user.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::io;
@@ -81,6 +81,8 @@ impl EntryDiagnosis {
 pub struct IndexFile {
   pub version: u32,
   pub entries: Vec<Entry>,
+  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+  pub held_ids: BTreeSet<String>,
 }
 
 impl Default for IndexFile {
@@ -88,6 +90,7 @@ impl Default for IndexFile {
     IndexFile {
       version: 1,
       entries: vec![],
+      held_ids: BTreeSet::new(),
     }
   }
 }
@@ -635,8 +638,8 @@ pub fn finalize_retire(retired: &Retired, main_repo: Option<&Path>) -> Result<()
 }
 
 /// Which entries a purge would delete. `Auto` (no selector) honors this
-/// machine's `auto_purge`/`purge_after_days` config; explicit selectors are
-/// always allowed.
+/// machine's `auto_purge`/`purge_after_days` config and indexed holds;
+/// explicit selectors bypass the automatic policy after operator review.
 pub fn select_purge<'a>(
   index: &'a IndexFile,
   sel: &PurgeSelect,
@@ -658,7 +661,7 @@ pub fn select_purge<'a>(
         index
           .entries
           .iter()
-          .filter(|e| e.retired_unix <= cutoff)
+          .filter(|e| e.retired_unix <= cutoff && !index.held_ids.contains(&e.id))
           .collect(),
       )
     }
@@ -675,12 +678,66 @@ pub fn select_purge<'a>(
   }
 }
 
-pub fn purge_entry(qdir: &Path, id: &str) -> Result<(), String> {
-  let slot = entries_dir(qdir).join(id);
-  if slot.exists() {
-    fs::remove_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
+/// Inspect the exact slot and its tree without following symlinks or mounts.
+/// An absent slot is never selected by automatic purge.
+pub fn audit_purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
+  if id.len() != 8 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    return Err(format!("invalid quarantine entry id {id}"));
   }
-  Ok(())
+  let qmeta = fs::symlink_metadata(qdir).map_err(|e| format!("{}: {e}", qdir.display()))?;
+  if !qmeta.is_dir() {
+    return Err(format!("{} is not a real directory", qdir.display()));
+  }
+  let entries = entries_dir(qdir);
+  let emeta = fs::symlink_metadata(&entries).map_err(|e| format!("{}: {e}", entries.display()))?;
+  if !emeta.is_dir() || emeta.dev() != qmeta.dev() {
+    return Err(format!(
+      "{} is not a directory on the quarantine volume",
+      entries.display()
+    ));
+  }
+  let slot = entries.join(id);
+  let smeta = match fs::symlink_metadata(&slot) {
+    Ok(meta) => meta,
+    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+    Err(e) => return Err(format!("{}: {e}", slot.display())),
+  };
+  if !smeta.is_dir() || smeta.dev() != qmeta.dev() {
+    return Err(format!(
+      "{} is not a directory on the quarantine volume",
+      slot.display()
+    ));
+  }
+  let mut stack = vec![slot.clone()];
+  while let Some(dir) = stack.pop() {
+    let children = fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for child in children {
+      let child = child.map_err(|e| format!("{}: {e}", dir.display()))?;
+      let path = child.path();
+      let meta = fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+      if meta.dev() != qmeta.dev() {
+        return Err(format!(
+          "nested mount at {} -- refusing to purge",
+          path.display()
+        ));
+      }
+      if meta.is_dir() {
+        stack.push(path);
+      }
+    }
+  }
+  Ok(true)
+}
+
+/// Return whether a slot was removed. An already-absent slot can be dropped
+/// from the index by an explicitly selected purge, but never by auto purge.
+pub fn purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
+  if !audit_purge_entry(qdir, id)? {
+    return Ok(false);
+  }
+  let slot = entries_dir(qdir).join(id);
+  fs::remove_dir_all(&slot).map_err(|e| format!("{}: {e}", slot.display()))?;
+  Ok(true)
 }
 
 /// Move a quarantined entry back to its original path (or `to`).
@@ -1577,13 +1634,14 @@ mod tests {
     idx.entries.push(entry("aged", "agent-a", 40));
     idx.entries.push(entry("young", "agent-a", 3));
     idx.entries.push(entry("other", "agent-b", 50));
+    idx.held_ids.insert("other".to_string());
 
     let auto = select_purge(&idx, &PurgeSelect::Auto, now, true, 30).unwrap();
     let ids: Vec<&str> = auto.iter().map(|e| e.id.as_str()).collect();
     assert_eq!(
       ids,
-      vec!["aged", "other"],
-      "only entries past the grace period"
+      vec!["aged"],
+      "only unheld entries past the grace period"
     );
 
     assert!(
@@ -1614,11 +1672,33 @@ mod tests {
   fn purge_deletes_entry_dir() {
     let root = tmp();
     let qdir = root.join("q");
-    let slot = entries_dir(&qdir).join("abc123");
+    let slot = entries_dir(&qdir).join("abc12345");
     fs::create_dir_all(slot.join("thing")).unwrap();
     fs::write(slot.join("thing/f"), b"x").unwrap();
-    purge_entry(&qdir, "abc123").unwrap();
+    let outside = root.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("keep"), b"kept").unwrap();
+    std::os::unix::fs::symlink(&outside, slot.join("link")).unwrap();
+    assert!(purge_entry(&qdir, "abc12345").unwrap());
+    assert!(!purge_entry(&qdir, "abc12345").unwrap());
     assert!(!slot.exists());
+    assert!(outside.join("keep").is_file());
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn purge_refuses_ids_and_symlinked_entry_roots_outside_quarantine() {
+    let root = tmp();
+    let qdir = root.join("q");
+    let outside = root.join("outside");
+    fs::create_dir(&qdir).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("keep"), b"kept").unwrap();
+    std::os::unix::fs::symlink(&outside, entries_dir(&qdir)).unwrap();
+    assert!(purge_entry(&qdir, "../outside").is_err());
+    assert!(audit_purge_entry(&qdir, "abc12345").is_err());
+    assert!(purge_entry(&qdir, "abc12345").is_err());
+    assert!(outside.join("keep").is_file());
     let _ = fs::remove_dir_all(&root);
   }
 }

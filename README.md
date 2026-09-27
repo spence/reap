@@ -718,6 +718,8 @@ recorded:
 ```bash
 reap quarantine                     # list; --owner filters by creator
 reap quarantine restore <id>        # put one back
+reap quarantine hold <id>           # protect one from automatic purge
+reap quarantine unhold <id>         # return it to the age policy
 reap doctor --quarantine            # inspect indexed and unindexed slots
 reap purge                          # dry-run entries past the grace period
 reap purge --apply
@@ -728,12 +730,24 @@ a large project to another for testing, the copy is leased with the
 originating agent as owner, and that agent can be asked before its files are
 purged.
 
-Automatic purge withholds an otherwise eligible entry when its lease marker
-still exists (for lease retirements) or its present quarantine metadata fails
-validation; an apply reports these entries as needing review. This includes entries rebuilt by
-`reap doctor --quarantine --apply`, which retain their original retirement
-time. Explicit `purge --id`, `--owner`, or `--all` bypasses this guard and can
-permanently delete them, so inspect the owner and contents first.
+Automatic purge withholds an otherwise eligible entry when it is held in the
+quarantine index, its lease marker still exists (for lease retirements), or
+its present quarantine metadata fails validation. It rechecks each entry
+immediately before deletion; an apply reports validation-blocked entries as
+needing review. `reap quarantine list` labels held entries, and `reap status`
+counts them separately from policy-eligible bytes. Rebuilt entries from
+`reap doctor --quarantine --apply` retain their original retirement time but
+stay withheld while their lease marker remains. Purge refuses a symlinked
+quarantine entry root, unreadable contents, or a nested mount before removing
+a slot; symlinks within a real slot are not followed. Explicit `purge --id`,
+`--owner`, or `--all` bypasses holds and the marker/metadata checks, but not
+the path/mount guard. These selectors can permanently delete held entries,
+so inspect the owner and contents first. Release an owner-held entry only with
+that owner's approval.
+
+The `purge` dry-run traverses selected slots for the same path/mount preflight
+and may take time on large trees. `reap status` stays metadata-only; its
+policy-eligible byte count is not an executable deletion plan.
 
 ### quarantine location and per-machine purge policy
 
@@ -753,13 +767,20 @@ age-based purging is allowed on this machine:
 
 * `dir: null` (the default) resolves to `~/.local/state/reap/quarantine`.
   Pointing it at an external drive frees the primary disk even though the
-  move crosses devices.
+  move crosses devices. Purge requires the quarantine directory and its
+  `entries` child to be real directories on the same volume.
 * Cross-device moves are staged and verified: the copy lands beside its final
   location, is compared against the source by entry and byte counts, and the
   source is deleted only after the verified copy is swapped into place.
 * With `auto_purge: false`, a bare `reap purge` deletes nothing on this
   machine; only the explicit selectors `--id`, `--owner`, and `--all` purge.
   This suits an archival quarantine on a large external drive.
+* With `auto_purge: true`, bare purge and the purge stage of `reap maintain
+  --apply` select indexed entries at least `purge_after_days` old, including
+  entries that predate the policy change. Holds and validation failures remain
+  excluded. Age-based purge permanently frees space only on the quarantine
+  volume; a same-volume retirement alone does not. Apply reports bytes actually
+  removed, not bytes planned for entries that fail their final check.
 
 Machine state (the lease file, external-store bindings, and quarantine index)
 lives in `~/.local/state/reap/`. Lifecycle commands hold a machine-local lock
