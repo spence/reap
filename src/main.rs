@@ -5,13 +5,13 @@
 //!     by `CACHEDIR.TAG` marker (structural containment + min-age brake +
 //!     manifest protections; see `plan`);
 //!   * `stores` -- a project's declared artifact stores (`.reap.json` v2 plus
-//!     an in-dir marker), cleaned by retention policy;
+//!     local arming), cleaned by retention policy;
 //!   * `lease`/`retire`/`quarantine`/`purge` -- machine-local leases retire
 //!     temporary checkouts into a recoverable quarantine, never straight to
 //!     deletion.
 //!
 //! Age alone never triggers deletion anywhere; it only delays deletion that a
-//! marker, manifest, or lease already authorized.
+//! marker, manifest, binding, or lease already authorized.
 
 mod config;
 mod discover;
@@ -21,6 +21,7 @@ mod lease;
 mod manifest;
 mod plan;
 mod quarantine;
+mod store_bindings;
 mod stores;
 mod util;
 
@@ -143,6 +144,12 @@ enum Cmd {
     /// Create + arm the declared store dirs of PATH (default: cwd)
     #[arg(long)]
     init: bool,
+    /// Bind and arm a declared external resource on this machine
+    #[arg(long, requires = "to", conflicts_with_all = ["apply", "init"])]
+    bind: Option<String>,
+    /// Existing absolute store directory for --bind
+    #[arg(long, requires = "bind")]
+    to: Option<String>,
     #[arg(long)]
     verbose: bool,
   },
@@ -291,8 +298,10 @@ fn main() {
       path,
       apply,
       init,
+      bind,
+      to,
       verbose,
-    }) => cmd_stores(path, apply, init, verbose),
+    }) => cmd_stores(path, apply, init, bind, to, verbose),
     Some(Cmd::Lease { cmd }) => cmd_lease(cmd),
     Some(Cmd::Retire {
       path,
@@ -645,16 +654,36 @@ fn cmd_check(path: Option<String>) -> i32 {
     "    stale_profile_days: {}",
     serde_json::to_string(&manifest.policy.stale_profile_days).unwrap_or_else(|_| "{}".to_string())
   );
+  let mut rc = 0;
   for s in &manifest.stores {
-    let dir = root.join(s.path.trim_matches('/'));
-    let armed = if marker_armed(&dir) {
-      "armed"
+    let (label, armed) = if let Some(resource) = &s.resource {
+      let status = match store_bindings::lookup(&manifest, resource) {
+        Ok(None) => "UNBOUND (`reap stores --bind` to allow apply)".to_string(),
+        Ok(Some(binding)) => match store_bindings::verify_for_manifest(&manifest, &binding) {
+          Ok(dir) => format!("armed at {}", dir.display()),
+          Err(e) => {
+            rc = 1;
+            format!("INVALID BINDING: {e}")
+          }
+        },
+        Err(e) => {
+          rc = 1;
+          format!("INVALID BINDING: {e}")
+        }
+      };
+      (format!("resource:{resource}"), status)
     } else {
-      "UNARMED (`reap stores --init` to allow apply)"
+      let dir = root.join(s.path.trim_matches('/'));
+      let status = if marker_armed(&dir) {
+        "armed".to_string()
+      } else {
+        "UNARMED (`reap stores --init` to allow apply)".to_string()
+      };
+      (s.path.clone(), status)
     };
     println!(
       "    store             : {}  [{}]  keep_last={} min_age_hours={}{}{}",
-      s.path,
+      label,
       armed,
       s.retention.keep_last,
       s.retention.min_age_hours,
@@ -668,7 +697,7 @@ fn cmd_check(path: Option<String>) -> i32 {
         .unwrap_or_default(),
     );
   }
-  0
+  rc
 }
 
 fn cmd_config(init: bool) -> i32 {
@@ -715,9 +744,23 @@ fn cmd_config(init: bool) -> i32 {
 // Stores
 // --------------------------------------------------------------------------- //
 
-fn cmd_stores(path: Option<String>, apply: bool, init: bool, verbose: bool) -> i32 {
+fn cmd_stores(
+  path: Option<String>,
+  apply: bool,
+  init: bool,
+  bind: Option<String>,
+  to: Option<String>,
+  verbose: bool,
+) -> i32 {
   if init {
     return cmd_stores_init(path);
+  }
+  if let Some(resource) = bind {
+    return cmd_stores_bind(
+      path,
+      &resource,
+      Path::new(to.as_deref().unwrap_or_default()),
+    );
   }
   let now = now_secs();
   let (projects, single) = match &path {
@@ -826,6 +869,31 @@ fn cmd_stores_init(path: Option<String>) -> i32 {
   }
 }
 
+fn cmd_stores_bind(path: Option<String>, resource: &str, to: &Path) -> i32 {
+  let raw = path
+    .map(PathBuf::from)
+    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+  let abs = absolutize(&raw);
+  let root = find_project_root(&abs).unwrap_or(abs);
+  let manifest = match load_manifest(&root) {
+    Ok(manifest) => manifest,
+    Err(e) => {
+      eprintln!("error: {e}");
+      return 1;
+    }
+  };
+  match store_bindings::bind(&manifest, resource, to) {
+    Ok(dir) => {
+      println!("bound and armed resource:{resource} -> {}", dir.display());
+      0
+    }
+    Err(e) => {
+      eprintln!("error: {e}");
+      1
+    }
+  }
+}
+
 fn print_and_apply_store(
   p: &StorePlan,
   project_dir: &Path,
@@ -835,6 +903,13 @@ fn print_and_apply_store(
   match p.state {
     StoreState::Missing => {
       println!("    {:<28} (missing -- nothing to do)", p.rel);
+      return (0, false);
+    }
+    StoreState::Unbound => {
+      println!(
+        "    {:<28} UNBOUND -- `reap stores --bind` to allow apply",
+        p.rel
+      );
       return (0, false);
     }
     StoreState::Unarmed => {

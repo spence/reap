@@ -145,6 +145,16 @@ single global sequence. `min_age_hours` always protects;
 `max_age_days`/`max_bytes` are the only triggers (≥1 required).
 Unknown fields under `stores` are hard errors (a typo'd protection must not
 vanish silently). Unarmed stores are reported but never applied.
+
+For output outside the repo, declare a store with `"resource":"benchmark-logs"`
+instead of `path`, retaining the same retention/series fields. On each machine,
+bind an existing absolute directory with
+`reap stores --bind benchmark-logs --to /absolute/dir [project-dir]`.
+`--init` does not bind it. The local `store-bindings.json` and a structured
+`REAP-STORE.TAG` must agree on project, resource, directory identity, and
+token; a copied manifest alone is inert. Binding refuses symlinks, overlapping
+project/scan/store/Reap roots, mount roots, and nested mounts. Apply rechecks
+the binding and marker before every deletion.
 `--apply` rechecks the manifest, armed marker, store path, retention, and each
 candidate's identity and activity before deletion; changed runs are skipped
 with a warning. Directory scans fail closed on unreadable entries, special

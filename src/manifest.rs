@@ -57,14 +57,17 @@ impl Default for Policy {
   }
 }
 
-/// A declared artifact store (`"version": 2`): a project-relative directory
-/// whose direct children (benchmark runs, log batches) reap may delete under
+/// A declared artifact store (`"version": 2`). The direct children of a
+/// project-relative directory or locally bound named external resource
+/// (benchmark runs, log batches) may be deleted under
 /// `retention`. Parsed strictly -- an unknown field here is an error, because
 /// a typo'd protection must not silently vanish from destructive policy.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Store {
+  #[serde(default)]
   pub path: String,
+  pub resource: Option<String>,
   #[serde(default = "default_unit")]
   pub unit: String,
   pub retention: Retention,
@@ -206,24 +209,43 @@ pub fn load_manifest(project_dir: &Path) -> Result<Manifest, ManifestError> {
 /// or with the target dir, and at least one retention trigger.
 fn validate_stores(stores: &[Store], target: &str) -> Result<(), String> {
   let mut seen: Vec<PathBuf> = Vec::new();
+  let mut resources = HashSet::new();
   for s in stores {
-    let raw = s.path.trim_matches('/');
-    if raw.is_empty() {
-      return Err("store path is empty".to_string());
-    }
-    if s.path.starts_with('/') {
-      return Err(format!("store path {:?} must be project-relative", s.path));
-    }
-    if s.path.contains('*') || s.path.contains('?') || s.path.contains('[') {
-      return Err(format!("store path {:?} must be exact (no globs)", s.path));
-    }
-    let p = PathBuf::from(raw);
-    if p.components().any(|c| !matches!(c, Component::Normal(_))) {
-      return Err(format!(
-        "store path {:?} must not contain '.' or '..'",
-        s.path
-      ));
-    }
+    let p = if let Some(resource) = &s.resource {
+      if !s.path.is_empty() {
+        return Err(format!(
+          "store {resource:?} cannot have both path and resource"
+        ));
+      }
+      if resource.is_empty()
+        || !resource
+          .bytes()
+          .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        || !resources.insert(resource)
+      {
+        return Err(format!("bad or duplicate store resource name {resource:?}"));
+      }
+      None
+    } else {
+      let raw = s.path.trim_matches('/');
+      if raw.is_empty() {
+        return Err("store path is empty".to_string());
+      }
+      if s.path.starts_with('/') {
+        return Err(format!("store path {:?} must be project-relative", s.path));
+      }
+      if s.path.contains('*') || s.path.contains('?') || s.path.contains('[') {
+        return Err(format!("store path {:?} must be exact (no globs)", s.path));
+      }
+      let p = PathBuf::from(raw);
+      if p.components().any(|c| !matches!(c, Component::Normal(_))) {
+        return Err(format!(
+          "store path {:?} must not contain '.' or '..'",
+          s.path
+        ));
+      }
+      Some(p)
+    };
     if s.unit != "children" {
       return Err(format!(
         "store {:?}: unsupported unit {:?} (only \"children\")",
@@ -273,20 +295,22 @@ fn validate_stores(stores: &[Store], target: &str) -> Result<(), String> {
         ));
       }
     }
-    let t = Path::new(target);
-    if !t.is_absolute() && (p.starts_with(t) || t.starts_with(&p)) {
-      return Err(format!("store path {:?} overlaps the target dir", s.path));
-    }
-    for prev in &seen {
-      if p.starts_with(prev) || prev.starts_with(&p) {
-        return Err(format!(
-          "store paths {:?} and {:?} overlap",
-          prev.display(),
-          p.display()
-        ));
+    if let Some(p) = p {
+      let t = Path::new(target);
+      if !t.is_absolute() && (p.starts_with(t) || t.starts_with(&p)) {
+        return Err(format!("store path {:?} overlaps the target dir", s.path));
       }
+      for prev in &seen {
+        if p.starts_with(prev) || prev.starts_with(&p) {
+          return Err(format!(
+            "store paths {:?} and {:?} overlap",
+            prev.display(),
+            p.display()
+          ));
+        }
+      }
+      seen.push(p);
     }
-    seen.push(p);
   }
   Ok(())
 }
@@ -348,6 +372,14 @@ mod tests {
     assert_eq!(m.stores[0].series.as_ref().unwrap()[0].pattern, "run.*");
     let _ = fs::remove_dir_all(named);
 
+    let external = write_manifest(
+      r#"{"version":2,"stores":[{"resource":"logs","retention":{"max_age_days":1}}]}"#,
+    );
+    let m = load_manifest(&external).unwrap();
+    assert_eq!(m.stores[0].resource.as_deref(), Some("logs"));
+    assert!(m.stores[0].path.is_empty());
+    let _ = fs::remove_dir_all(external);
+
     for (bad, why) in [
       (
         r#"{"stores":[{"path":"x","retention":{"max_age_days":1}}]}"#,
@@ -389,6 +421,18 @@ mod tests {
       (
         r#"{"version":2,"stores":[{"path":"x","retention":{"max_age_days":1},"series":[{"name":"run","pattern":"run.*","keep_last":3}]}]}"#,
         "unknown series field",
+      ),
+      (
+        r#"{"version":2,"stores":[{"resource":"logs","path":"logs","retention":{"max_age_days":1}}]}"#,
+        "external resource with project-relative path",
+      ),
+      (
+        r#"{"version":2,"stores":[{"resource":"bad/name","retention":{"max_age_days":1}}]}"#,
+        "bad resource name",
+      ),
+      (
+        r#"{"version":2,"stores":[{"resource":"logs","retention":{"max_age_days":1}},{"resource":"logs","retention":{"max_age_days":1}}]}"#,
+        "duplicate resource name",
       ),
     ] {
       let d = write_manifest(bad);

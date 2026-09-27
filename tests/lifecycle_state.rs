@@ -497,6 +497,167 @@ fn stores_cli_keeps_the_newest_unit_of_each_declared_series() {
 }
 
 #[test]
+fn external_store_requires_local_binding_and_matching_marker() {
+  let root = TestRoot::new();
+  let project = root.project("external-project");
+  let store = root.root.join("external-logs");
+  fs::create_dir(&store).unwrap();
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"resource":"logs","retention":{"keep_last":1,"min_age_hours":0,"max_age_days":30}}]}"#,
+  )
+  .unwrap();
+  for (name, days) in [("old.log", 50), ("new.log", 2)] {
+    let path = store.join(name);
+    fs::write(&path, name).unwrap();
+    set_file_mtime(
+      &path,
+      FileTime::from_unix_time(
+        SystemTime::now()
+          .duration_since(UNIX_EPOCH)
+          .unwrap()
+          .as_secs() as i64
+          - days * 86400,
+        0,
+      ),
+    )
+    .unwrap();
+  }
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  assert!(store.join("old.log").is_file(), "manifest alone is inert");
+  success(root.run(vec![
+    "stores".into(),
+    "--bind".into(),
+    "logs".into(),
+    "--to".into(),
+    store.to_string_lossy().into_owned(),
+    project.to_string_lossy().into_owned(),
+  ]));
+  assert!(store.join("REAP-STORE.TAG").is_file());
+  assert!(root.state().join("store-bindings.json").is_file());
+  let copied = root.project("copied-manifest");
+  fs::copy(project.join(".reap.json"), copied.join(".reap.json")).unwrap();
+  success(root.run(args(&["stores", "--apply", "{path}"], &copied)));
+  assert!(store.join("old.log").is_file(), "copy has no local binding");
+  success(root.run(args(&["check", "{path}"], &project)));
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(!store.join("old.log").exists());
+  assert!(store.join("new.log").is_file());
+
+  let stale = store.join("stale.log");
+  fs::write(&stale, b"must survive").unwrap();
+  set_file_mtime(
+    &stale,
+    FileTime::from_unix_time(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 50 * 86400,
+      0,
+    ),
+  )
+  .unwrap();
+  fs::write(store.join("REAP-STORE.TAG"), b"wrong marker").unwrap();
+  assert!(!root
+    .run(args(&["stores", "--apply", "{path}"], &project))
+    .status
+    .success());
+  assert!(stale.is_file(), "marker mismatch cannot delete");
+}
+
+#[test]
+fn external_binding_refuses_symlinks_overlaps_and_changed_identity() {
+  use std::os::unix::fs::symlink;
+
+  let root = TestRoot::new();
+  let project = root.project("binding-guards");
+  let store = root.root.join("safe-logs");
+  fs::create_dir(&store).unwrap();
+  fs::create_dir(store.join("nested")).unwrap();
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"resource":"logs","retention":{"max_age_days":30}},{"resource":"other","retention":{"max_age_days":30}}]}"#,
+  )
+  .unwrap();
+  let alias = root.root.join("alias");
+  symlink(&store, &alias).unwrap();
+  for rejected in [&alias, &project] {
+    let output = root.run(vec![
+      "stores".into(),
+      "--bind".into(),
+      "logs".into(),
+      "--to".into(),
+      rejected.to_string_lossy().into_owned(),
+      project.to_string_lossy().into_owned(),
+    ]);
+    failure(output);
+  }
+  let config = root.root.join("home/.config/reap/config.json");
+  fs::create_dir_all(config.parent().unwrap()).unwrap();
+  fs::write(
+    &config,
+    serde_json::to_vec(&json!({"roots":[store]})).unwrap(),
+  )
+  .unwrap();
+  failure(root.run(vec![
+    "stores".into(),
+    "--bind".into(),
+    "logs".into(),
+    "--to".into(),
+    store.to_string_lossy().into_owned(),
+    project.to_string_lossy().into_owned(),
+  ]));
+  fs::remove_file(config).unwrap();
+  success(root.run(vec![
+    "stores".into(),
+    "--bind".into(),
+    "logs".into(),
+    "--to".into(),
+    store.to_string_lossy().into_owned(),
+    project.to_string_lossy().into_owned(),
+  ]));
+  failure(root.run(vec![
+    "stores".into(),
+    "--bind".into(),
+    "other".into(),
+    "--to".into(),
+    store.join("nested").to_string_lossy().into_owned(),
+    project.to_string_lossy().into_owned(),
+  ]));
+  let stale = store.join("old.log");
+  fs::write(&stale, b"must survive").unwrap();
+  set_file_mtime(
+    &stale,
+    FileTime::from_unix_time(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 50 * 86400,
+      0,
+    ),
+  )
+  .unwrap();
+  let state = root.state().join("store-bindings.json");
+  let mut bindings: Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+  bindings["bindings"][0]["dev"] = json!(u64::MAX);
+  fs::write(&state, serde_json::to_vec(&bindings).unwrap()).unwrap();
+  assert!(!root
+    .run(args(&["stores", "--apply", "{path}"], &project))
+    .status
+    .success());
+  assert!(stale.is_file(), "changed resource identity cannot delete");
+  fs::write(&state, b"{broken").unwrap();
+  assert!(!root
+    .run(args(&["stores", "--apply", "{path}"], &project))
+    .status
+    .success());
+  assert!(stale.is_file(), "corrupt local bindings cannot delete");
+}
+
+#[test]
 fn active_cargo_build_keeps_an_old_cleanup_candidate() {
   let root = TestRoot::new();
   let project = root.project("active-cargo");

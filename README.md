@@ -158,12 +158,12 @@ Each command class has its own authority and cannot exceed it:
 | command                         | may affect                                                                        |
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | `reap sweep` / `plan` / `clean` | regenerable build output inside recognized profiles                               |
-| `reap stores`                   | direct children of stores declared in `.reap.json` v2 and armed with `--init`     |
+| `reap stores`                   | direct children of declared stores armed by `--init` or a local external binding |
 | `reap retire`                   | leased directories whose lease expired, moved (not deleted) into the quarantine   |
 | `reap doctor`                   | lease or quarantine index only, with `--apply`; never directory contents         |
 | `reap purge`                    | quarantined entries past the machine's grace period, or an explicit selection     |
 
-An upgrade never widens an existing command's deletion surface.
+New deletion surfaces require an explicit declaration and local arming.
 
 ## installation
 
@@ -222,6 +222,7 @@ reap config --init
 # declared artifact stores (.reap.json v2)
 reap stores [dir]
 reap stores --init [dir]
+reap stores --bind NAME --to /absolute/dir [project-dir]
 reap stores --apply
 
 # temporary checkouts
@@ -447,20 +448,50 @@ Semantics:
 * stores parse strictly: `"version": 2` is required, and an unknown field
   anywhere under `stores` is an error, so a typo'd protection cannot silently
   disappear;
-* store paths must be exact project-relative paths: no globs, no `..`, no
+* project-relative store paths must be exact: no globs, no `..`, no
   symlinks, no overlap with each other or with the target directory, resolved
   on a single filesystem.
 
-A declaration alone deletes nothing. The store directory must also be armed
-with a `REAP-STORE.TAG` marker:
+For output outside the repository, declare a named resource in the same
+`stores` list instead of a `path`:
+
+```json
+{
+  "version": 2,
+  "stores": [{
+    "resource": "benchmark-logs",
+    "retention": { "keep_last": 1, "min_age_hours": 24, "max_age_days": 7 },
+    "series": [{ "name": "run", "pattern": "run.*" }]
+  }]
+}
+```
+
+Then bind it on each machine to an **existing** absolute directory and arm it:
+
+```bash
+reap stores --bind benchmark-logs --to /Volumes/kytos/benchmark-logs .
+```
+
+The binding lives only in the machine's Reap state (`store-bindings.json`),
+not in the manifest. The on-disk marker records the same project, resource,
+directory identity, and binding token. A copied manifest, `--init`, or a
+stale/mismatched binding cannot delete external data. Binding rejects symlink
+components, project or configured scan roots, overlapping stores, Reap state
+and quarantine, mount roots, and nested mounts. Apply rechecks the binding,
+marker, path, and identity before each deletion. Existing project-relative
+stores continue to use `--init`; it does not bind external resources.
+
+A declaration alone deletes nothing. To arm a project-relative store, create
+its directory and `REAP-STORE.TAG` marker:
 
 ```bash
 reap stores --init          # create + arm the declared stores of this project
 ```
 
-Without the marker, `reap stores --apply` reports the store as UNARMED and
-skips it. A freshly cloned repository therefore stays inert until someone with
-access to the machine arms it.
+Without the marker, `reap stores --apply` reports a project-relative store as
+UNARMED and skips it. An external store needs both its local binding and a
+matching marker. A freshly cloned repository therefore stays inert until
+someone with access to the machine arms its stores.
 
 Before each deletion, `--apply` reloads the manifest and rechecks the armed
 marker, store path and identity, retention eligibility, and the candidate's
@@ -642,6 +673,7 @@ src/config.rs     global roots, exclusions, and quarantine policy
 src/manifest.rs   per-project exceptions, policy, and store declarations
 src/plan.rs       candidate selection, guards, sizing, and deletion
 src/stores.rs     store retention planning and the arming marker
+src/store_bindings.rs machine-local external store binding and identity guards
 src/lease.rs      machine-local leases and identity markers
 src/quarantine.rs retirement validation, moves, restore, and purge
 src/inventory.rs  read-only project survey

@@ -2,12 +2,12 @@
 //! cleanup of a project's own accumulating outputs (benchmark runs, log
 //! batches, generated reports).
 //!
-//! Authority model: the committed manifest declares the store and retention; a
-//! `REAP-STORE.TAG` marker written by `reap stores --init` arms the directory
-//! on this machine; only then does `--apply` delete. Units are direct children
-//! only. `keep_last` and `min_age_hours` are unconditional protections;
-//! `max_age_days`/`max_bytes` are the triggers. The store must resolve inside
-//! the project, through no symlink, on one filesystem.
+//! Authority model: the committed manifest declares the store and retention;
+//! local arming authorizes one directory. Project-relative stores use `--init`
+//! and a marker; named external stores also require a machine-local binding
+//! whose identity matches a structured marker. Units are direct children only.
+//! `keep_last` and `min_age_hours` protect; `max_age_days`/`max_bytes` trigger.
+//! Symlinked paths and nested mounts are refused.
 
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use crate::manifest::{load_manifest, Manifest, Store, StoreSeries};
 use crate::plan::{human, mtime_secs, now_secs};
+use crate::store_bindings;
+use crate::util::{lock_state, state_dir};
 
 pub const STORE_MARKER: &str = "REAP-STORE.TAG";
 const STORE_MARKER_SIGNATURE: &str = "reap-store-marker-v1";
@@ -27,6 +29,7 @@ static MARKER_NONCE: AtomicU64 = AtomicU64::new(0);
 
 pub enum StoreState {
   Missing,
+  Unbound,
   Unarmed,
   Armed,
 }
@@ -96,6 +99,7 @@ pub struct StorePlan {
   pub total_bytes: u64,
   pub candidates: Vec<StoreCandidate>,
   pub notes: Vec<String>,
+  external: bool,
   authority: Option<StoreAuthority>,
 }
 
@@ -111,8 +115,39 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
   let target_canon = fs::canonicalize(manifest.target_dir()).ok();
   let mut plans = Vec::new();
   for s in &manifest.stores {
-    let rel = s.path.trim_matches('/').to_string();
-    match resolve_store_dir(&manifest.project_dir, &rel)? {
+    let rel = s
+      .resource
+      .as_ref()
+      .map(|resource| format!("resource:{resource}"))
+      .unwrap_or_else(|| s.path.trim_matches('/').to_string());
+    let resolved = if let Some(resource) = &s.resource {
+      match store_bindings::lookup(manifest, resource)? {
+        Some(binding) => Some((
+          store_bindings::verify_for_manifest(manifest, &binding)?,
+          true,
+        )),
+        None => {
+          plans.push(StorePlan {
+            rel,
+            dir: PathBuf::new(),
+            state: StoreState::Unbound,
+            total_children: 0,
+            total_bytes: 0,
+            candidates: vec![],
+            notes: vec![],
+            external: true,
+            authority: None,
+          });
+          continue;
+        }
+      }
+    } else {
+      resolve_store_dir(&manifest.project_dir, &rel)?.map(|dir| {
+        let armed = marker_armed(&dir);
+        (dir, armed)
+      })
+    };
+    match resolved {
       None => plans.push(StorePlan {
         rel: rel.clone(),
         dir: manifest.project_dir.join(&rel),
@@ -121,9 +156,10 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
         total_bytes: 0,
         candidates: vec![],
         notes: vec![],
+        external: false,
         authority: None,
       }),
-      Some(dir) => {
+      Some((dir, armed)) => {
         if let Some(t) = &target_canon {
           if dir.starts_with(t) || t.starts_with(&dir) {
             return Err(format!(
@@ -132,7 +168,7 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
             ));
           }
         }
-        plans.push(plan_one(s, rel, dir, now)?);
+        plans.push(plan_one(s, rel, dir, now, armed)?);
       }
     }
   }
@@ -152,6 +188,20 @@ pub fn apply_store(plan: &StorePlan, project_dir: &Path) -> StoreApply {
       .push(format!("store {} is not armed", plan.dir.display()));
     return result;
   }
+  let _binding_lock = if plan.external {
+    let state = state_dir();
+    match lock_state(&state) {
+      Ok(lock) => Some(lock),
+      Err(e) => {
+        result
+          .errors
+          .push(format!("cannot lock external store bindings: {e}"));
+        return result;
+      }
+    }
+  } else {
+    None
+  };
   for c in &plan.candidates {
     let direct_child = c.path.parent() == Some(plan.dir.as_path());
     let is_marker = c
@@ -237,7 +287,7 @@ fn recheck_candidate(
   let plans = plan_stores(&manifest, now_secs())?;
   let current = plans
     .iter()
-    .find(|current| current.rel == plan.rel)
+    .find(|current| current.rel == plan.rel && current.external == plan.external)
     .ok_or("store declaration removed")?;
   if !matches!(current.state, StoreState::Armed)
     || current.dir != plan.dir
@@ -264,6 +314,13 @@ fn recheck_candidate(
 pub fn init_stores(manifest: &Manifest) -> Result<Vec<(PathBuf, &'static str)>, String> {
   let mut out = Vec::new();
   for s in &manifest.stores {
+    if let Some(resource) = &s.resource {
+      out.push((
+        PathBuf::from(format!("resource:{resource}")),
+        "bind required",
+      ));
+      continue;
+    }
     let rel = s.path.trim_matches('/');
     let canon = ensure_store_dir(&manifest.project_dir, rel)?;
     if marker_armed(&canon) {
@@ -316,8 +373,14 @@ pub fn write_marker(dir: &Path) -> io::Result<()> {
   result
 }
 
-fn plan_one(store: &Store, rel: String, dir: PathBuf, now: f64) -> Result<StorePlan, String> {
-  let state = if marker_armed(&dir) {
+fn plan_one(
+  store: &Store,
+  rel: String,
+  dir: PathBuf,
+  now: f64,
+  armed: bool,
+) -> Result<StorePlan, String> {
+  let state = if armed {
     StoreState::Armed
   } else {
     StoreState::Unarmed
@@ -492,6 +555,7 @@ fn plan_one(store: &Store, rel: String, dir: PathBuf, now: f64) -> Result<StoreP
     total_bytes,
     candidates,
     notes,
+    external: store.resource.is_some(),
     authority,
   })
 }
@@ -637,6 +701,7 @@ mod tests {
       policy: Policy::default(),
       stores: vec![Store {
         path: "bench/results".to_string(),
+        resource: None,
         unit: "children".to_string(),
         retention,
         series: None,
