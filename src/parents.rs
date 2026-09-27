@@ -192,7 +192,7 @@ fn write_marker(parent: &Path, record: &ManagedParent) -> Result<(), String> {
   Ok(())
 }
 
-fn valid_identity(record: &ManagedParent) -> bool {
+pub fn valid_identity(record: &ManagedParent) -> bool {
   let parent = Path::new(&record.path);
   let project = Path::new(&record.project);
   let same = |path: &Path, dev, ino| {

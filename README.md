@@ -30,6 +30,7 @@ declared store, a lease); age only delays it.
 
 ```bash
 reap status           # fast capacity and lifecycle snapshot; no tree sizing
+reap coverage         # shallow audit of configured directories and registrations
 reap                  # dry-run every discovered target directory
 reap sweep --apply    # apply the proposed cleanup
 
@@ -162,6 +163,7 @@ Each command class has its own authority and cannot exceed it:
 | `reap sweep` / `plan` / `clean` | regenerable build output inside recognized profiles                               |
 | `reap stores`                   | direct children of declared stores armed by `--init` or a local external binding |
 | `reap parents`                  | local parent registration and read-only direct-child listing; no child cleanup |
+| `reap coverage`                 | no files; one-level audit of configured roots, registrations, and unknown children |
 | `reap retire`                   | leased directories whose lease expired, moved (not deleted) into the quarantine   |
 | `reap doctor`                   | lease or quarantine index only, with `--apply`; never directory contents         |
 | `reap purge`                    | quarantined entries past the machine's grace period, or an explicit selection     |
@@ -249,6 +251,7 @@ reap purge [--apply] [--all | --id ID | --owner NAME]
 
 # read-only survey
 reap status
+reap coverage
 reap inventory [--quick]
 ```
 
@@ -314,12 +317,17 @@ A more selective configuration might be:
 ```json
 {
   "roots": ["~/src", "~/work"],
+  "coverage_roots": ["/Volumes/kytos", "/Volumes/kytos/src"],
   "exclude": ["*/vendor/*", "*/third_party/*"]
 }
 ```
 
 `roots` and `exclude` support `~` and `$HOME` expansion. Exclusions are matched
 against full paths and directory basenames.
+`coverage_roots` is optional and read-only: when omitted it follows `roots`;
+when set, `reap coverage` lists only each root's direct children. It does not
+change `sweep`, `stores`, or any apply plan. Configure a volume root and selected
+subdirectories separately to see both levels without walking build trees.
 
 `reap` discovers candidate cache directories using the standard
 `CACHEDIR.TAG` signature and then scans them for supported Cargo profile
@@ -743,7 +751,7 @@ from state load through the move and index update. If an index write fails
 during retirement or restore, Reap attempts to move the unit back and exits
 nonzero; any failed rollback is reported with the data's location.
 
-## status and inventory
+## status, coverage, and inventory
 
 `reap status` reads filesystem capacity and local lease/quarantine indexes
 without recursively sizing projects. It reports free space for configured
@@ -757,6 +765,17 @@ unreadable state source is reported, never treated as an empty index.
 The last-maintenance field says `none recorded` until one-shot maintenance
 ships and produces receipts. `status` does not run cleanup or grant new
 deletion authority.
+
+`reap coverage` reads the direct children of each `coverage_roots` directory
+and compares their exact paths with local leases, pending creations, managed
+parents, and external-store bindings. It shows project and owner where recorded;
+external-store bindings record a project but no owner. A project marker alone
+is labeled an unregistered project, not a disposal declaration. Children under
+a managed parent remain unleased unless they have their own lease. Invalid
+registrations are marked blocked, and symlinks are listed without following
+them. The command does no recursive sizing, gives no deletion candidates, and
+has no `--apply` mode. A missing or unreadable index/config makes the audit
+fail rather than silently claiming coverage.
 
 ```bash
 reap inventory          # read-only project survey
@@ -812,6 +831,7 @@ src/lease.rs      machine-local leases and identity markers
 src/quarantine.rs retirement validation, moves, restore, and purge
 src/inventory.rs  read-only project survey
 src/status.rs     metadata-only capacity and lifecycle snapshot
+src/coverage.rs   shallow external-root and registration audit
 src/util.rs       tree stats, verified cross-device moves, state paths
 ```
 

@@ -70,6 +70,10 @@ fn load_bindings(state: &Path) -> Result<BindingFile, String> {
   Ok(file)
 }
 
+pub fn list_bindings() -> Result<Vec<StoreBinding>, String> {
+  Ok(load_bindings(&state_dir())?.bindings)
+}
+
 fn project_identity(project: &Path) -> Result<(PathBuf, u64, u64), String> {
   let canon = fs::canonicalize(project).map_err(|e| format!("{}: {e}", project.display()))?;
   let meta = fs::symlink_metadata(&canon).map_err(|e| format!("{}: {e}", canon.display()))?;

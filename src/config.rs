@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Config {
   pub roots: Vec<String>,
+  /// Shallow, read-only audit roots; absent means the discovery roots.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub coverage_roots: Option<Vec<String>>,
   pub exclude: Vec<String>,
   pub quarantine: QuarantineConfig,
 }
@@ -21,6 +24,7 @@ impl Default for Config {
   fn default() -> Self {
     Config {
       roots: vec!["~/src".to_string()],
+      coverage_roots: None,
       exclude: vec![],
       quarantine: QuarantineConfig::default(),
     }
@@ -30,6 +34,16 @@ impl Default for Config {
 impl Config {
   pub fn expanded_roots(&self) -> Vec<PathBuf> {
     self.roots.iter().map(|r| expand(r)).collect()
+  }
+
+  pub fn expanded_coverage_roots(&self) -> Vec<PathBuf> {
+    self
+      .coverage_roots
+      .as_ref()
+      .unwrap_or(&self.roots)
+      .iter()
+      .map(|root| expand(root))
+      .collect()
   }
 
   /// Resolved quarantine location: configured `quarantine.dir` (e.g. an

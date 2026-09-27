@@ -9,7 +9,8 @@ description: >-
   run (declare a reap store); when deciding whether old copies or quarantine
   entries are still needed (list by owner, ask the owner); when diagnosing
   missing or remounted leases or unindexed quarantine entries; or when a Rust
-  project vendors something non-regenerable into target/. `reap` deletes only
+  project vendors something non-regenerable into target/; or when auditing
+  external roots for registered versus unknown directories. `reap` deletes only
   what a marker, manifest, or lease proves disposable: `reap sweep --apply`
   compacts cargo targets, `reap stores --apply` deletes or quarantines declared
   store output according to its manifest,
@@ -241,6 +242,7 @@ or for a project-specific policy. Validate with `reap check`.
 
 ```bash
 reap status                # fast free space and lifecycle health; no tree walk
+reap coverage              # one-level external-root audit; no cleanup candidates
 reap inventory             # read-only: size, idle, git state, lease status
 ```
 
@@ -248,7 +250,12 @@ reap inventory             # read-only: size, idle, git state, lease status
 are recorded estimates, and blocked rows give an inspection command. Use
 `sweep`, `stores`, or `retire` dry-runs for exact candidates. `inventory`
 walks project trees even with `--quick`, so it is not the emergency status
-path. Suggestions only — unregistered directories are never deletion candidates.
+path. `coverage` lists each configured root's direct children without entering
+build trees. It distinguishes exact local leases, managed parents, pending
+creations, and external-store bindings from unregistered projects/directories;
+owner is unknown when not recorded. Symlinks are not followed, and a managed
+parent does not authorize its children. `coverage` has no `--apply` mode;
+unregistered directories are never deletion candidates.
 
 ## Authorization (owner, standing)
 
@@ -276,9 +283,15 @@ NOT standing — ask the user, or the recorded owner, first:
 ## Config (`~/.config/reap/config.json`)
 
 ```json
-{ "roots": ["~/src"], "exclude": [],
+{ "roots": ["~/src"], "coverage_roots": ["/Volumes/kytos", "/Volumes/kytos/src"],
+  "exclude": [],
   "quarantine": { "dir": null, "auto_purge": true, "purge_after_days": 30 } }
 ```
+
+`coverage_roots` is optional and defaults to `roots`; it controls only the
+shallow, read-only `coverage` command. Never add a whole volume to `roots`
+just to inspect its children: `sweep` and `stores` recursively discover under
+those roots. A corrupt coverage config or local index fails closed.
 
 `quarantine.dir: null` → `~/.local/state/reap/quarantine`; point it at a big
 external drive per machine, and set `auto_purge: false` there to make the

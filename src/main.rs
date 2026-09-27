@@ -14,6 +14,7 @@
 //! marker, manifest, binding, or lease already authorized.
 
 mod config;
+mod coverage;
 mod create;
 mod discover;
 mod doctor;
@@ -234,6 +235,8 @@ enum Cmd {
   },
   /// Fast filesystem capacity and lifecycle state without recursive sizing
   Status,
+  /// Shallow read-only audit of configured roots and local registrations
+  Coverage,
 }
 
 #[derive(Subcommand)]
@@ -359,6 +362,7 @@ fn main() {
     }) => cmd_purge(apply, all, id, owner),
     Some(Cmd::Inventory { quick }) => cmd_inventory(quick),
     Some(Cmd::Status) => status::run(),
+    Some(Cmd::Coverage) => coverage::run(),
   };
   exit(code);
 }
@@ -759,6 +763,11 @@ fn cmd_config(init: bool) -> i32 {
   for (raw, expanded) in cfg.roots.iter().zip(cfg.expanded_roots()) {
     let exists = if expanded.is_dir() { "" } else { "  (missing)" };
     println!("  {}  ->  {}{}", raw, expanded.display(), exists);
+  }
+  println!("coverage roots (read-only, one level):");
+  for expanded in cfg.expanded_coverage_roots() {
+    let exists = if expanded.is_dir() { "" } else { "  (missing)" };
+    println!("  {}{}", expanded.display(), exists);
   }
   println!(
     "exclude: {}",

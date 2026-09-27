@@ -251,6 +251,131 @@ fn status_is_metadata_only_and_reports_unknown_and_actionable_blocks() {
 }
 
 #[test]
+fn coverage_is_shallow_and_never_authorizes_unregistered_children() {
+  use std::os::unix::fs::symlink;
+
+  let root = TestRoot::new();
+  let source = root.project("source");
+  let audit = root.root.join("audit");
+  let parent = audit.join("managed");
+  let leased = audit.join("leased");
+  let store = audit.join("logs");
+  let unknown = audit.join("old-unknown");
+  let project = audit.join("project");
+  for path in [&parent, &leased, &store, &unknown, &project] {
+    fs::create_dir_all(path).unwrap();
+  }
+  fs::create_dir_all(unknown.join("deep/nested")).unwrap();
+  fs::create_dir(parent.join("unleased-child")).unwrap();
+  fs::create_dir(project.join(".git")).unwrap();
+  symlink(&store, audit.join("linked-store")).unwrap();
+  fs::write(
+    source.join(".reap.json"),
+    r#"{"version":2,"stores":[{"resource":"logs","retention":{"max_age_days":30}}]}"#,
+  )
+  .unwrap();
+  let config = root.root.join("home/.config/reap/config.json");
+  fs::create_dir_all(config.parent().unwrap()).unwrap();
+  fs::write(
+    &config,
+    serde_json::to_vec(&json!({
+      "roots": [source],
+      "coverage_roots": [audit, parent]
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  success(root.run(vec![
+    "lease".into(),
+    "add".into(),
+    leased.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "0".into(),
+    "--scratch".into(),
+    "--owner".into(),
+    "benchmark-agent".into(),
+    "--project".into(),
+    source.to_string_lossy().into_owned(),
+  ]));
+  success(root.run(vec![
+    "parents".into(),
+    "arm".into(),
+    parent.to_string_lossy().into_owned(),
+    "--project".into(),
+    source.to_string_lossy().into_owned(),
+    "--owner".into(),
+    "editor-owner".into(),
+  ]));
+  success(root.run(vec![
+    "stores".into(),
+    "--bind".into(),
+    "logs".into(),
+    "--to".into(),
+    store.to_string_lossy().into_owned(),
+    source.to_string_lossy().into_owned(),
+  ]));
+  set_file_mtime(
+    &unknown,
+    FileTime::from_unix_time(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 365 * 86400,
+      0,
+    ),
+  )
+  .unwrap();
+
+  let before_leases = fs::read(root.state().join("leases.json")).unwrap();
+  let before_bindings = fs::read(root.state().join("store-bindings.json")).unwrap();
+  let output = root.run(vec!["coverage".into()]);
+  success(output.clone());
+  let text = String::from_utf8_lossy(&output.stdout);
+  assert!(text.contains("[recorded lease (valid)]"));
+  assert!(text.contains("owner: benchmark-agent"));
+  assert!(text.contains("[bound store (valid)]"));
+  assert!(text.contains("binding records no owner"));
+  assert!(text.contains("[managed parent (valid)]"));
+  assert!(text.contains("owner: editor-owner"));
+  assert!(text.contains("[unleased managed-parent child]"));
+  assert!(text.contains("[unregistered project]"));
+  assert!(text.contains("[unregistered directory]"));
+  assert!(text.contains("[unregistered symlink]"));
+  assert!(text.contains("No directory listed here is a cleanup candidate"));
+  assert!(!text.contains("deep/nested"), "audit must not descend");
+  failure(root.run(vec!["coverage".into(), "--apply".into()]));
+  for plan in [
+    root.run(vec!["retire".into()]),
+    root.run(vec!["stores".into(), source.to_string_lossy().into_owned()]),
+  ] {
+    success(plan.clone());
+    assert!(!String::from_utf8_lossy(&plan.stdout).contains(unknown.to_string_lossy().as_ref()));
+  }
+  assert!(unknown.join("deep/nested").is_dir());
+  assert_eq!(
+    fs::read(root.state().join("leases.json")).unwrap(),
+    before_leases
+  );
+  assert_eq!(
+    fs::read(root.state().join("store-bindings.json")).unwrap(),
+    before_bindings
+  );
+
+  fs::write(store.join("REAP-STORE.TAG"), b"wrong marker").unwrap();
+  fs::write(leased.join(".reap-lease"), b"wrong marker").unwrap();
+  let blocked = root.run(vec!["coverage".into()]);
+  success(blocked.clone());
+  let text = String::from_utf8_lossy(&blocked.stdout);
+  assert!(text.contains("[bound store BLOCKED (identity or marker changed)]"));
+  assert!(text.contains("[recorded lease BLOCKED (blocked)]"));
+  assert!(unknown.join("deep/nested").is_dir());
+
+  fs::write(&config, b"{broken").unwrap();
+  failure(root.run(vec!["coverage".into()]));
+}
+
+#[test]
 fn managed_parent_reports_external_worktrees_without_retiring_unleased_children() {
   let root = TestRoot::new();
   let source = root.project("source-project");
