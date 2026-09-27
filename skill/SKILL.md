@@ -134,6 +134,11 @@ Units are direct children only. `keep_last` + `min_age_hours` are always
 protected; `max_age_days`/`max_bytes` are the only triggers (≥1 required).
 Unknown fields under `stores` are hard errors (a typo'd protection must not
 vanish silently). Unarmed stores are reported but never applied.
+`--apply` rechecks the manifest, armed marker, store path, retention, and each
+candidate's identity and activity before deletion; changed runs are skipped
+with a warning. Directory scans fail closed on unreadable entries, special
+files, and nested mounts, and never follow symlinks. Reap does not lock run
+producers; finish writing before an old run becomes eligible for eviction.
 
 ## 4. Exception manifest (v1, unchanged)
 

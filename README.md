@@ -443,6 +443,14 @@ Without the marker, `reap stores --apply` reports the store as UNARMED and
 skips it. A freshly cloned repository therefore stays inert until someone with
 access to the machine arms it.
 
+Before each deletion, `--apply` reloads the manifest and rechecks the armed
+marker, store path and identity, retention eligibility, and the candidate's
+identity and activity. A changed run is skipped with a warning; unchanged
+eligible runs can still be removed. Directory scans fail closed on unreadable
+entries, special files, or nested mounts. Symlinks inside a run are not
+followed. Reap does not lock the process producing a run, so producers should
+finish writing before a run becomes eligible for eviction.
+
 ## leases, retirement, and quarantine
 
 Worktrees, benchmark clones, and scratch copies accumulate because nothing

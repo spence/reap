@@ -405,6 +405,43 @@ fn quarantine_doctor_rebuilds_only_valid_interrupted_entries() {
 }
 
 #[test]
+fn stores_cli_removes_only_a_still_eligible_older_run() {
+  let root = TestRoot::new();
+  let project = root.project("store-project");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":1,"min_age_hours":24,"max_age_days":30}}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let store = project.join("bench/results");
+  let old = store.join("old-run");
+  let fresh = store.join("fresh-run");
+  for run in [&old, &fresh] {
+    fs::create_dir(run).unwrap();
+    fs::write(run.join("output.log"), b"keep or remove").unwrap();
+  }
+  let old_time = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 40 * 86400,
+    0,
+  );
+  set_file_mtime(old.join("output.log"), old_time).unwrap();
+  set_file_mtime(&old, old_time).unwrap();
+
+  success(root.run(args(&["stores", "{path}"], &project)));
+  assert!(old.join("output.log").is_file());
+  assert!(fresh.join("output.log").is_file());
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(!old.exists());
+  assert!(fresh.join("output.log").is_file());
+  assert!(store.join("REAP-STORE.TAG").is_file());
+}
+
+#[test]
 fn nested_retire_plans_and_moves_indirect_child_before_parent() {
   let root = TestRoot::new();
   let parent = root.project("nested-parent");

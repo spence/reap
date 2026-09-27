@@ -757,7 +757,11 @@ fn cmd_stores(path: Option<String>, apply: bool, init: bool, verbose: bool) -> i
       Ok(plans) => {
         println!("  {}", proot.display());
         for p in &plans {
-          grand += print_and_apply_store(p, apply, verbose);
+          let (bytes, failed) = print_and_apply_store(p, proot, apply, verbose);
+          grand += bytes;
+          if failed {
+            rc = 1;
+          }
         }
       }
     }
@@ -808,11 +812,16 @@ fn cmd_stores_init(path: Option<String>) -> i32 {
   }
 }
 
-fn print_and_apply_store(p: &StorePlan, apply: bool, verbose: bool) -> u64 {
+fn print_and_apply_store(
+  p: &StorePlan,
+  project_dir: &Path,
+  apply: bool,
+  verbose: bool,
+) -> (u64, bool) {
   match p.state {
     StoreState::Missing => {
       println!("    {:<28} (missing -- nothing to do)", p.rel);
-      return 0;
+      return (0, false);
     }
     StoreState::Unarmed => {
       println!(
@@ -821,7 +830,7 @@ fn print_and_apply_store(p: &StorePlan, apply: bool, verbose: bool) -> u64 {
         p.candidates.len(),
         human(p.reclaimable())
       );
-      return 0;
+      return (0, false);
     }
     StoreState::Armed => {}
   }
@@ -849,13 +858,16 @@ fn print_and_apply_store(p: &StorePlan, apply: bool, verbose: bool) -> u64 {
     }
   }
   if apply {
-    let (removed, errs) = apply_store(p);
-    for e in errs {
+    let result = apply_store(p, project_dir);
+    let failed = !result.errors.is_empty();
+    for e in result.errors {
       eprintln!("      warning: {}", e);
     }
-    println!("      removed {} item(s)", removed);
+    println!("      removed {} item(s)", result.removed);
+    (result.bytes, failed)
+  } else {
+    (p.reclaimable(), false)
   }
-  p.reclaimable()
 }
 
 // --------------------------------------------------------------------------- //
