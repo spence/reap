@@ -241,7 +241,6 @@ pub fn execute_retire(
   qdir: &Path,
   machine: &str,
   now: i64,
-  main_repo: Option<&Path>,
 ) -> Result<Retired, String> {
   let src = PathBuf::from(&lease.path);
   let name = src
@@ -252,15 +251,10 @@ pub fn execute_retire(
   fs::create_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
   let dest = slot.join(&name);
   let moved = move_dir(&src, &dest).map_err(|e| {
-    // Failed before anything landed in the slot; don't leave an empty orphan.
+    // Remove only an empty slot; a failed cross-device move may have landed data.
     let _ = fs::remove_dir(&slot);
     format!("move {} -> {}: {}", src.display(), dest.display(), e)
   })?;
-  let _ = fs::remove_file(dest.join(LEASE_MARKER));
-  if let Some(main) = main_repo {
-    // The moved dir was a linked worktree; clear its stale admin record.
-    let _ = git_capture(main, &["worktree", "prune"]);
-  }
   Ok(Retired {
     entry: Entry {
       id: lease.id.clone(),
@@ -276,6 +270,20 @@ pub fn execute_retire(
     dest,
     copied: matches!(moved, Moved::Copied),
   })
+}
+
+pub fn finalize_retire(retired: &Retired, main_repo: Option<&Path>) -> Result<(), String> {
+  if let Some(main) = main_repo {
+    git_capture(main, &["worktree", "prune"]).map_err(|e| match e {
+      GitError::Missing => "git unavailable while pruning retired worktree".to_string(),
+      GitError::Failed(detail) => format!("pruning retired worktree: {}", detail),
+    })?;
+  }
+  match fs::remove_file(retired.dest.join(LEASE_MARKER)) {
+    Ok(()) => Ok(()),
+    Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+    Err(e) => Err(format!("removing retired lease marker: {}", e)),
+  }
 }
 
 /// Which entries a purge would delete. `Auto` (no selector) honors this
@@ -348,6 +356,13 @@ pub fn restore_entry(qdir: &Path, entry: &Entry, to: Option<&Path>) -> Result<Pa
   move_dir(&src, &dest).map_err(|e| e.to_string())?;
   let _ = fs::remove_dir(entries_dir(qdir).join(&entry.id));
   Ok(dest)
+}
+
+pub fn rollback_restore(qdir: &Path, entry: &Entry, dest: &Path) -> Result<(), String> {
+  let slot = entries_dir(qdir).join(&entry.id);
+  fs::create_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
+  move_dir(dest, &slot.join(&entry.name)).map_err(|e| e.to_string())?;
+  Ok(())
 }
 
 /// Entry dirs on disk with no index row (e.g. a crash between move and index
@@ -573,7 +588,8 @@ mod tests {
     );
     assert_eq!(a.bytes, 64);
 
-    let retired = execute_retire(&lease, a.bytes, &qdir, "machine-a", now as i64, None).unwrap();
+    let retired = execute_retire(&lease, a.bytes, &qdir, "machine-a", now as i64).unwrap();
+    finalize_retire(&retired, None).unwrap();
     assert!(!proj.exists(), "source moved away");
     assert!(retired.dest.join("data/out.log").is_file());
     assert!(!retired.dest.join(LEASE_MARKER).exists(), "marker cleaned");
@@ -753,15 +769,8 @@ mod tests {
       "worktree main repo detected"
     );
 
-    execute_retire(
-      &lease,
-      a.bytes,
-      &qdir,
-      "m",
-      now as i64,
-      a.main_repo.as_deref(),
-    )
-    .unwrap();
+    let retired = execute_retire(&lease, a.bytes, &qdir, "m", now as i64).unwrap();
+    finalize_retire(&retired, a.main_repo.as_deref()).unwrap();
     assert!(!wt.exists());
     let listed = git(&main, &["worktree", "list"]);
     assert!(

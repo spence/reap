@@ -33,16 +33,17 @@ use config::{config_path, load_config, write_default_config};
 use discover::{discover_manifests, discover_targets, is_cargo_target_dir};
 use inventory::scan_projects;
 use lease::{
-  add_lease, find_by_path, load_leases, release_lease, renew_lease, save_leases, AddOpts,
+  add_lease, find_by_path, load_leases, release_lease, remove_released_marker, renew_lease,
+  save_leases, AddOpts,
 };
 use manifest::{find_project_root, load_manifest, Policy, MANIFEST_NAME};
 use plan::{apply_plan, human, now_secs, plan_project, Plan};
 use quarantine::{
-  assess_retire, entries_dir, execute_retire, load_index, orphaned_ids, purge_entry, restore_entry,
-  save_index, select_purge, PurgeSelect, RetireOpts,
+  assess_retire, entries_dir, execute_retire, finalize_retire, load_index, orphaned_ids,
+  purge_entry, restore_entry, rollback_restore, save_index, select_purge, PurgeSelect, RetireOpts,
 };
 use stores::{apply_store, init_stores, marker_armed, plan_stores, StorePlan, StoreState};
-use util::{fmt_rel, hostname, parse_ttl, state_dir};
+use util::{fmt_rel, hostname, lock_state, parse_ttl, state_dir};
 
 #[derive(Parser)]
 #[command(
@@ -840,6 +841,13 @@ fn print_and_apply_store(p: &StorePlan, apply: bool, verbose: bool) -> u64 {
 
 fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
   let state = state_dir();
+  let _lock = match lock_state(&state) {
+    Ok(lock) => lock,
+    Err(e) => {
+      eprintln!("error: locking state: {}", e);
+      return 1;
+    }
+  };
   let mut lf = match load_leases(&state) {
     Ok(f) => f,
     Err(e) => {
@@ -876,6 +884,15 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
         Ok(l) => {
           if let Err(e) = save_leases(&state, &lf) {
             eprintln!("error: {}", e);
+            if lease::read_marker(Path::new(&l.path))
+              .is_some_and(|m| m.id == l.id && m.token == l.token)
+            {
+              if let Err(cleanup) =
+                std::fs::remove_file(Path::new(&l.path).join(lease::LEASE_MARKER))
+              {
+                eprintln!("error: removing uncommitted lease marker: {}", cleanup);
+              }
+            }
             return 1;
           }
           println!(
@@ -930,6 +947,10 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
             eprintln!("error: {}", e);
             return 1;
           }
+          if let Err(e) = remove_released_marker(&l) {
+            eprintln!("error: {}", e);
+            return 1;
+          }
           println!("released {}  (directory kept)", l.path);
           0
         }
@@ -979,6 +1000,13 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
     return 1;
   }
   let state = state_dir();
+  let _lock = match lock_state(&state) {
+    Ok(lock) => lock,
+    Err(e) => {
+      eprintln!("error: locking state: {}", e);
+      return 1;
+    }
+  };
   let mut lf = match load_leases(&state) {
     Ok(f) => f,
     Err(e) => {
@@ -1056,6 +1084,10 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
     if a.gone {
       if apply {
         lf.leases.retain(|x| x.id != l.id);
+        if let Err(e) = save_leases(&state, &lf) {
+          eprintln!("error: saving leases: {}", e);
+          return 1;
+        }
         println!(
           "  {}  directory already gone -- lease {} dropped",
           l.path, l.id
@@ -1083,21 +1115,34 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
       );
       continue;
     }
-    match execute_retire(
-      l,
-      a.bytes,
-      &qdir,
-      &machine,
-      now as i64,
-      a.main_repo.as_deref(),
-    ) {
+    match execute_retire(l, a.bytes, &qdir, &machine, now as i64) {
       Ok(r) => {
         idx.entries.push(r.entry.clone());
         if let Err(e) = save_index(&qdir, &idx) {
           eprintln!("error: saving quarantine index: {}", e);
-          rc = 1;
+          if let Err(rollback) = restore_entry(&qdir, &r.entry, None) {
+            eprintln!(
+              "error: restoring {} after index failure: {}; data remains at {}",
+              l.path,
+              rollback,
+              r.dest.display()
+            );
+          }
+          return 1;
         }
         lf.leases.retain(|x| x.id != l.id);
+        if let Err(e) = save_leases(&state, &lf) {
+          eprintln!(
+            "error: saving leases: {}; indexed data remains at {}",
+            e,
+            r.dest.display()
+          );
+          return 1;
+        }
+        if let Err(e) = finalize_retire(&r, a.main_repo.as_deref()) {
+          eprintln!("error: {}: {}", r.dest.display(), e);
+          rc = 1;
+        }
         println!(
           "  retired {} -> {}  ({}{}, owner {})",
           l.path,
@@ -1117,16 +1162,17 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
       }
     }
   }
-  if apply {
-    if let Err(e) = save_leases(&state, &lf) {
-      eprintln!("error: saving leases: {}", e);
-      return 1;
-    }
-  }
   rc
 }
 
 fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
+  let _lock = match lock_state(&state_dir()) {
+    Ok(lock) => lock,
+    Err(e) => {
+      eprintln!("error: locking state: {}", e);
+      return 1;
+    }
+  };
   let (cfg, _) = load_config();
   let qdir = cfg.quarantine_dir();
   let idx = match load_index(&qdir) {
@@ -1210,6 +1256,13 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
           idx.entries.retain(|x| x.id != id);
           if let Err(e) = save_index(&qdir, &idx) {
             eprintln!("error: {}", e);
+            if let Err(rollback) = rollback_restore(&qdir, &entry, &dest) {
+              eprintln!(
+                "error: restoring quarantine entry after index failure: {}; data remains at {}",
+                rollback,
+                dest.display()
+              );
+            }
             return 1;
           }
           println!("restored {} -> {}", id, dest.display());
@@ -1225,6 +1278,13 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
 }
 
 fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) -> i32 {
+  let _lock = match lock_state(&state_dir()) {
+    Ok(lock) => lock,
+    Err(e) => {
+      eprintln!("error: locking state: {}", e);
+      return 1;
+    }
+  };
   let (cfg, _) = load_config();
   let qdir = cfg.quarantine_dir();
   let mut idx = match load_index(&qdir) {

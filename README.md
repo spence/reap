@@ -518,7 +518,10 @@ age-based purging is allowed on this machine:
   This suits an archival quarantine on a large external drive.
 
 Machine state (the lease file and quarantine index) lives in
-`~/.local/state/reap/`.
+`~/.local/state/reap/`. Lifecycle commands hold a machine-local lock from
+state load through the move and index update. If an index write fails during
+retirement or restore, Reap attempts to move the directory back and exits
+nonzero; any failed rollback is reported with the data's location.
 
 ## inventory
 

@@ -3,7 +3,7 @@
 //! cross-device directory moves, machine identity, TTL parsing, and atomic
 //! JSON state writes.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::fs::{symlink, MetadataExt};
 use std::path::{Path, PathBuf};
@@ -205,6 +205,19 @@ pub fn state_dir() -> PathBuf {
     }
   }
   crate::config::home().join(".local/state/reap")
+}
+
+/// Keep this file in place: replacing it would let processes lock different inodes.
+pub fn lock_state(state: &Path) -> io::Result<File> {
+  fs::create_dir_all(state)?;
+  let file = OpenOptions::new()
+    .read(true)
+    .write(true)
+    .create(true)
+    .truncate(false)
+    .open(state.join("state.lock"))?;
+  file.lock()?;
+  Ok(file)
 }
 
 pub fn hostname() -> String {

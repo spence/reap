@@ -170,7 +170,7 @@ pub fn renew_lease(
   Ok(l.clone())
 }
 
-/// Drop the lease and its marker; the directory itself is untouched.
+/// Remove a lease from state; its marker is removed after the state is saved.
 pub fn release_lease(leases: &mut LeaseFile, dir: &Path) -> Result<Lease, String> {
   let key = canon_key(dir);
   let idx = leases
@@ -178,9 +178,37 @@ pub fn release_lease(leases: &mut LeaseFile, dir: &Path) -> Result<Lease, String
     .iter()
     .position(|l| l.path == key)
     .ok_or_else(|| format!("{} is not leased", key))?;
-  let l = leases.leases.remove(idx);
-  let _ = fs::remove_file(Path::new(&l.path).join(LEASE_MARKER));
-  Ok(l)
+  Ok(leases.leases.remove(idx))
+}
+
+pub fn remove_released_marker(lease: &Lease) -> Result<(), String> {
+  let dir = Path::new(&lease.path);
+  let meta = match fs::symlink_metadata(dir) {
+    Ok(meta) => meta,
+    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(e) => return Err(format!("{}: {}", dir.display(), e)),
+  };
+  if !meta.is_dir() || meta.dev() != lease.dev || meta.ino() != lease.ino {
+    return Err(format!(
+      "{} changed identity; marker left untouched",
+      dir.display()
+    ));
+  }
+  let marker_path = dir.join(LEASE_MARKER);
+  let text = match fs::read_to_string(&marker_path) {
+    Ok(text) => text,
+    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(e) => return Err(format!("{}: {}", marker_path.display(), e)),
+  };
+  let marker: LeaseMarker =
+    serde_json::from_str(&text).map_err(|e| format!("{}: {}", marker_path.display(), e))?;
+  if marker.id != lease.id || marker.token != lease.token {
+    return Err(format!(
+      "{} changed identity; marker left untouched",
+      marker_path.display()
+    ));
+  }
+  fs::remove_file(&marker_path).map_err(|e| format!("{}: {}", marker_path.display(), e))
 }
 
 pub fn find_by_path<'a>(leases: &'a LeaseFile, dir: &Path) -> Option<&'a Lease> {
@@ -271,6 +299,8 @@ mod tests {
     let released = release_lease(&mut lf2, &proj).unwrap();
     assert_eq!(released.id, l.id);
     assert!(lf2.leases.is_empty());
+    assert!(proj.join(LEASE_MARKER).exists());
+    remove_released_marker(&released).unwrap();
     assert!(!proj.join(LEASE_MARKER).exists());
     assert!(proj.is_dir(), "release never touches the directory");
     let _ = fs::remove_dir_all(&root);
@@ -296,6 +326,27 @@ mod tests {
       "inside a forbidden dir refused"
     );
     assert!(lf.leases.is_empty());
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn release_does_not_remove_a_replaced_directory_marker() {
+    let root = tmp();
+    let proj = root.join("scratch");
+    fs::create_dir(&proj).unwrap();
+    let mut leases = LeaseFile::default();
+    let lease = add_lease(&mut leases, &proj, opts(1, true), 0, &[]).unwrap();
+    fs::rename(&proj, root.join("original")).unwrap();
+    fs::create_dir(&proj).unwrap();
+    fs::write(proj.join(LEASE_MARKER), b"foreign marker").unwrap();
+
+    release_lease(&mut leases, &proj).unwrap();
+    assert!(remove_released_marker(&lease).is_err());
+    assert_eq!(
+      fs::read(proj.join(LEASE_MARKER)).unwrap(),
+      b"foreign marker"
+    );
+    assert!(root.join("original").join(LEASE_MARKER).is_file());
     let _ = fs::remove_dir_all(&root);
   }
 }
