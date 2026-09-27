@@ -5,6 +5,12 @@ superseded Cargo build artifacts (`sweep`/`plan`/`clean`), declared artifact
 stores (`stores`), and expired leased checkouts (`lease`/`retire` → quarantine
 → `purge`).
 
+This Project is Burndown-operated. Work hierarchy, status, estimates, decisions,
+and proof live in the accepted Burn graph; `.burn-project` is its repository
+locator. Run `burn guide` before project work and use Burn workflows to update
+the plan. Commit durable authored documents in this repository and register
+them as Burn assets.
+
 ## Agent responsibilities
 
 <!-- Durable project-specific completion contracts only. -->
