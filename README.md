@@ -15,7 +15,8 @@ Beyond build output, two declared-lifecycle surfaces cover the clutter that
 timestamps alone cannot judge:
 
 * **stores** — a project's own accumulating outputs (benchmark runs, log
-  batches), cleaned by a retention policy the project declares;
+  batches), evicted by a declared retention policy, either directly or into
+  recoverable quarantine;
 * **leases** — temporary checkouts (worktrees, benchmark clones, scratch
   copies) registered at creation and, once expired, moved into a recoverable
   quarantine rather than deleted.
@@ -443,8 +444,13 @@ Semantics:
   `min_age_hours` protects every unit regardless of series. Without `series`,
   version 2 stores retain their existing single, store-wide `keep_last` and
   `max_bytes` behavior;
-* `max_age_days` and `max_bytes` are the only deletion triggers, and at least
+* `max_age_days` and `max_bytes` are the only eviction triggers, and at least
   one must be present; size trimming removes the oldest children first;
+* absent `disposition` means direct deletion, including for existing v2
+  manifests. Set `"disposition": "quarantine"` on a store to move its eligible
+  units into indexed, recoverable quarantine instead; unknown values are
+  rejected. Existing stores change behavior only if their manifest explicitly
+  opts in;
 * stores parse strictly: `"version": 2` is required, and an unknown field
   anywhere under `stores` is an error, so a typo'd protection cannot silently
   disappear;
@@ -478,7 +484,7 @@ directory identity, and binding token. A copied manifest, `--init`, or a
 stale/mismatched binding cannot delete external data. Binding rejects symlink
 components, project or configured scan roots, overlapping stores, Reap state
 and quarantine, mount roots, and nested mounts. Apply rechecks the binding,
-marker, path, and identity before each deletion. Existing project-relative
+marker, path, and identity before each eviction. Existing project-relative
 stores continue to use `--init`; it does not bind external resources.
 
 A declaration alone deletes nothing. To arm a project-relative store, create
@@ -493,13 +499,36 @@ UNARMED and skips it. An external store needs both its local binding and a
 matching marker. A freshly cloned repository therefore stays inert until
 someone with access to the machine arms its stores.
 
-Before each deletion, `--apply` reloads the manifest and rechecks the armed
-marker, store path and identity, retention eligibility, and the candidate's
-identity and activity. A changed run is skipped with a warning; unchanged
-eligible runs can still be removed. Directory scans fail closed on unreadable
-entries, special files, or nested mounts. Symlinks inside a run are not
-followed. Reap does not lock the process producing a run, so producers should
-finish writing before a run becomes eligible for eviction.
+Before each eviction, `--apply` reloads the manifest and rechecks the armed
+marker, store path and identity, disposition, retention eligibility, and the
+candidate's identity and activity under the machine state lock. It also
+refuses a unit overlapping any recorded lease. A changed run is skipped with
+a warning; unchanged eligible runs can still be evicted. Directory scans fail
+closed on unreadable entries, special files, or nested mounts. Symlinks inside
+a run are not followed. Reap does not lock the process producing a run, so
+producers should finish writing before a run becomes eligible for eviction.
+
+For recoverable output, add `"disposition": "quarantine"` to that store, then
+arm and apply it as usual:
+
+```bash
+reap stores --init .
+reap stores --apply .
+reap quarantine                    # shows owner, project, store, series, and original path
+reap quarantine restore <id> --to /safe/absolute/new-path
+```
+
+Restore requires an explicit, absent destination under an existing,
+non-symlinked parent; it never overwrites a new run at the original path.
+An external quarantine must already exist. A same-filesystem move does not
+free disk space until purge; a move to another volume frees source-volume
+space after the verified copy. Bare `reap purge --apply` applies only when this
+machine enables `auto_purge` and an entry has passed `purge_after_days`.
+Explicit `--id`, `--owner`, and `--all` still bypass that automatic policy.
+If a store move is interrupted before its index write,
+`reap doctor --quarantine` reports the unindexed slot for manual review; it does not
+silently index or purge it. Legacy stores without `disposition` continue to
+delete directly, so migration is an explicit manifest change.
 
 ## leases, retirement, and quarantine
 
@@ -537,13 +566,13 @@ a missing lease. `doctor --apply` repairs proved-safe entries even when others
 remain blocked, then exits nonzero to report the incomplete repair.
 
 `reap doctor --quarantine` inspects indexed entries and unindexed quarantine
-slots. Retirement writes `.reap-entry.json` into a new slot before moving its
-payload. If interrupted after the move but before the index write, applying
+slots. Lease retirement writes `.reap-entry.json` into a new slot before
+moving its payload. If interrupted after the move but before the index write, applying
 `reap doctor --quarantine --apply` rebuilds the index row only when that
 metadata, the payload's `.reap-lease` marker, the matching lease record, and
 the original path's recorded volume agree. It changes only the index, not the
-payload or lease record. Legacy unindexed slots without this metadata remain
-blocked and visible for manual review. The dry-run is bounded to 20
+payload or lease record. Legacy unindexed slots without this metadata and
+unindexed store output remain blocked and visible for manual review. The dry-run is bounded to 20
 non-indexed details; use `--id ID` or `--verbose` to inspect more. An apply can recover proved
 entries while reporting other blocked slots with a nonzero exit.
 
@@ -586,8 +615,8 @@ originating agent as owner, and that agent can be asked before its files are
 purged.
 
 Automatic purge withholds an otherwise eligible entry when its lease marker
-still exists or its present quarantine metadata fails validation; an apply
-reports these entries as needing review. This includes entries rebuilt by
+still exists (for lease retirements) or its present quarantine metadata fails
+validation; an apply reports these entries as needing review. This includes entries rebuilt by
 `reap doctor --quarantine --apply`, which retain their original retirement
 time. Explicit `purge --id`, `--owner`, or `--all` bypasses this guard and can
 permanently delete them, so inspect the owner and contents first.
@@ -618,10 +647,10 @@ age-based purging is allowed on this machine:
   machine; only the explicit selectors `--id`, `--owner`, and `--all` purge.
   This suits an archival quarantine on a large external drive.
 
-Machine state (the lease file and quarantine index) lives in
-`~/.local/state/reap/`. Lifecycle commands hold a machine-local lock from
-state load through the move and index update. If an index write fails during
-retirement or restore, Reap attempts to move the directory back and exits
+Machine state (the lease file, external-store bindings, and quarantine index)
+lives in `~/.local/state/reap/`. Lifecycle commands hold a machine-local lock
+from state load through the move and index update. If an index write fails
+during retirement or restore, Reap attempts to move the unit back and exits
 nonzero; any failed rollback is reported with the data's location.
 
 ## inventory

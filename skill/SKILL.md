@@ -10,7 +10,8 @@ description: >-
   missing or remounted leases or unindexed quarantine entries; or when a Rust
   project vendors something non-regenerable into target/. `reap` deletes only
   what a marker, manifest, or lease proves disposable: `reap sweep --apply`
-  compacts cargo targets, `reap stores --apply` cleans declared stores,
+  compacts cargo targets, `reap stores --apply` deletes or quarantines declared
+  store output according to its manifest,
   `reap lease`/`reap retire` move expired temp dirs into a recoverable
   quarantine, `reap purge` empties it after a grace period. If missing:
   `cargo install --git https://github.com/spence/reap`.
@@ -24,7 +25,8 @@ governs everything it does:
 
 > **Age never grants permission to delete. Deletion requires standing evidence
 > of non-value — a cargo cache marker, a declared store, or a lease — and age
-> only delays it.** Every command is a dry-run until `--apply`.
+> only delays it.** Cleanup commands default to a dry-run; lease registration
+> and quarantine restore are explicit actions.
 
 ## 1. Reclaim cargo build output (the common job)
 
@@ -107,8 +109,8 @@ New retirements write `.reap-entry.json` before moving data. With `--apply`,
 doctor rebuilds an interrupted entry's quarantine index row only when the
 sidecar, payload lease marker, lease record, and original source volume agree.
 It does not move or delete data or change the lease index. Legacy unindexed
-slots without a sidecar remain blocked for manual review. Recovered entries
-retain their original retirement time but are withheld from automatic purge
+slots without a sidecar, and unindexed store output, remain blocked for manual
+review. Recovered entries retain their original retirement time but are withheld from automatic purge
 while the lease marker remains; explicitly selected purge can still delete
 them permanently. An apply reports any remaining blocked slots with a nonzero
 exit.
@@ -142,9 +144,23 @@ glob syntax is accepted. `keep_last` protects newest units **per series**;
 unmatched children stay protected and outside the `max_bytes` budget. Overlaps
 or malformed declarations fail closed. Without `series`, v2 stores retain the
 single global sequence. `min_age_hours` always protects;
-`max_age_days`/`max_bytes` are the only triggers (≥1 required).
+`max_age_days`/`max_bytes` are the only eviction triggers (≥1 required).
 Unknown fields under `stores` are hard errors (a typo'd protection must not
 vanish silently). Unarmed stores are reported but never applied.
+
+Existing v2 stores default to direct deletion. To make an individual store
+recoverable, add `"disposition":"quarantine"` to its declaration; unknown
+values fail closed. Apply still requires its marker or external binding. An
+eligible file, directory, or symlink moves into indexed quarantine with owner,
+project, store, series, and original-path provenance. Inspect with
+`reap quarantine`; restore only with
+`reap quarantine restore <id> --to /absolute/unused-path` under an existing
+non-symlinked parent. A new run at
+the original path is never overwritten. If quarantine is on the same volume,
+the move does not free disk until purge; an external quarantine must already
+exist. Bare purge obeys machine `auto_purge` and grace; explicit selectors
+still require owner authorization. Legacy manifests stay on direct deletion
+until explicitly changed.
 
 For output outside the repo, declare a store with `"resource":"benchmark-logs"`
 instead of `path`, retaining the same retention/series fields. On each machine,
@@ -154,9 +170,10 @@ bind an existing absolute directory with
 `REAP-STORE.TAG` must agree on project, resource, directory identity, and
 token; a copied manifest alone is inert. Binding refuses symlinks, overlapping
 project/scan/store/Reap roots, mount roots, and nested mounts. Apply rechecks
-the binding and marker before every deletion.
+the binding and marker before every eviction.
 `--apply` rechecks the manifest, armed marker, store path, retention, and each
-candidate's identity and activity before deletion; changed runs are skipped
+candidate's identity and activity before eviction, including the declared
+disposition and overlap with any recorded lease; changed runs are skipped
 with a warning. Directory scans fail closed on unreadable entries, special
 files, and nested mounts, and never follow symlinks. Reap does not lock run
 producers; finish writing before an old run becomes eligible for eviction.
@@ -180,7 +197,8 @@ Suggestions only — unregistered directories are never deletion candidates.
 Any agent may run these autonomously, no prompt or prior dry-run needed:
 
 - `reap sweep --apply` / `reap clean` — cargo artifacts, whenever disk is low;
-- `reap stores --apply` — declared **and armed** stores only;
+- `reap stores --apply` — declared **and armed** stores only, with their stated
+  deletion or quarantine disposition;
 - `reap retire --apply` — **expired** leases only;
 - `reap lease add --scratch` on directories the agent itself creates;
 - bare `reap purge --apply` (auto-selection) — during low-disk recovery only;

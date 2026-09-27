@@ -71,8 +71,19 @@ pub struct Store {
   #[serde(default = "default_unit")]
   pub unit: String,
   pub retention: Retention,
+  #[serde(default)]
+  pub disposition: StoreDisposition,
   #[serde(default, deserialize_with = "declared_series")]
   pub series: Option<Vec<StoreSeries>>,
+}
+
+/// Whether eligible store units are deleted now or moved into quarantine.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StoreDisposition {
+  #[default]
+  Delete,
+  Quarantine,
 }
 
 /// A named sequence of direct store children selected by one `*` in a basename.
@@ -362,6 +373,7 @@ mod tests {
     assert_eq!(m.stores[0].retention.keep_last, 3);
     assert_eq!(m.stores[0].unit, "children");
     assert!(m.stores[0].series.is_none(), "v2 default remains global");
+    assert_eq!(m.stores[0].disposition, StoreDisposition::Delete);
     let _ = fs::remove_dir_all(&ok);
 
     let named = write_manifest(
@@ -379,6 +391,13 @@ mod tests {
     assert_eq!(m.stores[0].resource.as_deref(), Some("logs"));
     assert!(m.stores[0].path.is_empty());
     let _ = fs::remove_dir_all(external);
+
+    let quarantined = write_manifest(
+      r#"{"version":2,"stores":[{"path":"logs","disposition":"quarantine","retention":{"max_age_days":1}}]}"#,
+    );
+    let m = load_manifest(&quarantined).unwrap();
+    assert_eq!(m.stores[0].disposition, StoreDisposition::Quarantine);
+    let _ = fs::remove_dir_all(quarantined);
 
     for (bad, why) in [
       (
@@ -433,6 +452,10 @@ mod tests {
       (
         r#"{"version":2,"stores":[{"resource":"logs","retention":{"max_age_days":1}},{"resource":"logs","retention":{"max_age_days":1}}]}"#,
         "duplicate resource name",
+      ),
+      (
+        r#"{"version":2,"stores":[{"path":"logs","disposition":"archive","retention":{"max_age_days":1}}]}"#,
+        "unknown store disposition",
       ),
     ] {
       let d = write_manifest(bad);

@@ -157,11 +157,15 @@ pub fn copy_tree(src: &Path, dst: &Path) -> io::Result<(u64, u64, u64)> {
 /// and byte counts, swaps it into place, then deletes the source -- a crash
 /// can never leave a half-populated `dst` or a deleted source.
 pub fn move_dir(src: &Path, dst: &Path) -> io::Result<Moved> {
-  if dst.exists() {
-    return Err(io::Error::new(
-      io::ErrorKind::AlreadyExists,
-      format!("{} already exists", dst.display()),
-    ));
+  match fs::symlink_metadata(dst) {
+    Ok(_) => {
+      return Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!("{} already exists", dst.display()),
+      ))
+    }
+    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+    Err(e) => return Err(e),
   }
   match fs::rename(src, dst) {
     Ok(()) => return Ok(Moved::Renamed),
@@ -176,8 +180,15 @@ pub fn move_dir(src: &Path, dst: &Path) -> io::Result<Moved> {
     .parent()
     .unwrap_or_else(|| Path::new("."))
     .join(format!(".{}.reap-partial", name));
-  if staging.exists() {
-    fs::remove_dir_all(&staging)?;
+  match fs::symlink_metadata(&staging) {
+    Ok(_) => {
+      return Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!("{} already exists", staging.display()),
+      ))
+    }
+    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+    Err(e) => return Err(e),
   }
   let want = tree_stats(src, &[]);
   if let Some(fp) = &want.foreign_dev {
@@ -200,9 +211,111 @@ pub fn move_dir(src: &Path, dst: &Path) -> io::Result<Moved> {
       src.display()
     )));
   }
-  fs::rename(&staging, dst)?;
+  if let Err(e) = fs::rename(&staging, dst) {
+    let _ = fs::remove_dir_all(&staging);
+    return Err(e);
+  }
   fs::remove_dir_all(src)?;
   Ok(Moved::Copied)
+}
+
+/// Move one regular file, symlink, or directory without following a symlink.
+/// Cross-device files and links are staged beside the destination and checked
+/// before the source is removed. Special files are refused.
+pub fn move_unit(src: &Path, dst: &Path) -> io::Result<Moved> {
+  let before = fs::symlink_metadata(src)?;
+  if before.is_dir() {
+    return move_dir(src, dst);
+  }
+  if !before.is_file() && !before.file_type().is_symlink() {
+    return Err(other(format!(
+      "{} is not a movable store unit",
+      src.display()
+    )));
+  }
+  match fs::symlink_metadata(dst) {
+    Ok(_) => {
+      return Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!("{} already exists", dst.display()),
+      ))
+    }
+    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+    Err(e) => return Err(e),
+  }
+  match fs::rename(src, dst) {
+    Ok(()) => return Ok(Moved::Renamed),
+    Err(e) if e.raw_os_error() == Some(EXDEV) => {}
+    Err(e) => return Err(e),
+  }
+  let name = dst
+    .file_name()
+    .map(|name| name.to_string_lossy().into_owned())
+    .unwrap_or_else(|| "unit".to_string());
+  let staging = dst
+    .parent()
+    .unwrap_or_else(|| Path::new("."))
+    .join(format!(".{name}.reap-partial"));
+  if fs::symlink_metadata(&staging).is_ok() {
+    return Err(io::Error::new(
+      io::ErrorKind::AlreadyExists,
+      format!("{} already exists", staging.display()),
+    ));
+  }
+  if before.file_type().is_symlink() {
+    let target = fs::read_link(src)?;
+    symlink(&target, &staging)?;
+    let unchanged = fs::symlink_metadata(src).is_ok_and(|now| same_unit_metadata(&before, &now))
+      && fs::read_link(src).is_ok_and(|now| now == target);
+    if !unchanged {
+      let _ = fs::remove_file(&staging);
+      return Err(other(format!("{} changed during move", src.display())));
+    }
+  } else {
+    let mut source = File::open(src)?;
+    if !same_unit_metadata(&before, &source.metadata()?) {
+      return Err(other(format!("{} changed before copy", src.display())));
+    }
+    let mut staged = OpenOptions::new()
+      .write(true)
+      .create_new(true)
+      .open(&staging)?;
+    let copied = match io::copy(&mut source, &mut staged).and_then(|copied| {
+      staged.set_permissions(before.permissions())?;
+      staged.sync_all()?;
+      Ok(copied)
+    }) {
+      Ok(copied) => copied,
+      Err(e) => {
+        let _ = fs::remove_file(&staging);
+        return Err(e);
+      }
+    };
+    let unchanged = copied == before.len()
+      && same_unit_metadata(&before, &source.metadata()?)
+      && fs::symlink_metadata(src).is_ok_and(|now| same_unit_metadata(&before, &now));
+    if !unchanged {
+      let _ = fs::remove_file(&staging);
+      return Err(other(format!("{} changed during copy", src.display())));
+    }
+  }
+  if let Err(e) = fs::rename(&staging, dst) {
+    let _ = fs::remove_file(&staging);
+    return Err(e);
+  }
+  fs::remove_file(src)?;
+  Ok(Moved::Copied)
+}
+
+fn same_unit_metadata(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+  a.dev() == b.dev()
+    && a.ino() == b.ino()
+    && a.mode() == b.mode()
+    && a.len() == b.len()
+    && a.mtime() == b.mtime()
+    && a.mtime_nsec() == b.mtime_nsec()
+    && a.ctime() == b.ctime()
+    && a.ctime_nsec() == b.ctime_nsec()
 }
 
 /// Machine-local reap state (leases, default quarantine):
@@ -429,6 +542,36 @@ mod tests {
     fs::create_dir_all(&b).unwrap();
     assert!(move_dir(&a, &b).is_err());
     assert!(a.exists(), "source untouched when dst exists");
+    let broken = root.join("broken");
+    symlink("missing", &broken).unwrap();
+    assert!(move_dir(&a, &broken).is_err());
+    assert!(fs::symlink_metadata(&broken).unwrap().is_symlink());
+    assert!(a.exists(), "broken symlink destination stays untouched");
     let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn store_unit_move_preserves_files_and_symlinks_without_following() {
+    let root = tmp();
+    let file = root.join("run.log");
+    fs::write(&file, b"run output").unwrap();
+    let moved = root.join("moved.log");
+    assert!(matches!(move_unit(&file, &moved).unwrap(), Moved::Renamed));
+    assert!(!file.exists());
+    assert_eq!(fs::read(&moved).unwrap(), b"run output");
+    let link = root.join("run.link");
+    symlink("moved.log", &link).unwrap();
+    let moved_link = root.join("moved.link");
+    move_unit(&link, &moved_link).unwrap();
+    assert_eq!(
+      fs::read_link(&moved_link).unwrap(),
+      PathBuf::from("moved.log")
+    );
+    assert!(moved.is_file(), "symlink target stays untouched");
+    assert!(move_unit(&moved_link, &moved).is_err());
+    let socket = root.join("socket");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    assert!(move_unit(&socket, &root.join("moved-socket")).is_err());
+    let _ = fs::remove_dir_all(root);
   }
 }

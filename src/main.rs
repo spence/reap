@@ -38,14 +38,16 @@ use lease::{
   add_lease, find_by_path, load_leases, release_lease, remove_released_marker, renew_lease,
   save_leases, AddOpts, LEASE_MARKER,
 };
-use manifest::{find_project_root, load_manifest, Policy, MANIFEST_NAME};
+use manifest::{find_project_root, load_manifest, Policy, StoreDisposition, MANIFEST_NAME};
 use plan::{apply_plan, human, now_secs, plan_project, Plan};
 use quarantine::{
   assess_retire, assess_retire_ignoring_dir_mtimes, diagnose_entry, entries_dir, execute_retire,
   finalize_restore, finalize_retire, load_index, orphaned_ids, purge_entry, restore_entry,
   rollback_restore, save_index, select_purge, EntryDiagnosis, PurgeSelect, RetireOpts, RetirePass,
 };
-use stores::{apply_store, init_stores, marker_armed, plan_stores, StorePlan, StoreState};
+use stores::{
+  apply_store, init_stores, marker_armed, plan_stores, quarantine_store, StorePlan, StoreState,
+};
 use util::{fmt_rel, hostname, lock_state, parse_ttl, state_dir};
 
 #[derive(Parser)]
@@ -138,7 +140,7 @@ enum Cmd {
   Stores {
     /// One project dir (default: scan the configured roots for store manifests)
     path: Option<String>,
-    /// Actually delete
+    /// Evict eligible units (delete or quarantine, per store declaration)
     #[arg(long)]
     apply: bool,
     /// Create + arm the declared store dirs of PATH (default: cwd)
@@ -252,7 +254,7 @@ enum QuarantineCmd {
     #[arg(long)]
     owner: Option<String>,
   },
-  /// Move an entry back to its original path (or --to)
+  /// Move an entry back to its original path; store output requires --to
   Restore {
     id: String,
     #[arg(long)]
@@ -404,7 +406,7 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
   println!(
     "reap sweep -- {} -- {} target dir(s) under {} [{} ms]{}\n",
     if apply {
-      "APPLY (deleting)"
+      "APPLY (cleaning)"
     } else {
       "DRY-RUN (nothing deleted)"
     },
@@ -782,9 +784,9 @@ fn cmd_stores(
   println!(
     "reap stores -- {}\n",
     if apply {
-      "APPLY (deleting)"
+      "APPLY (evicting)"
     } else {
-      "DRY-RUN (nothing deleted)"
+      "DRY-RUN (nothing evicted)"
     }
   );
   let mut grand = 0u64;
@@ -828,7 +830,7 @@ fn cmd_stores(
   }
   println!(
     "\n TOTAL {} (armed stores): {}",
-    if apply { "reclaimed" } else { "reclaimable" },
+    if apply { "affected" } else { "eligible" },
     human(grand)
   );
   rc
@@ -930,7 +932,14 @@ fn print_and_apply_store(
     p.total_children,
     human(p.reclaimable()),
     human(p.total_bytes),
-    if apply { "reclaiming" } else { "reclaimable" }
+    if apply {
+      match p.disposition {
+        StoreDisposition::Delete => "deleting",
+        StoreDisposition::Quarantine => "quarantining",
+      }
+    } else {
+      "eligible"
+    }
   );
   for n in &p.notes {
     println!("      note: {}", n);
@@ -947,12 +956,38 @@ fn print_and_apply_store(
     }
   }
   if apply {
-    let result = apply_store(p, project_dir);
+    let result = match p.disposition {
+      StoreDisposition::Delete => apply_store(p, project_dir),
+      StoreDisposition::Quarantine => {
+        let (cfg, _) = load_config();
+        let qdir = cfg.quarantine_dir();
+        if cfg
+          .quarantine
+          .dir
+          .as_ref()
+          .is_none_or(|dir| dir.trim().is_empty())
+        {
+          if let Err(e) = std::fs::create_dir_all(&qdir) {
+            eprintln!("      warning: cannot create {}: {e}", qdir.display());
+            return (0, true);
+          }
+        }
+        quarantine_store(p, project_dir, &qdir)
+      }
+    };
     let failed = !result.errors.is_empty();
     for e in result.errors {
       eprintln!("      warning: {}", e);
     }
-    println!("      removed {} item(s)", result.removed);
+    if p.disposition == StoreDisposition::Quarantine {
+      println!(
+        "      quarantined {} item(s): {}",
+        result.removed,
+        result.quarantined.join(", ")
+      );
+    } else {
+      println!("      removed {} item(s)", result.removed);
+    }
     (result.bytes, failed)
   } else {
     (p.reclaimable(), false)
@@ -1319,7 +1354,7 @@ fn cmd_doctor_quarantine(apply: bool, id: Option<String>, verbose: bool) -> i32 
         continue;
       }
       if let EntryDiagnosis::Recoverable(entry) = diagnosis {
-        index.entries.push(entry.clone());
+        index.entries.push((**entry).clone());
       }
       changed = true;
     }
@@ -1702,8 +1737,16 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
               String::new()
             } else {
               format!("  ({})", e.purpose)
-            }
+            },
           );
+          if let Some(store) = &e.store {
+            println!(
+              "    project {}  store {}  series {}",
+              store.project_path,
+              store.store,
+              store.series.as_deref().unwrap_or("(global)")
+            );
+          }
         }
         println!(
           "\n{} entr{}, {}  -- `reap quarantine restore <id>` recovers one",
@@ -1729,6 +1772,15 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
           return 1;
         }
       };
+      if entry.store.is_some()
+        && !matches!(
+          diagnose_entry(&qdir, &id, &idx, &[]),
+          EntryDiagnosis::Indexed
+        )
+      {
+        eprintln!("error: store quarantine entry {id} needs review before restore");
+        return 1;
+      }
       match restore_entry(&qdir, &entry, to.as_deref().map(Path::new)) {
         Ok(dest) => {
           let mut idx = idx;
@@ -1801,12 +1853,15 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
         if !matches!(sel, PurgeSelect::Auto) {
           return true;
         }
-        let marker = entries_dir(&qdir)
-          .join(&entry.id)
-          .join(&entry.name)
-          .join(LEASE_MARKER);
-        let marker_gone = std::fs::symlink_metadata(&marker)
-          .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+        let payload = entries_dir(&qdir).join(&entry.id).join(&entry.name);
+        let marker_gone = if entry.store.is_some()
+          && std::fs::symlink_metadata(&payload).is_ok_and(|meta| !meta.is_dir())
+        {
+          true
+        } else {
+          std::fs::symlink_metadata(payload.join(LEASE_MARKER))
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        };
         let indexed = matches!(
           diagnose_entry(&qdir, &entry.id, &idx, &[]),
           EntryDiagnosis::Indexed

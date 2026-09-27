@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::lease::{read_marker, Lease, LEASE_MARKER};
 use crate::util::{
-  fmt_rel, git_capture, move_dir, tree_stats_ignoring_dir_mtimes, write_json_atomic, GitError,
-  Moved,
+  default_owner, fmt_rel, git_capture, move_dir, move_unit, new_id, tree_stats_ignoring_dir_mtimes,
+  write_json_atomic, GitError, Moved,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +33,16 @@ pub struct Entry {
   pub machine: String,
   pub bytes: u64,
   pub retired_unix: i64,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub store: Option<StoreProvenance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoreProvenance {
+  pub project_path: String,
+  pub store: String,
+  pub series: Option<String>,
 }
 
 pub const ENTRY_EVIDENCE: &str = ".reap-entry.json";
@@ -49,7 +59,7 @@ struct EntryEvidence {
 #[derive(Debug, PartialEq, Eq)]
 pub enum EntryDiagnosis {
   Indexed,
-  Recoverable(Entry),
+  Recoverable(Box<Entry>),
   Blocked(String),
 }
 
@@ -477,6 +487,84 @@ pub fn execute_retire(
   })
 }
 
+/// Stage a declared store unit with enough provenance to restore it even when
+/// its producer has already replaced the original pathname.
+pub fn execute_store_retire(
+  source: &Path,
+  bytes: u64,
+  qdir: &Path,
+  machine: &str,
+  now: i64,
+  store: StoreProvenance,
+) -> Result<Retired, String> {
+  let meta = fs::symlink_metadata(source).map_err(|e| format!("{}: {e}", source.display()))?;
+  if !meta.is_file() && !meta.is_dir() && !meta.file_type().is_symlink() {
+    return Err(format!("{} is not a movable store unit", source.display()));
+  }
+  let name = source
+    .file_name()
+    .and_then(|name| name.to_str())
+    .ok_or_else(|| format!("{} has no UTF-8 basename", source.display()))?;
+  if name == ENTRY_EVIDENCE || name == ".reap-entry.tmp" {
+    return Err(format!(
+      "{} conflicts with quarantine metadata",
+      source.display()
+    ));
+  }
+  let original_path = source
+    .to_str()
+    .ok_or_else(|| format!("{} has no UTF-8 path", source.display()))?;
+  if !qdir.is_dir() {
+    return Err(format!("{} quarantine is unavailable", qdir.display()));
+  }
+  fs::create_dir_all(entries_dir(qdir)).map_err(|e| format!("{}: {e}", qdir.display()))?;
+  let (id, slot) = (0..32)
+    .find_map(|attempt| {
+      let id = new_id(&format!("{original_path}:{attempt}"));
+      let slot = entries_dir(qdir).join(&id);
+      match fs::create_dir(&slot) {
+        Ok(()) => Some(Ok((id, slot))),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => None,
+        Err(e) => Some(Err(format!("{}: {e}", slot.display()))),
+      }
+    })
+    .ok_or("could not allocate a quarantine slot")??;
+  let dest = slot.join(name);
+  let entry = Entry {
+    id,
+    name: name.to_string(),
+    original_path: original_path.to_string(),
+    owner: default_owner(),
+    purpose: format!("store {}", store.store),
+    scratch: false,
+    machine: machine.to_string(),
+    bytes,
+    retired_unix: now,
+    store: Some(store),
+  };
+  let evidence = EntryEvidence {
+    version: 1,
+    entry: entry.clone(),
+    source_dev: meta.dev(),
+    source_ino: meta.ino(),
+  };
+  write_json_atomic(&evidence_path(&slot), &evidence)
+    .map_err(|e| format!("writing {}: {e}", evidence_path(&slot).display()))?;
+  let moved = move_unit(source, &dest).map_err(|e| {
+    format!(
+      "move {} -> {}: {e}; inspect {} before retrying",
+      source.display(),
+      dest.display(),
+      slot.display()
+    )
+  })?;
+  Ok(Retired {
+    entry,
+    dest,
+    copied: matches!(moved, Moved::Copied),
+  })
+}
+
 fn prepare_retire(
   lease: &Lease,
   bytes: u64,
@@ -509,6 +597,7 @@ fn prepare_retire(
     machine: machine.to_string(),
     bytes,
     retired_unix: now,
+    store: None,
   };
   let evidence = EntryEvidence {
     version: 1,
@@ -587,6 +676,12 @@ pub fn purge_entry(qdir: &Path, id: &str) -> Result<(), String> {
 /// Move a quarantined entry back to its original path (or `to`).
 pub fn restore_entry(qdir: &Path, entry: &Entry, to: Option<&Path>) -> Result<PathBuf, String> {
   let src = entries_dir(qdir).join(&entry.id).join(&entry.name);
+  if entry.store.is_some() {
+    let dest = to.ok_or("store output requires an explicit --to destination")?;
+    safe_store_restore_dest(qdir, dest)?;
+    move_unit(&src, dest).map_err(|e| e.to_string())?;
+    return Ok(dest.to_path_buf());
+  }
   if !src.is_dir() {
     return Err(format!("{} missing from quarantine", src.display()));
   }
@@ -606,10 +701,44 @@ pub fn restore_entry(qdir: &Path, entry: &Entry, to: Option<&Path>) -> Result<Pa
   Ok(dest)
 }
 
+fn safe_store_restore_dest(qdir: &Path, dest: &Path) -> Result<(), String> {
+  if !dest.is_absolute()
+    || !matches!(dest.components().next_back(), Some(Component::Normal(_)))
+    || dest
+      .components()
+      .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
+  {
+    return Err(format!(
+      "{} is not an absolute safe destination",
+      dest.display()
+    ));
+  }
+  let parent = dest
+    .parent()
+    .ok_or_else(|| format!("{} has no parent", dest.display()))?;
+  let canon = fs::canonicalize(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+  let quarantine = fs::canonicalize(qdir).map_err(|e| format!("{}: {e}", qdir.display()))?;
+  if canon != parent || canon.starts_with(&quarantine) {
+    return Err(format!(
+      "{} has a symlinked or quarantine parent",
+      dest.display()
+    ));
+  }
+  match fs::symlink_metadata(dest) {
+    Ok(_) => Err(format!("{} already exists", dest.display())),
+    Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+    Err(e) => Err(format!("{}: {e}", dest.display())),
+  }
+}
+
 pub fn rollback_restore(qdir: &Path, entry: &Entry, dest: &Path) -> Result<(), String> {
   let slot = entries_dir(qdir).join(&entry.id);
   fs::create_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
-  move_dir(dest, &slot.join(&entry.name)).map_err(|e| e.to_string())?;
+  if entry.store.is_some() {
+    move_unit(dest, &slot.join(&entry.name)).map_err(|e| e.to_string())?;
+  } else {
+    move_dir(dest, &slot.join(&entry.name)).map_err(|e| e.to_string())?;
+  }
   Ok(())
 }
 
@@ -704,24 +833,34 @@ pub fn diagnose_entry(
     return EntryDiagnosis::Blocked("payload name is not one path component".to_string());
   }
   let payload = slot.join(&entry.name);
-  match fs::symlink_metadata(&payload) {
-    Ok(meta) if meta.is_dir() => {}
-    Ok(_) => return EntryDiagnosis::Blocked("payload is not a directory".to_string()),
+  let payload_meta = match fs::symlink_metadata(&payload) {
+    Ok(meta)
+      if meta.is_dir()
+        || (entry.store.is_some() && (meta.is_file() || meta.file_type().is_symlink())) =>
+    {
+      meta
+    }
+    Ok(_) => return EntryDiagnosis::Blocked("payload has the wrong file type".to_string()),
     Err(e) => return EntryDiagnosis::Blocked(format!("payload unavailable: {e}")),
-  }
+  };
   let slot_canon = match fs::canonicalize(&slot) {
     Ok(path) => path,
     Err(e) => return EntryDiagnosis::Blocked(format!("resolving slot: {e}")),
   };
-  let payload_canon = match fs::canonicalize(&payload) {
-    Ok(path) => path,
-    Err(e) => return EntryDiagnosis::Blocked(format!("resolving payload: {e}")),
-  };
-  if payload_canon.parent() != Some(slot_canon.as_path()) {
-    return EntryDiagnosis::Blocked("payload leaves its slot".to_string());
+  if payload_meta.is_dir() {
+    let payload_canon = match fs::canonicalize(&payload) {
+      Ok(path) => path,
+      Err(e) => return EntryDiagnosis::Blocked(format!("resolving payload: {e}")),
+    };
+    if payload_canon.parent() != Some(slot_canon.as_path()) {
+      return EntryDiagnosis::Blocked("payload leaves its slot".to_string());
+    }
   }
   if row.is_some() {
     return EntryDiagnosis::Indexed;
+  }
+  if entry.store.is_some() {
+    return EntryDiagnosis::Blocked("unindexed store output needs manual review".to_string());
   }
 
   let children: Vec<_> = match fs::read_dir(&slot) {
@@ -764,7 +903,7 @@ pub fn diagnose_entry(
   if !marker_ok {
     return EntryDiagnosis::Blocked("payload lease marker does not match".to_string());
   }
-  EntryDiagnosis::Recoverable(entry.clone())
+  EntryDiagnosis::Recoverable(Box::new(entry.clone()))
 }
 
 fn push(checks: &mut Vec<RetireCheck>, label: &'static str, ok: bool, fail_detail: String) {
@@ -1012,7 +1151,7 @@ mod tests {
     assert!(!source.exists());
     assert_eq!(
       diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
-      EntryDiagnosis::Recoverable(entry.clone())
+      EntryDiagnosis::Recoverable(Box::new(entry.clone()))
     );
     let mut index = index;
     index.entries.push(entry.clone());
@@ -1411,6 +1550,7 @@ mod tests {
       machine: "m".to_string(),
       bytes: 1,
       retired_unix: now - age_days * 86400,
+      store: None,
     };
     idx.entries.push(entry("aged", "agent-a", 40));
     idx.entries.push(entry("young", "agent-a", 3));

@@ -7,10 +7,35 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use filetime::{set_file_mtime, FileTime};
+use filetime::{set_file_mtime, set_symlink_file_times, FileTime};
 use serde_json::{json, Value};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+struct ExternalFixture(PathBuf);
+
+impl ExternalFixture {
+  fn new(base: &Path) -> Self {
+    let nonce = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_nanos();
+    let path = base.join(format!(
+      "reap-cross-device-{}-{}-{}",
+      std::process::id(),
+      nonce,
+      NEXT.fetch_add(1, Ordering::SeqCst)
+    ));
+    fs::create_dir(&path).unwrap();
+    Self(path)
+  }
+}
+
+impl Drop for ExternalFixture {
+  fn drop(&mut self) {
+    let _ = fs::remove_dir_all(&self.0);
+  }
+}
 
 struct TestRoot {
   root: PathBuf,
@@ -655,6 +680,390 @@ fn external_binding_refuses_symlinks_overlaps_and_changed_identity() {
     .status
     .success());
   assert!(stale.is_file(), "corrupt local bindings cannot delete");
+}
+
+#[test]
+fn store_apply_preserves_a_leased_run_until_its_lease_is_released() {
+  let root = TestRoot::new();
+  let project = root.project("leased-store-run");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let run = project.join("bench/results/old-run");
+  fs::create_dir(&run).unwrap();
+  let output = run.join("output.log");
+  fs::write(&output, b"leased work").unwrap();
+  success(root.run(vec![
+    "lease".into(),
+    "add".into(),
+    run.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "48h".into(),
+    "--scratch".into(),
+  ]));
+  let old = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 40 * 86400,
+    0,
+  );
+  for path in [&output, &run.join(".reap-lease"), &run] {
+    set_file_mtime(path, old).unwrap();
+  }
+  assert!(!root
+    .run(args(&["stores", "--apply", "{path}"], &project))
+    .status
+    .success());
+  assert!(output.is_file(), "an active lease protects the store unit");
+  success(root.run(vec![
+    "lease".into(),
+    "release".into(),
+    run.to_string_lossy().into_owned(),
+  ]));
+  set_file_mtime(&run, old).unwrap();
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(!run.exists(), "released old run can be removed");
+}
+
+#[test]
+fn quarantined_store_files_and_dirs_restore_only_to_explicit_safe_paths() {
+  let root = TestRoot::new();
+  let project = root.project("quarantined-store");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"bench/results","disposition":"quarantine","retention":{"keep_last":1,"min_age_hours":0,"max_age_days":30},"series":[{"name":"run","pattern":"run.*"},{"name":"report","pattern":"report.*"}]}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let store = project.join("bench/results");
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap()
+    .as_secs() as i64;
+  for (name, days) in [("run.old.log", 50), ("run.new.log", 2)] {
+    let path = store.join(name);
+    fs::write(&path, name).unwrap();
+    set_file_mtime(&path, FileTime::from_unix_time(now - days * 86400, 0)).unwrap();
+  }
+  for (name, days) in [("report.old", 60), ("report.new", 2)] {
+    let dir = store.join(name);
+    fs::create_dir(&dir).unwrap();
+    let output = dir.join("report.txt");
+    fs::write(&output, name).unwrap();
+    let old = FileTime::from_unix_time(now - days * 86400, 0);
+    set_file_mtime(&output, old).unwrap();
+    set_file_mtime(&dir, old).unwrap();
+  }
+  fs::create_dir_all(root.quarantine()).unwrap();
+  fs::create_dir(root.quarantine().join("index.tmp")).unwrap();
+  assert!(!root
+    .run(args(&["stores", "--apply", "{path}"], &project))
+    .status
+    .success());
+  assert!(store.join("run.old.log").is_file());
+  assert!(store.join("report.old/report.txt").is_file());
+  fs::remove_dir(root.quarantine().join("index.tmp")).unwrap();
+
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(!store.join("run.old.log").exists());
+  assert!(!store.join("report.old").exists());
+  assert!(store.join("run.new.log").is_file());
+  assert!(store.join("report.new/report.txt").is_file());
+  assert!(store.join("REAP-STORE.TAG").is_file());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 2);
+  for entry in &entries {
+    assert_eq!(
+      entry["store"]["project_path"],
+      project.to_string_lossy().as_ref()
+    );
+    assert_eq!(entry["store"]["store"], "bench/results");
+    assert!(!entry["owner"].as_str().unwrap().is_empty());
+  }
+  let run = entries
+    .iter()
+    .find(|entry| entry["name"] == "run.old.log")
+    .unwrap();
+  let report = entries
+    .iter()
+    .find(|entry| entry["name"] == "report.old")
+    .unwrap();
+  assert_eq!(run["store"]["series"], "run");
+  assert_eq!(report["store"]["series"], "report");
+  let run_id = run["id"].as_str().unwrap();
+  let report_id = report["id"].as_str().unwrap();
+  failure(root.run(vec!["quarantine".into(), "restore".into(), run_id.into()]));
+  failure(root.run(vec![
+    "quarantine".into(),
+    "restore".into(),
+    run_id.into(),
+    "--to".into(),
+    "relative.log".into(),
+  ]));
+  let recovered_file = root.root.join("recovered-run.log");
+  success(root.run(vec![
+    "quarantine".into(),
+    "restore".into(),
+    run_id.into(),
+    "--to".into(),
+    recovered_file.to_string_lossy().into_owned(),
+  ]));
+  assert_eq!(fs::read_to_string(&recovered_file).unwrap(), "run.old.log");
+  let recovered_dir = root.root.join("recovered-report");
+  success(root.run(vec![
+    "quarantine".into(),
+    "restore".into(),
+    report_id.into(),
+    "--to".into(),
+    recovered_dir.to_string_lossy().into_owned(),
+  ]));
+  assert_eq!(
+    fs::read_to_string(recovered_dir.join("report.txt")).unwrap(),
+    "report.old"
+  );
+  assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
+}
+
+#[test]
+fn store_quarantine_purge_requires_machine_policy_or_explicit_selection() {
+  let root = TestRoot::new();
+  let project = root.project("store-purge-policy");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"logs","disposition":"quarantine","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let store = project.join("logs");
+  let config = root.root.join("home/.config/reap/config.json");
+  fs::create_dir_all(config.parent().unwrap()).unwrap();
+  fs::write(
+    &config,
+    br#"{"quarantine":{"auto_purge":false,"purge_after_days":0}}"#,
+  )
+  .unwrap();
+  for name in ["first.log", "second.log"] {
+    let path = store.join(name);
+    fs::write(&path, name).unwrap();
+    set_file_mtime(
+      &path,
+      FileTime::from_unix_time(
+        SystemTime::now()
+          .duration_since(UNIX_EPOCH)
+          .unwrap()
+          .as_secs() as i64
+          - 40 * 86400,
+        0,
+      ),
+    )
+    .unwrap();
+    success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+    assert!(!path.exists());
+    let entries = array(&root.quarantine().join("index.json"), "entries");
+    assert_eq!(entries.len(), 1);
+    let id = entries[0]["id"].as_str().unwrap().to_string();
+    if name == "first.log" {
+      failure(root.run(vec!["purge".into(), "--apply".into()]));
+      assert_eq!(
+        array(&root.quarantine().join("index.json"), "entries").len(),
+        1
+      );
+      success(root.run(vec!["purge".into(), "--id".into(), id, "--apply".into()]));
+    } else {
+      fs::write(
+        &config,
+        br#"{"quarantine":{"auto_purge":true,"purge_after_days":0}}"#,
+      )
+      .unwrap();
+      success(root.run(vec!["purge".into(), "--apply".into()]));
+    }
+    assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
+  }
+}
+
+#[test]
+fn quarantined_store_symlink_never_moves_its_target() {
+  let root = TestRoot::new();
+  let project = root.project("linked-store-run");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"logs","disposition":"quarantine","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let target = root.root.join("outside.log");
+  fs::write(&target, b"keep this target").unwrap();
+  let link = project.join("logs/old.link");
+  std::os::unix::fs::symlink(&target, &link).unwrap();
+  let old = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 40 * 86400,
+    0,
+  );
+  set_symlink_file_times(&link, old, old).unwrap();
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(fs::symlink_metadata(&link).is_err());
+  assert_eq!(fs::read(&target).unwrap(), b"keep this target");
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 1);
+  let id = entries[0]["id"].as_str().unwrap();
+  let restored = root.root.join("restored.link");
+  success(root.run(vec![
+    "quarantine".into(),
+    "restore".into(),
+    id.into(),
+    "--to".into(),
+    restored.to_string_lossy().into_owned(),
+  ]));
+  assert_eq!(fs::read_link(&restored).unwrap(), target);
+  assert_eq!(fs::read(&target).unwrap(), b"keep this target");
+}
+
+#[test]
+fn unindexed_store_output_stays_blocked_for_manual_review() {
+  let root = TestRoot::new();
+  let project = root.project("unindexed-store");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"logs","disposition":"quarantine","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let old = project.join("logs/old.log");
+  fs::write(&old, b"preserve for review").unwrap();
+  set_file_mtime(
+    &old,
+    FileTime::from_unix_time(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 40 * 86400,
+      0,
+    ),
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  let id = entries[0]["id"].as_str().unwrap();
+  fs::remove_file(root.quarantine().join("index.json")).unwrap();
+  let diagnosis = root.run(vec![
+    "doctor".into(),
+    "--quarantine".into(),
+    "--apply".into(),
+  ]);
+  assert!(!diagnosis.status.success());
+  assert!(String::from_utf8_lossy(&diagnosis.stdout).contains("blocked"));
+  assert_eq!(
+    fs::read(root.quarantine().join("entries").join(id).join("old.log")).unwrap(),
+    b"preserve for review"
+  );
+  assert!(!root.quarantine().join("index.json").exists());
+}
+
+#[test]
+fn cross_device_store_quarantine_restores_without_erasing_a_staging_directory() {
+  let Ok(base) = std::env::var("REAP_TEST_CROSS_DEVICE_ROOT") else {
+    return;
+  };
+  let root = TestRoot::new();
+  let external = ExternalFixture::new(Path::new(&base));
+  assert_ne!(
+    fs::symlink_metadata(&root.root).unwrap().dev(),
+    fs::symlink_metadata(&external.0).unwrap().dev(),
+    "fixture must span two devices"
+  );
+  let project = root.project("cross-device-store");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"resource":"logs","disposition":"quarantine","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}}]}"#,
+  )
+  .unwrap();
+  success(root.run(vec![
+    "stores".into(),
+    "--bind".into(),
+    "logs".into(),
+    "--to".into(),
+    external.0.to_string_lossy().into_owned(),
+    project.to_string_lossy().into_owned(),
+  ]));
+  let file = external.0.join("old.log");
+  fs::write(&file, b"cross-device file").unwrap();
+  let dir = external.0.join("old-run");
+  fs::create_dir(&dir).unwrap();
+  let nested = dir.join("result.log");
+  fs::write(&nested, b"cross-device directory").unwrap();
+  let old = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 40 * 86400,
+    0,
+  );
+  for path in [&file, &nested, &dir] {
+    set_file_mtime(path, old).unwrap();
+  }
+  success(root.run(args(&["stores", "--apply", "{path}"], &project)));
+  assert!(!file.exists());
+  assert!(!dir.exists());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 2);
+  let file_id = entries
+    .iter()
+    .find(|entry| entry["name"] == "old.log")
+    .unwrap()["id"]
+    .as_str()
+    .unwrap();
+  let dir_id = entries
+    .iter()
+    .find(|entry| entry["name"] == "old-run")
+    .unwrap()["id"]
+    .as_str()
+    .unwrap();
+  let restored_file = external.0.join("restored.log");
+  success(root.run(vec![
+    "quarantine".into(),
+    "restore".into(),
+    file_id.into(),
+    "--to".into(),
+    restored_file.to_string_lossy().into_owned(),
+  ]));
+  assert_eq!(fs::read(&restored_file).unwrap(), b"cross-device file");
+
+  let restored_dir = external.0.join("restored-run");
+  let staging = external.0.join(".restored-run.reap-partial");
+  fs::create_dir(&staging).unwrap();
+  let sentinel = staging.join("keep.txt");
+  fs::write(&sentinel, b"unrelated data").unwrap();
+  let restore = vec![
+    "quarantine".into(),
+    "restore".into(),
+    dir_id.into(),
+    "--to".into(),
+    restored_dir.to_string_lossy().into_owned(),
+  ];
+  failure(root.run(restore.clone()));
+  assert_eq!(fs::read(&sentinel).unwrap(), b"unrelated data");
+  assert_eq!(
+    array(&root.quarantine().join("index.json"), "entries").len(),
+    1
+  );
+  fs::remove_dir_all(&staging).unwrap();
+  success(root.run(restore));
+  assert_eq!(
+    fs::read(restored_dir.join("result.log")).unwrap(),
+    b"cross-device directory"
+  );
+  assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
 }
 
 #[test]
