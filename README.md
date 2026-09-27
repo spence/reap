@@ -745,6 +745,11 @@ the path/mount guard. These selectors can permanently delete held entries,
 so inspect the owner and contents first. Release an owner-held entry only with
 that owner's approval.
 
+Before a broad live purge, compare owner-protected paths with indexed
+`original_path` values, including ancestor entries, and hold any match.
+Record whether each protected path exists before and after the run; an absent
+index match alone does not prove that a path survived.
+
 The `purge` dry-run traverses selected slots for the same path/mount preflight
 and may take time on large trees. `reap status` stays metadata-only; its
 policy-eligible byte count is not an executable deletion plan.

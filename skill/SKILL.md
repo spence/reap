@@ -173,6 +173,10 @@ but not the path/mount guard; obtain owner authorization before using them.
 Do not unhold an owner-held entry without that owner's approval.
 `purge` dry-run traverses selected slots for mount safety; `status` remains
 metadata-only and its policy-eligible bytes are not an executable purge plan.
+Before a broad live purge, compare each owner-protected path with indexed
+`original_path` values, including ancestors, and hold any matching entry.
+Record protected-path existence before and after; an absent index match does
+not by itself prove that a path survived.
 
 `reap doctor --id <lease-id> --apply` repairs only the lease index. It drops a
 missing record only when a surviving canonical ancestor is on its recorded
