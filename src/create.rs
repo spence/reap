@@ -239,7 +239,7 @@ fn create(cmd: CreateCmd) -> Result<Lease, String> {
       },
     };
     leases.creating.push(intent.clone());
-    leases.guard_creation_intents();
+    leases.guard_extended_state();
     save_leases(&state, &leases).map_err(|e| format!("saving creation intent: {e}"))?;
     if let Err(e) = fs::create_dir(&target) {
       leases

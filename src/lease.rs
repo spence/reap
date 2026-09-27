@@ -52,6 +52,8 @@ pub struct LeaseFile {
   pub leases: Vec<Lease>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub creating: Vec<CreationIntent>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub parents: Vec<ManagedParent>,
 }
 
 impl Default for LeaseFile {
@@ -60,12 +62,13 @@ impl Default for LeaseFile {
       version: LeaseVersion::Legacy(1),
       leases: vec![],
       creating: vec![],
+      parents: vec![],
     }
   }
 }
 
 impl LeaseFile {
-  pub fn guard_creation_intents(&mut self) {
+  pub fn guard_extended_state(&mut self) {
     self.version = LeaseVersion::Guarded("2".to_string());
   }
 
@@ -75,10 +78,38 @@ impl LeaseFile {
       path.starts_with(creating) || creating.starts_with(path)
     })
   }
+
+  pub fn contains_managed_parent(&self, path: &Path) -> bool {
+    self
+      .parents
+      .iter()
+      .any(|parent| Path::new(&parent.path).starts_with(path))
+  }
+
+  pub fn overlaps_managed_parent(&self, path: &Path) -> bool {
+    self.parents.iter().any(|parent| {
+      let managed = Path::new(&parent.path);
+      path.starts_with(managed) || managed.starts_with(path)
+    })
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManagedParent {
+  pub id: String,
+  pub path: String,
+  pub dev: u64,
+  pub ino: u64,
+  pub token: String,
+  pub project: String,
+  pub project_dev: u64,
+  pub project_ino: u64,
+  pub owner: String,
+  pub created_unix: i64,
 }
 
 /// String version 2 makes older numeric-version readers fail closed instead
-/// of silently discarding creation intents when they rewrite the index.
+/// of silently discarding creation intents or managed parents on index rewrite.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum LeaseVersion {
@@ -143,7 +174,9 @@ pub fn load_leases(state: &Path) -> Result<LeaseFile, String> {
   let text = fs::read_to_string(&p).map_err(|e| format!("{}: {}", p.display(), e))?;
   let leases: LeaseFile =
     serde_json::from_str(&text).map_err(|e| format!("{}: {}", p.display(), e))?;
-  if !leases.version.valid() || (!leases.creating.is_empty() && !leases.version.guarded()) {
+  if !leases.version.valid()
+    || ((!leases.creating.is_empty() || !leases.parents.is_empty()) && !leases.version.guarded())
+  {
     return Err(format!(
       "{}: unsupported or unguarded lease-state version",
       p.display()
@@ -153,7 +186,9 @@ pub fn load_leases(state: &Path) -> Result<LeaseFile, String> {
 }
 
 pub fn save_leases(state: &Path, f: &LeaseFile) -> io::Result<()> {
-  if !f.version.valid() || (!f.creating.is_empty() && !f.version.guarded()) {
+  if !f.version.valid()
+    || ((!f.creating.is_empty() || !f.parents.is_empty()) && !f.version.guarded())
+  {
     return Err(io::Error::new(
       io::ErrorKind::InvalidData,
       "unsupported or unguarded lease-state version",
@@ -194,6 +229,12 @@ pub fn add_lease(
     }
   }
   let key = canon.to_string_lossy().into_owned();
+  if leases.contains_managed_parent(&canon) {
+    return Err(format!(
+      "refusing to lease {} (contains a managed parent)",
+      canon.display()
+    ));
+  }
   if let Some(l) = leases.leases.iter().find(|l| l.path == key) {
     return Err(format!(
       "already leased (id {}; `reap lease renew` to extend)",
@@ -319,7 +360,11 @@ pub fn write_marker(dir: &Path, l: &Lease) -> io::Result<()> {
 }
 
 pub fn read_marker(dir: &Path) -> Option<LeaseMarker> {
-  let text = fs::read_to_string(dir.join(LEASE_MARKER)).ok()?;
+  let path = dir.join(LEASE_MARKER);
+  if !fs::symlink_metadata(&path).ok()?.is_file() {
+    return None;
+  }
+  let text = fs::read_to_string(path).ok()?;
   serde_json::from_str(&text).ok()
 }
 
@@ -422,7 +467,7 @@ mod tests {
       provenance: Provenance::default(),
     });
     assert!(save_leases(&state, &leases).is_err());
-    leases.guard_creation_intents();
+    leases.guard_extended_state();
     save_leases(&state, &leases).unwrap();
     let path = leases_path(&state);
     let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -436,6 +481,18 @@ mod tests {
       "unguarded intent fails closed"
     );
     value["creating"] = serde_json::json!([]);
+    value["parents"] = serde_json::json!([{
+      "id": "parent", "path": root.join("parent"), "dev": 1, "ino": 1,
+      "token": "local-token", "project": root.join("source"),
+      "project_dev": 1, "project_ino": 1, "owner": "agent-a", "created_unix": 1
+    }]);
+    value["version"] = serde_json::json!(1);
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(
+      load_leases(&state).is_err(),
+      "unguarded parent fails closed"
+    );
+    value["parents"] = serde_json::json!([]);
     value["version"] = serde_json::json!(3);
     fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
     assert!(load_leases(&state).is_err(), "unknown version fails closed");

@@ -20,6 +20,7 @@ mod doctor;
 mod inventory;
 mod lease;
 mod manifest;
+mod parents;
 mod plan;
 mod provenance;
 mod quarantine;
@@ -42,6 +43,7 @@ use lease::{
   save_leases, AddOpts, LEASE_MARKER,
 };
 use manifest::{find_project_root, load_manifest, Policy, StoreDisposition, MANIFEST_NAME};
+use parents::ParentsCmd;
 use plan::{apply_plan, human, now_secs, plan_project, Plan};
 use provenance::Provenance;
 use quarantine::{
@@ -168,6 +170,11 @@ enum Cmd {
   Create {
     #[command(subcommand)]
     cmd: CreateCmd,
+  },
+  /// Inspect or arm a parent where external tools create temporary children
+  Parents {
+    #[command(subcommand)]
+    cmd: Option<ParentsCmd>,
   },
   /// Move expired leased dirs into the quarantine (dry-run without --apply)
   Retire {
@@ -327,6 +334,7 @@ fn main() {
     }) => cmd_stores(path, apply, init, bind, to, verbose),
     Some(Cmd::Lease { cmd }) => cmd_lease(cmd),
     Some(Cmd::Create { cmd }) => create::run(cmd),
+    Some(Cmd::Parents { cmd }) => parents::run(cmd),
     Some(Cmd::Retire {
       path,
       apply,
@@ -1605,6 +1613,21 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
     let source = Path::new(&l.path);
     if lf.overlaps_creation(source) {
       println!("  {}  REFUSED: overlaps a pending creation intent", l.path);
+      failed_paths.push(source.to_path_buf());
+      rc = 1;
+      continue;
+    }
+    if lf.contains_managed_parent(source) {
+      println!("  {}  REFUSED: contains a managed parent", l.path);
+      failed_paths.push(source.to_path_buf());
+      rc = 1;
+      continue;
+    }
+    if let Some(parent) = parents::invalid_containing_parent(&lf, source) {
+      println!(
+        "  {}  REFUSED: managed parent {} changed identity",
+        l.path, parent.path
+      );
       failed_paths.push(source.to_path_buf());
       rc = 1;
       continue;

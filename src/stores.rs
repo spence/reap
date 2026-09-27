@@ -379,9 +379,10 @@ fn checked_candidate(
     let leased = Path::new(&lease.path);
     path.starts_with(leased) || leased.starts_with(path)
   }) || leases.overlaps_creation(path)
+    || leases.overlaps_managed_parent(path)
   {
     return Err(format!(
-      "{} overlaps a lease or creation intent",
+      "{} overlaps a lease, creation intent, or managed parent",
       path.display()
     ));
   }

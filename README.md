@@ -21,6 +21,9 @@ timestamps alone cannot judge:
   copies) registered at creation and, once expired, moved into a recoverable
   quarantine rather than deleted.
 
+Managed parents add visibility for worktrees or scratch directories created
+outside Reap; each child still needs its own lease before retirement.
+
 One rule governs all three surfaces: age never grants permission to delete.
 Deletion requires standing evidence of non-value (a cargo cache marker, a
 declared store, a lease); age only delays it.
@@ -144,13 +147,10 @@ Its safety model has five layers:
 
 ### concurrent builds
 
-`reap` does not acquire Cargo's target-directory lock and does not inspect the
-currently executing build graph. The minimum-age guard substantially reduces
-overlap with ordinary builds, but it is not a formal concurrency guarantee.
-
-For zero-disruption cleanup, run `--apply` when no Cargo process is writing to
-the target tree. If cleanup does overlap a sufficiently long build, the build
-may fail or need to recompile an artifact that was removed.
+For apply, Reap holds Cargo's per-profile `.cargo-lock` from planning through
+deletion. A busy build or lock error causes that target to be skipped. Dry-runs
+do not take this lock. This coordination is not available on NFS, so do not
+apply there during a build.
 
 ### command authority
 
@@ -160,6 +160,7 @@ Each command class has its own authority and cannot exceed it:
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | `reap sweep` / `plan` / `clean` | regenerable build output inside recognized profiles                               |
 | `reap stores`                   | direct children of declared stores armed by `--init` or a local external binding |
+| `reap parents`                  | local parent registration and read-only direct-child listing; no child cleanup |
 | `reap retire`                   | leased directories whose lease expired, moved (not deleted) into the quarantine   |
 | `reap doctor`                   | lease or quarantine index only, with `--apply`; never directory contents         |
 | `reap purge`                    | quarantined entries past the machine's grace period, or an explicit selection     |
@@ -231,6 +232,8 @@ reap create scratch <new-dir> --ttl 48h --owner NAME --purpose TEXT
 reap create worktree <source-repo> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--ref REF] [--scratch]
 reap create clone <source-repo-or-url> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--scratch]
 reap create copy <source-dir> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--scratch]
+reap parents arm <existing-parent> --project <source-project> --owner NAME
+reap parents list [parent]
 reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT]
 reap lease renew <dir> [--ttl 7d]
 reap lease release <dir>
@@ -565,10 +568,11 @@ using `reap lease add` to adopt it. On ordinary failure with no directory,
 Reap clears the intent; a killed process can leave a missing-path intent for
 manual review.
 Pending creations also block overlapping lease retirement and store eviction.
-The first `create` on a machine writes guarded lease-state version `"2"`;
+The first `create` or `parents arm` on a machine writes guarded lease-state version `"2"`;
 current Reap still reads legacy numeric version 1, while an older binary
-refuses the guarded file instead of silently dropping creation intents. Install
-the current binary before using `create` on a machine that shares this state.
+refuses the guarded file instead of silently dropping creation intents or
+managed parents. Install the current binary before using either command on a
+machine that shares this state.
 
 `create scratch` explicitly opts its empty directory into scratch cleanup.
 Worktrees are detached at `HEAD` unless `--ref` selects another commit or
@@ -586,6 +590,29 @@ reap lease add ../bench-copy --ttl 48h --scratch --owner agent-x --purpose "perf
 reap lease renew ../bench-copy          # still needed
 reap lease release ../bench-copy        # became permanent; drop the lease
 ```
+
+To keep track of a stable parent where an editor or another tool creates
+worktrees, explicitly arm that existing directory on each machine:
+
+```bash
+reap parents arm ../worktrees/reap --project . --owner spencer
+reap parents list ../worktrees/reap
+```
+
+Arming records the canonical parent and source-project identities in local
+state and writes a `.reap-parent` marker. `parents list` checks both identities
+and the marker, then reports direct children without following symlinks.
+Unregistered children are visible but never become retirement candidates from
+their age or location. Review a particular child and use `reap lease add`
+with its own TTL, owner, purpose, and optional `--scratch` only if its creator
+knows it is disposable; `reap create` remains preferable for agent-created
+work. A child lease still has to pass all ordinary retirement checks. Reap
+refuses leases that contain a managed parent, retirement of an overlapping
+ancestor, and store eviction of any overlapping unit. If the parent, source
+project, or marker identity changes, listing and child retirement fail closed.
+The parent registration does not exempt regenerable Cargo `target/` artifacts
+from the separate `sweep` policy, and does not itself delete or quarantine any
+child. Do not arm a live parent without its owner's approval.
 
 For owner review, registration can also carry structured attribution:
 

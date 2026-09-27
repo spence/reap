@@ -4,7 +4,8 @@ description: >-
   Use when a machine is low on disk or you're asked to reclaim space from Cargo
   target/ trees; BEFORE creating a temporary checkout, worktree, benchmark
   clone, or cross-machine project copy (lease it at creation, even when the
-  user didn't mention cleanup); when a project dir accumulates output run after
+  user didn't mention cleanup); when an external tool creates work under a
+  stable scratch parent (inspect or explicitly arm it); when a project dir accumulates output run after
   run (declare a reap store); when deciding whether old copies or quarantine
   entries are still needed (list by owner, ask the owner); when diagnosing
   missing or remounted leases or unindexed quarantine entries; or when a Rust
@@ -57,6 +58,7 @@ reap create scratch <new-dir> --ttl 48h --owner <agent/session> --purpose "..." 
 reap create worktree <source-repo> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source>
 reap create clone <source-repo-or-url> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source>
 reap create copy <source-dir> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source> --scratch
+reap parents list [parent]     # report direct children; no cleanup authority
 reap lease renew <dir>          # still using it
 reap lease release <dir>        # became permanent: drop lease, keep directory
 reap lease list
@@ -72,9 +74,19 @@ mounts. A persisted creation intent appears in `lease list` if a failed
 command leaves a partial path, but it cannot authorize retirement; inspect
 the path before using `lease add` to adopt it. Pending paths protect
 overlapping leases and stores from cleanup.
-The first `create` upgrades that machine's lease index to guarded version
+The first `create` or `parents arm` upgrades that machine's lease index to guarded version
 `"2"`: current Reap reads old numeric-v1 files, but older binaries fail
 closed on the guarded file. Install the matching binary and skill together.
+
+For a stable parent used by an editor or another external tool, first get the
+parent owner's approval, then `reap parents arm <existing-parent> --project
+<source-project> --owner <name>`. `reap parents list [parent]` checks the
+parent/project identity and `.reap-parent` marker, and reports direct children
+without following symlinks. Unregistered children are **not** retirable.
+Review each child with its creator before `lease add`; a parent marker never
+supplies child deletion authority. Broad leases containing a managed parent
+and overlapping store evictions are refused; an invalid parent blocks child
+retirement. Cargo target cleanup remains a separate, marker-backed policy.
 
 For a directory an external tool created, or one already created by the
 current agent, use `lease add` only with explicit temporary intent:
@@ -213,7 +225,8 @@ project/scan/store/Reap roots, mount roots, and nested mounts. Apply rechecks
 the binding and marker before every eviction.
 `--apply` rechecks the manifest, armed marker, store path, retention, and each
 candidate's identity and activity before eviction, including the declared
-disposition and overlap with any recorded lease; changed runs are skipped
+disposition and overlap with any recorded lease, creation intent, or managed
+parent; changed runs are skipped
 with a warning. Directory scans fail closed on unreadable entries, special
 files, and nested mounts, and never follow symlinks. Reap does not lock run
 producers; finish writing before an old run becomes eligible for eviction.
@@ -253,6 +266,7 @@ NOT standing — ask the user, or the recorded owner, first:
 - `reap doctor --apply` (changes a lease index, or with `--quarantine` the
   quarantine index; never directory contents);
 - leasing a directory the agent did not create.
+- arming a live scratch parent the agent did not create.
 
 ## Config (`~/.config/reap/config.json`)
 

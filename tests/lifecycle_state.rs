@@ -195,6 +195,218 @@ fn make_tree_quiet(root: &Path) {
 }
 
 #[test]
+fn managed_parent_reports_external_worktrees_without_retiring_unleased_children() {
+  let root = TestRoot::new();
+  let source = root.project("source-project");
+  git(&source, &["init"]);
+  git(&source, &["add", "payload"]);
+  git(&source, &["commit", "-m", "initial"]);
+  let parent = root.root.join("worktrees");
+  fs::create_dir(&parent).unwrap();
+  success(root.run(vec![
+    "parents".into(),
+    "arm".into(),
+    parent.to_string_lossy().into_owned(),
+    "--project".into(),
+    source.to_string_lossy().into_owned(),
+    "--owner".into(),
+    "editor-user".into(),
+  ]));
+  assert!(parent.join(".reap-parent").is_file());
+  let child = parent.join("editor-worktree");
+  let child_text = child.to_string_lossy().into_owned();
+  git(&source, &["worktree", "add", "--detach", &child_text]);
+  assert!(child.join(".git").is_file());
+  let sibling = parent.join("unknown-work");
+  fs::create_dir(&sibling).unwrap();
+  fs::write(sibling.join("keep"), b"not opted in").unwrap();
+
+  let listed = root.run(args(&["parents", "list", "{path}"], &parent));
+  success(listed.clone());
+  let text = String::from_utf8_lossy(&listed.stdout);
+  assert!(text.contains(&format!(
+    "{}  unregistered (not retirable)",
+    child.display()
+  )));
+  assert!(text.contains(&format!(
+    "{}  unregistered (not retirable)",
+    sibling.display()
+  )));
+  assert!(array(&root.state().join("leases.json"), "leases").is_empty());
+  failure(root.run(args(&["retire", "{path}", "--apply"], &child)));
+  assert!(child.join("payload").is_file());
+  assert!(sibling.join("keep").is_file());
+
+  success(root.run(vec![
+    "lease".into(),
+    "add".into(),
+    child_text,
+    "--ttl".into(),
+    "0".into(),
+    "--scratch".into(),
+    "--owner".into(),
+    "editor-user".into(),
+    "--purpose".into(),
+    "temporary editor worktree".into(),
+    "--project".into(),
+    source.to_string_lossy().into_owned(),
+    "--creation-method".into(),
+    "git-worktree".into(),
+  ]));
+  let listed = root.run(args(&["parents", "list", "{path}"], &parent));
+  success(listed.clone());
+  assert!(String::from_utf8_lossy(&listed.stdout).contains(&format!(
+    "{}  leased (retirement checks still apply)",
+    child.display()
+  )));
+  make_tree_quiet(&child);
+  let retire = root.run(args(
+    &["retire", "{path}", "--apply", "--min-age-minutes", "0"],
+    &child,
+  ));
+  success(retire);
+  assert!(!child.exists());
+  assert!(sibling.join("keep").is_file());
+  assert!(parent.join(".reap-parent").is_file());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 1);
+  let slot = root
+    .quarantine()
+    .join("entries")
+    .join(entries[0]["id"].as_str().unwrap())
+    .join("editor-worktree");
+  assert!(slot.join("payload").is_file());
+}
+
+#[test]
+fn managed_parent_blocks_broad_leases_and_fails_closed_on_changed_identity() {
+  let root = TestRoot::new();
+  let source = root.project("source");
+  let outer = root.project("outer");
+  let parent = outer.join("scratch");
+  fs::create_dir(&parent).unwrap();
+  let broad = args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &outer,
+  );
+  success(root.run(broad.clone()));
+  let arm = vec![
+    "parents".into(),
+    "arm".into(),
+    parent.to_string_lossy().into_owned(),
+    "--project".into(),
+    source.to_string_lossy().into_owned(),
+    "--owner".into(),
+    "agent".into(),
+  ];
+  failure(root.run(arm.clone()));
+  success(root.run(args(&["lease", "release", "{path}"], &outer)));
+  success(root.run(arm));
+  failure(root.run(broad));
+  failure(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &parent,
+  )));
+
+  let child = parent.join("child");
+  fs::create_dir(&child).unwrap();
+  fs::write(child.join("keep"), b"only child lease can move this").unwrap();
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &child,
+  )));
+  let marker = child.join(".reap-lease");
+  let saved_marker = root.root.join("saved-marker");
+  fs::rename(&marker, &saved_marker).unwrap();
+  std::os::unix::fs::symlink(&saved_marker, &marker).unwrap();
+  let linked_marker = root.run(args(
+    &["retire", "{path}", "--apply", "--min-age-minutes", "0"],
+    &child,
+  ));
+  assert!(!linked_marker.status.success());
+  assert!(child.join("keep").is_file());
+  fs::remove_file(&marker).unwrap();
+  fs::rename(&saved_marker, &marker).unwrap();
+  make_tree_quiet(&child);
+  fs::write(parent.join(".reap-parent"), b"tampered").unwrap();
+  let list = root.run(args(&["parents", "list", "{path}"], &parent));
+  failure(list.clone());
+  assert!(String::from_utf8_lossy(&list.stdout).contains("BLOCKED"));
+  let retire = root.run(args(
+    &["retire", "{path}", "--apply", "--min-age-minutes", "0"],
+    &child,
+  ));
+  assert!(!retire.status.success());
+  assert!(child.join("keep").is_file());
+  assert!(array(&root.state().join("leases.json"), "parents").len() == 1);
+}
+
+#[test]
+fn managed_parent_blocks_store_eviction_of_its_tree() {
+  let root = TestRoot::new();
+  let project = root.project("store-project");
+  fs::write(
+    project.join(".reap.json"),
+    r#"{"version":2,"stores":[{"path":"logs","retention":{"keep_last":0,"min_age_hours":0,"max_bytes":1}}]}"#,
+  )
+  .unwrap();
+  success(root.run(args(&["stores", "--init", "{path}"], &project)));
+  let parent = project.join("logs/managed-run");
+  fs::create_dir(&parent).unwrap();
+  let child = parent.join("child");
+  fs::create_dir(&child).unwrap();
+  fs::write(child.join("keep"), b"valuable unregistered data").unwrap();
+  success(root.run(vec![
+    "parents".into(),
+    "arm".into(),
+    parent.to_string_lossy().into_owned(),
+    "--project".into(),
+    project.to_string_lossy().into_owned(),
+    "--owner".into(),
+    "agent".into(),
+  ]));
+  let apply = root.run(args(&["stores", "--apply", "{path}"], &project));
+  assert!(!apply.status.success());
+  assert!(String::from_utf8_lossy(&apply.stderr).contains("managed parent"));
+  assert!(child.join("keep").is_file());
+}
+
+#[test]
+fn managed_parent_can_track_a_separate_volume_without_touching_live_state() {
+  let Ok(base) = std::env::var("REAP_CROSS_DEVICE_ROOT") else {
+    return;
+  };
+  let external = ExternalFixture::new(Path::new(&base));
+  let root = TestRoot::new();
+  let project = root.project("local-project");
+  assert_ne!(
+    fs::metadata(&project).unwrap().dev(),
+    fs::metadata(&external.0).unwrap().dev(),
+    "fixture must exercise a second volume"
+  );
+  success(root.run(vec![
+    "parents".into(),
+    "arm".into(),
+    external.0.to_string_lossy().into_owned(),
+    "--project".into(),
+    project.to_string_lossy().into_owned(),
+    "--owner".into(),
+    "agent".into(),
+  ]));
+  let child = external.0.join("external-child");
+  fs::create_dir(&child).unwrap();
+  fs::write(child.join("keep"), b"unregistered").unwrap();
+  let listed = root.run(args(&["parents", "list", "{path}"], &external.0));
+  success(listed.clone());
+  assert!(String::from_utf8_lossy(&listed.stdout).contains(&format!(
+    "{}  unregistered (not retirable)",
+    child.display()
+  )));
+  failure(root.run(args(&["retire", "{path}", "--apply"], &child)));
+  assert!(child.join("keep").is_file());
+}
+
+#[test]
 fn create_scratch_clone_and_copy_record_a_lease_at_creation() {
   let root = TestRoot::new();
   let scratch = root.root.join("benchmark-scratch");
