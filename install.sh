@@ -9,9 +9,9 @@ SKILL_SRC="$HERE/skill/SKILL.md"
 
 echo "==> installing reap to ~/.cargo/bin"
 if [ -f "$HERE/Cargo.toml" ]; then
-  cargo install --path "$HERE" --force     # from this checkout
+  cargo install --path "$HERE" --locked --force     # from this checkout
 else
-  cargo install --git "$REPO_URL" --force  # straight from GitHub
+  cargo install --git "$REPO_URL" --locked --force  # straight from GitHub
 fi
 
 echo "==> homing the skill for any installed agent (Claude Code, Codex)"
