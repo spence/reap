@@ -2220,6 +2220,7 @@ fn nested_retire_plans_and_moves_indirect_child_before_parent() {
   assert!(plan.find(&grandchild_line).unwrap() < plan.find(&child_line).unwrap());
   assert!(plan.find(&child_line).unwrap() < plan.find(&parent_line).unwrap());
   assert_eq!(plan.matches("ok to retire").count(), 3);
+  assert!(plan.contains("1 distinct tree(s)"));
   assert!(parent.join("payload").is_file());
   assert!(child.join("payload").is_file());
   assert!(grandchild.join("payload").is_file());
