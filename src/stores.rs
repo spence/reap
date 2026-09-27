@@ -18,7 +18,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
-use crate::lease::{load_leases, Lease};
+use crate::lease::{load_leases, LeaseFile};
 use crate::manifest::{load_manifest, Manifest, Store, StoreDisposition, StoreSeries};
 use crate::plan::{human, mtime_secs, now_secs};
 use crate::provenance::{self, Provenance};
@@ -218,7 +218,7 @@ pub fn apply_store(plan: &StorePlan, project_dir: &Path) -> StoreApply {
     }
   };
   for c in &plan.candidates {
-    let meta = match checked_candidate(plan, project_dir, c, &leases.leases) {
+    let meta = match checked_candidate(plan, project_dir, c, &leases) {
       Ok(meta) => meta,
       Err(e) => {
         result.errors.push(e);
@@ -310,7 +310,7 @@ pub fn quarantine_store(plan: &StorePlan, project_dir: &Path, qdir: &Path) -> St
   };
   let machine = hostname();
   for candidate in &plan.candidates {
-    if let Err(e) = checked_candidate(plan, project_dir, candidate, &leases.leases) {
+    if let Err(e) = checked_candidate(plan, project_dir, candidate, &leases) {
       result.errors.push(e);
       continue;
     }
@@ -372,14 +372,18 @@ fn checked_candidate(
   plan: &StorePlan,
   project_dir: &Path,
   candidate: &StoreCandidate,
-  leases: &[Lease],
+  leases: &LeaseFile,
 ) -> Result<fs::Metadata, String> {
   let path = &candidate.path;
-  if leases.iter().any(|lease| {
+  if leases.leases.iter().any(|lease| {
     let leased = Path::new(&lease.path);
     path.starts_with(leased) || leased.starts_with(path)
-  }) {
-    return Err(format!("{} overlaps a leased directory", path.display()));
+  }) || leases.overlaps_creation(path)
+  {
+    return Err(format!(
+      "{} overlaps a lease or creation intent",
+      path.display()
+    ));
   }
   if path.parent() != Some(plan.dir.as_path())
     || path

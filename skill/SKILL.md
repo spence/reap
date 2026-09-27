@@ -12,6 +12,7 @@ description: >-
   what a marker, manifest, or lease proves disposable: `reap sweep --apply`
   compacts cargo targets, `reap stores --apply` deletes or quarantines declared
   store output according to its manifest,
+  `reap create` records temporary work at creation;
   `reap lease`/`reap retire` move expired temp dirs into a recoverable
   quarantine, `reap purge` empties it after a grace period. If missing:
   `cargo install --git https://github.com/spence/reap`.
@@ -25,8 +26,8 @@ governs everything it does:
 
 > **Age never grants permission to delete. Deletion requires standing evidence
 > of non-value — a cargo cache marker, a declared store, or a lease — and age
-> only delays it.** Cleanup commands default to a dry-run; lease registration
-> and quarantine restore are explicit actions.
+> only delays it.** Cleanup commands default to a dry-run; creation, lease
+> registration, and quarantine restore are explicit actions.
 
 ## 1. Reclaim cargo build output (the common job)
 
@@ -48,15 +49,38 @@ on NFS, so do not apply there during a build.
 
 ## 2. Temporary checkouts: lease at creation, retire when expired
 
-Worktrees, benchmark clones, cross-machine copies, scratch experiments —
-declare them disposable **the moment you create them**, while intent is fresh:
+Worktrees, benchmark clones, cross-machine copies, scratch experiments — use
+`reap create` for work you make, so intent is recorded before the tree exists:
 
 ```bash
-reap lease add <dir> --ttl 48h --scratch --owner <agent/session> --purpose "..."
+reap create scratch <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source>
+reap create worktree <source-repo> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source>
+reap create clone <source-repo-or-url> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source>
+reap create copy <source-dir> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source> --scratch
 reap lease renew <dir>          # still using it
 reap lease release <dir>        # became permanent: drop lease, keep directory
 reap lease list
 reap doctor                   # bounded, read-only lease-state diagnosis
+```
+
+`create` requires a new path under an existing parent and explicit owner,
+purpose, and TTL. Scratch creation is an explicit disposable declaration;
+worktrees, clones, and copies need `--scratch` to bypass Git recoverability
+checks at retirement. Worktrees are detached at `HEAD` by default; use `--ref`
+for another commit or branch. Copying does not follow symlinks or nested
+mounts. A persisted creation intent appears in `lease list` if a failed
+command leaves a partial path, but it cannot authorize retirement; inspect
+the path before using `lease add` to adopt it. Pending paths protect
+overlapping leases and stores from cleanup.
+The first `create` upgrades that machine's lease index to guarded version
+`"2"`: current Reap reads old numeric-v1 files, but older binaries fail
+closed on the guarded file. Install the matching binary and skill together.
+
+For a directory an external tool created, or one already created by the
+current agent, use `lease add` only with explicit temporary intent:
+
+```bash
+reap lease add <dir> --ttl 48h --scratch --owner <agent/session> --purpose "..."
 ```
 
 For reviewable attribution, `lease add` also accepts `--project <source-label>`,
@@ -73,7 +97,7 @@ infer an actor from an old free-form owner string.
   requires clean + fully pushed + no stashes + no ignored local data with
   unproved recoverability. A non-Git directory is refused. `.gitignore` is not
   deletion authority.
-- `--owner` (or `$REAP_OWNER`): name the creating agent/session. When you copy
+- `--owner` (or `$REAP_OWNER` with `lease add`): name the creating agent/session. When you copy
   a project to ANOTHER machine (e.g. for benchmarking), lease the copy on that
   machine with yourself as owner — whoever later sweeps that machine sees who
   to ask.
@@ -216,6 +240,8 @@ Any agent may run these autonomously, no prompt or prior dry-run needed:
 - `reap stores --apply` — declared **and armed** stores only, with their stated
   deletion or quarantine disposition;
 - `reap retire --apply` — **expired** leases only;
+- `reap create` on new destinations the agent itself creates, with `--scratch`
+  only when that work is expressly disposable;
 - `reap lease add --scratch` on directories the agent itself creates;
 - bare `reap purge --apply` (auto-selection) — during low-disk recovery only;
   it self-refuses on machines configured `auto_purge: false`.

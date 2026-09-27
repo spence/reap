@@ -14,6 +14,7 @@
 //! marker, manifest, binding, or lease already authorized.
 
 mod config;
+mod create;
 mod discover;
 mod doctor;
 mod inventory;
@@ -33,6 +34,7 @@ use std::time::Instant;
 use clap::{Args, Parser, Subcommand};
 
 use config::{config_path, load_config, write_default_config};
+use create::CreateCmd;
 use discover::{discover_manifests, discover_targets, is_cargo_target_dir};
 use inventory::scan_projects;
 use lease::{
@@ -161,6 +163,11 @@ enum Cmd {
   Lease {
     #[command(subcommand)]
     cmd: Option<LeaseCmd>,
+  },
+  /// Create a temporary directory, worktree, clone, or copy with a lease
+  Create {
+    #[command(subcommand)]
+    cmd: CreateCmd,
   },
   /// Move expired leased dirs into the quarantine (dry-run without --apply)
   Retire {
@@ -319,6 +326,7 @@ fn main() {
       verbose,
     }) => cmd_stores(path, apply, init, bind, to, verbose),
     Some(Cmd::Lease { cmd }) => cmd_lease(cmd),
+    Some(Cmd::Create { cmd }) => create::run(cmd),
     Some(Cmd::Retire {
       path,
       apply,
@@ -1092,6 +1100,7 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
       };
       match add_lease(&mut lf, &abs, opts, now, &forbidden) {
         Ok(l) => {
+          lf.creating.retain(|intent| intent.path != l.path);
           if let Err(e) = save_leases(&state, &lf) {
             eprintln!("error: {}", e);
             if lease::read_marker(Path::new(&l.path))
@@ -1171,39 +1180,60 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
       }
     }
     LeaseCmd::List => {
-      if lf.leases.is_empty() {
+      if lf.leases.is_empty() && lf.creating.is_empty() {
         println!("no leases. `reap lease add <dir> --ttl 48h` declares a temp checkout.");
         return 0;
       }
-      println!(
-        "{:<10} {:<9} {:<8} {:<22} path",
-        "id", "expires", "kind", "owner"
-      );
-      let mut rows: Vec<&lease::Lease> = lf.leases.iter().collect();
-      rows.sort_by_key(|l| l.expires_unix);
-      for l in rows {
-        let unavailable = !Path::new(&l.path).is_dir();
-        let exp = if l.expired(now) {
-          format!("-{}", fmt_rel(now - l.expires_unix))
-        } else {
-          fmt_rel(l.expires_unix - now)
-        };
+      if !lf.leases.is_empty() {
         println!(
-          "{:<10} {:<9} {:<8} {:<22} {}{}",
-          l.id,
-          exp,
-          if l.scratch { "scratch" } else { "normal" },
-          l.owner,
-          l.path,
-          if unavailable {
-            "  (missing or unavailable)"
-          } else {
-            ""
-          }
+          "{:<10} {:<9} {:<8} {:<22} path",
+          "id", "expires", "kind", "owner"
         );
-        print_provenance(l.provenance.as_ref(), None, None, &l.purpose);
+        let mut rows: Vec<&lease::Lease> = lf.leases.iter().collect();
+        rows.sort_by_key(|l| l.expires_unix);
+        for l in rows {
+          let unavailable = !Path::new(&l.path).is_dir();
+          let exp = if l.expired(now) {
+            format!("-{}", fmt_rel(now - l.expires_unix))
+          } else {
+            fmt_rel(l.expires_unix - now)
+          };
+          println!(
+            "{:<10} {:<9} {:<8} {:<22} {}{}",
+            l.id,
+            exp,
+            if l.scratch { "scratch" } else { "normal" },
+            l.owner,
+            l.path,
+            if unavailable {
+              "  (missing or unavailable)"
+            } else {
+              ""
+            }
+          );
+          print_provenance(l.provenance.as_ref(), None, None, &l.purpose);
+        }
+        println!("\nnegative expiry = expired (retirable with `reap retire --apply`).");
       }
-      println!("\nnegative expiry = expired (retirable with `reap retire --apply`).");
+      if !lf.creating.is_empty() {
+        println!("\ncreation intents (not retirable; inspect or lease partial paths):");
+        for intent in &lf.creating {
+          println!(
+            "  {}  owner {}  ttl {}s  started {} ago  {}{}",
+            intent.id,
+            intent.owner,
+            intent.ttl_secs,
+            fmt_rel(now.saturating_sub(intent.started_unix)),
+            intent.path,
+            if std::fs::symlink_metadata(&intent.path).is_ok() {
+              "  (partial path exists)"
+            } else {
+              "  (path missing)"
+            }
+          );
+          print_provenance(Some(&intent.provenance), None, None, &intent.purpose);
+        }
+      }
       0
     }
   }
@@ -1573,6 +1603,12 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
   let mut failed_paths: Vec<PathBuf> = vec![];
   for l in &selected {
     let source = Path::new(&l.path);
+    if lf.overlaps_creation(source) {
+      println!("  {}  REFUSED: overlaps a pending creation intent", l.path);
+      failed_paths.push(source.to_path_buf());
+      rc = 1;
+      continue;
+    }
     if apply && failed_paths.iter().any(|failed| failed.starts_with(source)) {
       println!("  {}  REFUSED: a descendant failed retirement", l.path);
       failed_paths.push(source.to_path_buf());

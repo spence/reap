@@ -195,6 +195,286 @@ fn make_tree_quiet(root: &Path) {
 }
 
 #[test]
+fn create_scratch_clone_and_copy_record_a_lease_at_creation() {
+  let root = TestRoot::new();
+  let scratch = root.root.join("benchmark-scratch");
+  success(root.run(args(
+    &[
+      "create",
+      "scratch",
+      "{path}",
+      "--ttl",
+      "48h",
+      "--owner",
+      "agent-7",
+      "--purpose",
+      "benchmark",
+      "--project",
+      "reap",
+      "--session",
+      "run-7",
+    ],
+    &scratch,
+  )));
+  assert!(scratch.join(".reap-lease").is_file());
+  let leases = array(&root.state().join("leases.json"), "leases");
+  let scratch_lease = leases
+    .iter()
+    .find(|row| row["path"] == scratch.to_string_lossy().as_ref())
+    .unwrap();
+  assert_eq!(scratch_lease["owner"], "agent-7");
+  assert_eq!(scratch_lease["purpose"], "benchmark");
+  assert_eq!(scratch_lease["ttl_secs"], 48 * 3600);
+  assert_eq!(scratch_lease["scratch"], true);
+  assert_eq!(scratch_lease["provenance"]["creation_method"], "scratch");
+  assert_eq!(scratch_lease["provenance"]["project"], "reap");
+  assert_eq!(scratch_lease["provenance"]["session"], "run-7");
+  let listed = root.run(vec!["lease".into(), "list".into()]);
+  success(listed.clone());
+  assert!(String::from_utf8_lossy(&listed.stdout).contains("method scratch"));
+
+  let source = root.project("source");
+  git(&source, &["init"]);
+  git(&source, &["add", "payload"]);
+  git(&source, &["commit", "-m", "initial"]);
+  std::os::unix::fs::symlink("missing-target", source.join("link")).unwrap();
+  let clone = root.root.join("benchmark-clone");
+  success(root.run(vec![
+    "create".into(),
+    "clone".into(),
+    source.to_string_lossy().into_owned(),
+    clone.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "1h".into(),
+    "--owner".into(),
+    "agent-7".into(),
+    "--purpose".into(),
+    "clone trial".into(),
+  ]));
+  assert!(clone.join(".git").is_dir());
+  assert!(clone.join("payload").is_file());
+  assert!(clone.join(".reap-lease").is_file());
+  let copied = root.root.join("benchmark-copy");
+  success(root.run(vec![
+    "create".into(),
+    "copy".into(),
+    source.to_string_lossy().into_owned(),
+    copied.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "1h".into(),
+    "--owner".into(),
+    "agent-7".into(),
+    "--purpose".into(),
+    "copy trial".into(),
+    "--scratch".into(),
+  ]));
+  assert_eq!(fs::read(copied.join("payload")).unwrap(), b"source");
+  assert_eq!(
+    fs::read_link(copied.join("link")).unwrap(),
+    Path::new("missing-target")
+  );
+  assert!(copied.join(".reap-lease").is_file());
+  let leases = array(&root.state().join("leases.json"), "leases");
+  assert_eq!(leases.len(), 3);
+  assert!(leases
+    .iter()
+    .any(|row| row["path"] == clone.to_string_lossy().as_ref()
+      && row["provenance"]["creation_method"] == "git-clone"));
+  assert!(leases
+    .iter()
+    .any(|row| row["path"] == copied.to_string_lossy().as_ref()
+      && row["provenance"]["creation_method"] == "copy"));
+  let state: Value =
+    serde_json::from_slice(&fs::read(root.state().join("leases.json")).unwrap()).unwrap();
+  assert!(
+    state["creating"].is_null(),
+    "successful creations leave no pending intents"
+  );
+  assert_eq!(
+    state["version"], "2",
+    "creation guards the lease-state schema"
+  );
+}
+
+#[test]
+fn failed_creation_never_arms_a_partial_or_replaces_existing_data() {
+  let root = TestRoot::new();
+  let existing = root.project("existing");
+  failure(root.run(args(
+    &[
+      "create",
+      "scratch",
+      "{path}",
+      "--ttl",
+      "1h",
+      "--owner",
+      "agent-7",
+      "--purpose",
+      "trial",
+    ],
+    &existing,
+  )));
+  assert_eq!(fs::read(existing.join("payload")).unwrap(), b"existing");
+
+  let source = root.project("source");
+  git(&source, &["init"]);
+  git(&source, &["add", "payload"]);
+  git(&source, &["commit", "-m", "initial"]);
+  let failed = root.root.join("failed-worktree");
+  failure(root.run(vec![
+    "create".into(),
+    "worktree".into(),
+    source.to_string_lossy().into_owned(),
+    failed.to_string_lossy().into_owned(),
+    "--ref".into(),
+    "missing-ref".into(),
+    "--ttl".into(),
+    "1h".into(),
+    "--owner".into(),
+    "agent-7".into(),
+    "--purpose".into(),
+    "failed experiment".into(),
+  ]));
+  let state: Value =
+    serde_json::from_slice(&fs::read(root.state().join("leases.json")).unwrap()).unwrap();
+  assert!(state["leases"].as_array().unwrap().is_empty());
+  let intents = state["creating"].as_array();
+  if failed.exists() {
+    assert!(intents.is_some_and(|rows| rows
+      .iter()
+      .any(|row| row["path"] == failed.to_string_lossy().as_ref())));
+    let listed = root.run(vec!["lease".into(), "list".into()]);
+    success(listed.clone());
+    let output = String::from_utf8_lossy(&listed.stdout);
+    assert!(output.contains("creation intents (not retirable"));
+    assert!(output.contains(failed.to_str().unwrap()));
+  } else {
+    assert!(intents.is_none_or(|rows| rows.is_empty()));
+  }
+}
+
+#[test]
+fn explicit_lease_adopts_a_reviewed_partial_creation() {
+  let root = TestRoot::new();
+  let partial = root.project("partial-copy");
+  let state_dir = root.state();
+  fs::create_dir_all(&state_dir).unwrap();
+  fs::write(
+    state_dir.join("leases.json"),
+    serde_json::to_vec_pretty(&json!({
+      "version": "2",
+      "leases": [],
+      "creating": [{
+        "id": "pending-partial",
+        "path": partial,
+        "owner": "agent-7",
+        "purpose": "trial",
+        "ttl_secs": 3600,
+        "scratch": true,
+        "started_unix": 1,
+        "provenance": {}
+      }]
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  success(root.run(args(
+    &[
+      "lease",
+      "add",
+      "{path}",
+      "--ttl",
+      "1h",
+      "--scratch",
+      "--owner",
+      "agent-7",
+      "--purpose",
+      "reviewed partial",
+    ],
+    &partial,
+  )));
+  let state: Value =
+    serde_json::from_slice(&fs::read(state_dir.join("leases.json")).unwrap()).unwrap();
+  assert_eq!(state["leases"].as_array().unwrap().len(), 1);
+  assert!(state["creating"].is_null());
+  assert!(partial.join(".reap-lease").is_file());
+}
+
+#[test]
+fn created_worktree_stays_usable_and_git_policy_blocks_dirty_retirement() {
+  let root = TestRoot::new();
+  let source = root.project("source");
+  let remote = root.root.join("remote.git");
+  git(&root.root, &["init", "--bare", remote.to_str().unwrap()]);
+  git(&source, &["init"]);
+  git(&source, &["add", "payload"]);
+  git(&source, &["commit", "-m", "initial"]);
+  git(
+    &source,
+    &["remote", "add", "origin", remote.to_str().unwrap()],
+  );
+  git(&source, &["push", "origin", "HEAD:refs/heads/main"]);
+
+  let worktree = root.root.join("bench-worktree");
+  success(root.run(vec![
+    "create".into(),
+    "worktree".into(),
+    source.to_string_lossy().into_owned(),
+    worktree.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "1h".into(),
+    "--owner".into(),
+    "agent-7".into(),
+    "--purpose".into(),
+    "benchmark".into(),
+  ]));
+  assert!(worktree.join(".git").is_file());
+  assert!(worktree.join("payload").is_file());
+  assert!(worktree.join(".reap-lease").is_file());
+  success(
+    Command::new("git")
+      .arg("-C")
+      .arg(&worktree)
+      .args(["status", "--short"])
+      .output()
+      .unwrap(),
+  );
+  fs::write(worktree.join("dirty"), b"not pushed").unwrap();
+  let blocked = root.run(args(
+    &[
+      "retire",
+      "{path}",
+      "--now",
+      "--min-age-minutes",
+      "0",
+      "--apply",
+    ],
+    &worktree,
+  ));
+  assert!(!blocked.status.success());
+  assert!(String::from_utf8_lossy(&blocked.stdout).contains("git-clean"));
+  assert!(worktree.join("dirty").is_file());
+  fs::remove_file(worktree.join("dirty")).unwrap();
+  make_tree_quiet(&worktree);
+  success(root.run(args(
+    &[
+      "retire",
+      "{path}",
+      "--now",
+      "--min-age-minutes",
+      "0",
+      "--apply",
+    ],
+    &worktree,
+  )));
+  assert!(!worktree.exists());
+  assert_eq!(
+    array(&root.quarantine().join("index.json"), "entries").len(),
+    1
+  );
+}
+
+#[test]
 fn doctor_repairs_only_proved_index_entries_and_retire_preserves_unavailable_leases() {
   let root = TestRoot::new();
   let gone = root.project("gone");
@@ -728,9 +1008,78 @@ fn store_apply_preserves_a_leased_run_until_its_lease_is_released() {
     "release".into(),
     run.to_string_lossy().into_owned(),
   ]));
+  let lease_state = root.state().join("leases.json");
+  let mut state: Value = serde_json::from_slice(&fs::read(&lease_state).unwrap()).unwrap();
+  state["version"] = json!("2");
+  state["creating"] = json!([{
+    "id": "pending-store-child",
+    "path": run.join("next.log"),
+    "owner": "agent-7",
+    "purpose": "trial",
+    "ttl_secs": 3600,
+    "scratch": true,
+    "started_unix": 1,
+    "provenance": {}
+  }]);
+  fs::write(&lease_state, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+  set_file_mtime(&run, old).unwrap();
+  assert!(!root
+    .run(args(&["stores", "--apply", "{path}"], &project))
+    .status
+    .success());
+  assert!(
+    output.is_file(),
+    "pending creation also protects the store unit"
+  );
+  state["creating"] = json!([]);
+  fs::write(&lease_state, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
   set_file_mtime(&run, old).unwrap();
   success(root.run(args(&["stores", "--apply", "{path}"], &project)));
   assert!(!run.exists(), "released old run can be removed");
+}
+
+#[test]
+fn pending_child_prevents_retirement_of_a_leased_parent() {
+  let root = TestRoot::new();
+  let parent = root.project("leased-parent");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &parent,
+  )));
+  make_tree_quiet(&parent);
+  let lease_state = root.state().join("leases.json");
+  let mut state: Value = serde_json::from_slice(&fs::read(&lease_state).unwrap()).unwrap();
+  state["version"] = json!("2");
+  let child = parent.join("incoming-worktree");
+  state["creating"] = json!([{
+    "id": "pending-child",
+    "path": child,
+    "owner": "agent-7",
+    "purpose": "trial",
+    "ttl_secs": 3600,
+    "scratch": true,
+    "started_unix": 1,
+    "provenance": {}
+  }]);
+  fs::write(&lease_state, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+  let blocked = root.run(args(
+    &["retire", "{path}", "--apply", "--min-age-minutes", "0"],
+    &parent,
+  ));
+  assert!(!blocked.status.success());
+  assert!(String::from_utf8_lossy(&blocked.stdout).contains("pending creation intent"));
+  assert!(parent.join("payload").is_file());
+  assert!(!root
+    .run(args(&["retire", "{path}", "--now", "--apply"], &child))
+    .status
+    .success());
+  state["creating"] = json!([]);
+  fs::write(&lease_state, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+  success(root.run(args(
+    &["retire", "{path}", "--apply", "--min-age-minutes", "0"],
+    &parent,
+  )));
+  assert!(!parent.exists());
 }
 
 #[test]

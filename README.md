@@ -29,7 +29,7 @@ declared store, a lease); age only delays it.
 reap                  # dry-run every discovered target directory
 reap sweep --apply    # apply the proposed cleanup
 
-reap lease add ../bench-copy --ttl 48h --scratch   # declare a temp checkout
+reap create scratch ../bench-run --ttl 48h --owner agent-x --purpose "benchmark"
 reap retire --apply   # move expired leased dirs into the quarantine
 ```
 
@@ -227,6 +227,10 @@ reap stores --bind NAME --to /absolute/dir [project-dir]
 reap stores --apply
 
 # temporary checkouts
+reap create scratch <new-dir> --ttl 48h --owner NAME --purpose TEXT
+reap create worktree <source-repo> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--ref REF] [--scratch]
+reap create clone <source-repo-or-url> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--scratch]
+reap create copy <source-dir> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--scratch]
 reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT]
 reap lease renew <dir> [--ttl 7d]
 reap lease release <dir>
@@ -538,10 +542,44 @@ delete directly, so migration is an explicit manifest change.
 ## leases, retirement, and quarantine
 
 Worktrees, benchmark clones, and scratch copies accumulate because nothing
-records that they were meant to be temporary. A lease records exactly that, at
-creation time, in machine-local state. It is deliberately never part of the
-repository: a committed "delete me" would be inherited by every clone and
-worktree.
+records that they were meant to be temporary. A machine-local lease records
+that intent. It is deliberately never part of the repository: a committed
+"delete me" would be inherited by every clone and worktree.
+
+For work Reap creates, use `create` so the lifecycle starts with the directory:
+
+```bash
+reap create scratch ../bench-run --ttl 48h --owner agent-x --purpose "perf run" --project reap
+reap create worktree . ../bench-wt --ttl 48h --owner agent-x --purpose "perf run" --project reap
+reap create clone . ../bench-clone --ttl 48h --owner agent-x --purpose "perf run" --project reap
+reap create copy . ../bench-copy --ttl 48h --owner agent-x --purpose "perf run" --project reap --scratch
+```
+
+`create` requires a new path under an existing parent, plus an explicit owner,
+purpose, and TTL. It records a non-deleting creation intent before making the
+directory. Success replaces that intent with an ordinary marker-backed lease;
+the selected method is recorded as provenance. A failed command that leaves a
+partial directory leaves the intent visible in `reap lease list`, but neither
+the intent nor age permits retirement. Inspect the partial directory before
+using `reap lease add` to adopt it. On ordinary failure with no directory,
+Reap clears the intent; a killed process can leave a missing-path intent for
+manual review.
+Pending creations also block overlapping lease retirement and store eviction.
+The first `create` on a machine writes guarded lease-state version `"2"`;
+current Reap still reads legacy numeric version 1, while an older binary
+refuses the guarded file instead of silently dropping creation intents. Install
+the current binary before using `create` on a machine that shares this state.
+
+`create scratch` explicitly opts its empty directory into scratch cleanup.
+Worktrees are detached at `HEAD` unless `--ref` selects another commit or
+branch; they, clones, and copies stay non-scratch unless `--scratch` is
+supplied. Non-scratch retirement still requires Git recoverability. A copy
+preserves symlinks without following them and refuses nested mounts or special
+files; it is not a snapshot of a concurrently changing source. `create` never
+overwrites an existing destination.
+
+For a directory created outside Reap (for example by an editor), register it
+only when its creator explicitly knows it is temporary:
 
 ```bash
 reap lease add ../bench-copy --ttl 48h --scratch --owner agent-x --purpose "perf run"

@@ -48,17 +48,64 @@ impl Lease {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LeaseFile {
-  pub version: u32,
+  pub version: LeaseVersion,
   pub leases: Vec<Lease>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub creating: Vec<CreationIntent>,
 }
 
 impl Default for LeaseFile {
   fn default() -> Self {
     LeaseFile {
-      version: 1,
+      version: LeaseVersion::Legacy(1),
       leases: vec![],
+      creating: vec![],
     }
   }
+}
+
+impl LeaseFile {
+  pub fn guard_creation_intents(&mut self) {
+    self.version = LeaseVersion::Guarded("2".to_string());
+  }
+
+  pub fn overlaps_creation(&self, path: &Path) -> bool {
+    self.creating.iter().any(|intent| {
+      let creating = Path::new(&intent.path);
+      path.starts_with(creating) || creating.starts_with(path)
+    })
+  }
+}
+
+/// String version 2 makes older numeric-version readers fail closed instead
+/// of silently discarding creation intents when they rewrite the index.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LeaseVersion {
+  Legacy(u32),
+  Guarded(String),
+}
+
+impl LeaseVersion {
+  fn valid(&self) -> bool {
+    matches!(self, Self::Legacy(1)) || matches!(self, Self::Guarded(version) if version == "2")
+  }
+
+  fn guarded(&self) -> bool {
+    matches!(self, Self::Guarded(version) if version == "2")
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreationIntent {
+  pub id: String,
+  pub path: String,
+  pub owner: String,
+  pub purpose: String,
+  pub ttl_secs: i64,
+  pub scratch: bool,
+  pub started_unix: i64,
+  pub provenance: Provenance,
 }
 
 /// The identity marker written inside a leased directory. Retirement requires
@@ -70,6 +117,7 @@ pub struct LeaseMarker {
   pub token: String,
 }
 
+#[derive(Clone)]
 pub struct AddOpts {
   pub ttl_secs: i64,
   pub scratch: bool,
@@ -93,10 +141,24 @@ pub fn load_leases(state: &Path) -> Result<LeaseFile, String> {
     return Ok(LeaseFile::default());
   }
   let text = fs::read_to_string(&p).map_err(|e| format!("{}: {}", p.display(), e))?;
-  serde_json::from_str(&text).map_err(|e| format!("{}: {}", p.display(), e))
+  let leases: LeaseFile =
+    serde_json::from_str(&text).map_err(|e| format!("{}: {}", p.display(), e))?;
+  if !leases.version.valid() || (!leases.creating.is_empty() && !leases.version.guarded()) {
+    return Err(format!(
+      "{}: unsupported or unguarded lease-state version",
+      p.display()
+    ));
+  }
+  Ok(leases)
 }
 
 pub fn save_leases(state: &Path, f: &LeaseFile) -> io::Result<()> {
+  if !f.version.valid() || (!f.creating.is_empty() && !f.version.guarded()) {
+    return Err(io::Error::new(
+      io::ErrorKind::InvalidData,
+      "unsupported or unguarded lease-state version",
+    ));
+  }
   write_json_atomic(&leases_path(state), f)
 }
 
@@ -336,6 +398,47 @@ mod tests {
     remove_released_marker(&released).unwrap();
     assert!(!proj.join(LEASE_MARKER).exists());
     assert!(proj.is_dir(), "release never touches the directory");
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn guarded_creation_state_is_readable_here_and_rejected_by_old_numeric_readers() {
+    let root = tmp();
+    let state = root.join("state");
+    let mut leases = LeaseFile::default();
+    save_leases(&state, &leases).unwrap();
+    assert!(matches!(
+      load_leases(&state).unwrap().version,
+      LeaseVersion::Legacy(1)
+    ));
+    leases.creating.push(CreationIntent {
+      id: "pending".to_string(),
+      path: root.join("new").to_string_lossy().into_owned(),
+      owner: "agent-a".to_string(),
+      purpose: "benchmark".to_string(),
+      ttl_secs: 3600,
+      scratch: true,
+      started_unix: 1,
+      provenance: Provenance::default(),
+    });
+    assert!(save_leases(&state, &leases).is_err());
+    leases.guard_creation_intents();
+    save_leases(&state, &leases).unwrap();
+    let path = leases_path(&state);
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(value["version"], "2");
+    assert!(serde_json::from_value::<u32>(value["version"].clone()).is_err());
+    assert_eq!(load_leases(&state).unwrap().creating.len(), 1);
+    value["version"] = serde_json::json!(1);
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(
+      load_leases(&state).is_err(),
+      "unguarded intent fails closed"
+    );
+    value["creating"] = serde_json::json!([]);
+    value["version"] = serde_json::json!(3);
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(load_leases(&state).is_err(), "unknown version fails closed");
     let _ = fs::remove_dir_all(&root);
   }
 
