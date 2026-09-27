@@ -819,6 +819,17 @@ config or installed binary stops later stages; a concurrent maintenance run
 cannot replace the active run's receipt. If `auto_purge` is false, the purge
 stage is recorded as skipped, not bypassed.
 
+On catalyst-mini, `launchd/com.spence.reap.maintenance.plist` is the
+host-specific daily user job for the installed `~/.cargo/bin/reap maintain
+--apply`. It runs at 04:15 local time with an explicit home and state path;
+that home selects `~/.config/reap/config.json`. `RunAtLoad` and `KeepAlive` are
+false, so loading the job does not immediately clean up and a failed run is
+not immediately retried. The next scheduled run rechecks all authority and
+filesystem state. `install.sh` installs the binary and skill, not this
+host-specific job. Install the plist into `~/Library/LaunchAgents/` and load
+it into the user's `gui` launchd domain. Check `reap status`, the receipt,
+and `launchctl print gui/$(id -u)/com.spence.reap.maintenance` after a run.
+
 ## status, coverage, and inventory
 
 `reap status` reads filesystem capacity and local lease/quarantine indexes

@@ -308,6 +308,10 @@ deltas are observations that may include other writers, not exact attribution.
 With `auto_purge: false`, maintenance records purge as skipped.
 With `auto_purge: true`, maintenance purges only indexed entries past the grace
 period that pass the hold and validation checks.
+On catalyst-mini, the checked-in launchd job runs full `reap maintain --apply`
+daily at 04:15 local time with the installed binary and the mini's config.
+It does not run on load or restart immediately after failure; inspect
+`reap status` and the receipt before any manual retry.
 
 ## Authorization (owner, standing)
 
