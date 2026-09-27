@@ -1,10 +1,11 @@
 ---
 name: reap
 description: >-
-  Use when a machine is low on disk or you're asked to reclaim space from Cargo
-  target/ trees; BEFORE creating a temporary checkout, worktree, benchmark
-  clone, or cross-machine project copy (lease it at creation, even when the
-  user didn't mention cleanup); when an external tool creates work under a
+  Use before creating a project-owned directory outside its repository, even
+  when the user did not mention cleanup; when a machine is low on disk or
+  you're asked to reclaim Cargo target/ space; before creating a temporary
+  checkout, worktree, benchmark clone, or cross-machine project copy (lease it
+  at creation); when an external tool creates work under a
   stable scratch parent (inspect or explicitly arm it); when a project dir accumulates output run after
   run (declare a reap store); when deciding whether old copies or quarantine
   entries are still needed (list by owner, ask the owner); when diagnosing
@@ -30,6 +31,16 @@ governs everything it does:
 > of non-value — a cargo cache marker, a declared store, or a lease — and age
 > only delays it.** Cleanup commands default to a dry-run; creation, lease
 > registration, and quarantine restore are explicit actions.
+
+Before creating a project-owned directory outside its repo, classify it:
+temporary whole trees use `reap create` with an explicit lease; recurring
+outputs use a project `.reap.json` store and a machine-local external binding;
+external-tool scratch parents need the parent's owner to approve `parents arm`
+and each disposable child needs its own lease. Retained evidence or a location
+without agreed retention stays protected: record its path and owner in the
+project, and show it with `reap coverage` for review. Do not infer disposable
+intent for an existing directory from its name, age, or location. Ordinary
+isolated test fixtures are not project-owned external locations.
 
 ## 1. Reclaim cargo build output (the common job)
 

@@ -23,6 +23,10 @@ timestamps alone cannot judge:
 
 Managed parents add visibility for worktrees or scratch directories created
 outside Reap; each child still needs its own lease before retirement.
+For a new project-owned location outside its repository, declare temporary
+trees at creation or bind a declared store for recurring output. Keep retained
+or unclassified evidence out of cleanup plans until its owner defines a safe
+policy; `reap coverage` can list it without granting deletion authority.
 
 One rule governs all three surfaces: age never grants permission to delete.
 Deletion requires standing evidence of non-value (a cargo cache marker, a
