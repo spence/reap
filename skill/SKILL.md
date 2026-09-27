@@ -6,7 +6,8 @@ description: >-
   clone, or cross-machine project copy (lease it at creation, even when the
   user didn't mention cleanup); when a project dir accumulates output run after
   run (declare a reap store); when deciding whether old copies or quarantine
-  entries are still needed (list by owner, ask the owner); or when a Rust
+  entries are still needed (list by owner, ask the owner); when diagnosing
+  missing or remounted leases; or when a Rust
   project vendors something non-regenerable into target/. `reap` deletes only
   what a marker, manifest, or lease proves disposable: `reap sweep --apply`
   compacts cargo targets, `reap stores --apply` cleans declared stores,
@@ -51,6 +52,7 @@ reap lease add <dir> --ttl 48h --scratch --owner <agent/session> --purpose "..."
 reap lease renew <dir>          # still using it
 reap lease release <dir>        # became permanent: drop lease, keep directory
 reap lease list
+reap doctor                   # bounded, read-only lease-state diagnosis
 ```
 
 - `--scratch` = disposable even if dirty/unpushed. Without it, retirement
@@ -81,6 +83,14 @@ reap purge                       # dry-run: entries past the grace period
 reap purge --apply               # delete those (self-refuses if auto_purge=false)
 reap purge --owner <name> --apply  # explicit selectors bypass auto_purge
 ```
+
+`reap doctor --id <lease-id> --apply` repairs only the lease index. It drops a
+missing record only when a surviving canonical ancestor is on its recorded
+device, or rebinds a remounted path only when the inode and marker ID/token
+still match on a live mounted volume. Other mismatches remain blocked. Dry-run
+output is bounded to 20 non-valid records unless `--verbose` is given.
+An apply repairs proved-safe entries even if other records stay blocked; it
+exits nonzero to report those blocked records.
 
 ## 3. Accumulating outputs: declare a store
 
@@ -137,6 +147,7 @@ NOT standing — ask the user, or the recorded owner, first:
 
 - `reap purge --all` / `--owner` / `--id`;
 - `reap retire --now`;
+- `reap doctor --apply` (changes lease state, never directory contents);
 - leasing a directory the agent did not create.
 
 ## Config (`~/.config/reap/config.json`)

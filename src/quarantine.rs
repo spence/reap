@@ -55,7 +55,7 @@ pub struct RetireCheck {
 pub struct Assessment {
   pub checks: Vec<RetireCheck>,
   pub bytes: u64,
-  /// Directory no longer exists; the lease can simply be dropped.
+  /// Directory no longer exists; volume verification is still required.
   pub gone: bool,
   /// Main working tree when the leased dir is a linked git worktree.
   pub main_repo: Option<PathBuf>,
@@ -130,12 +130,28 @@ pub fn assess_retire(
 
   let meta = match fs::symlink_metadata(&dir) {
     Ok(m) if m.is_dir() => m,
-    _ => {
+    Err(e) if e.kind() == io::ErrorKind::NotFound => {
       a.gone = true;
       a.checks.push(RetireCheck {
         label: "exists",
         ok: false,
-        detail: "directory gone (lease can be dropped)".to_string(),
+        detail: "directory missing; recorded volume must be verified".to_string(),
+      });
+      return a;
+    }
+    Ok(_) => {
+      a.checks.push(RetireCheck {
+        label: "exists",
+        ok: false,
+        detail: "path is not a directory".to_string(),
+      });
+      return a;
+    }
+    Err(e) => {
+      a.checks.push(RetireCheck {
+        label: "exists",
+        ok: false,
+        detail: format!("cannot inspect path: {e}"),
       });
       return a;
     }

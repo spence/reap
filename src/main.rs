@@ -15,6 +15,7 @@
 
 mod config;
 mod discover;
+mod doctor;
 mod inventory;
 mod lease;
 mod manifest;
@@ -163,6 +164,18 @@ enum Cmd {
     #[arg(long)]
     min_age_minutes: Option<f64>,
   },
+  /// Classify lease state; --apply drops proved-gone records and rebinds proved remounts
+  Doctor {
+    /// Repair only evidence-backed lease-index entries
+    #[arg(long)]
+    apply: bool,
+    /// Inspect or repair one lease by id
+    #[arg(long)]
+    id: Option<String>,
+    /// Show every non-valid lease instead of the first 20
+    #[arg(long)]
+    verbose: bool,
+  },
   /// List or restore quarantined entries
   Quarantine {
     #[command(subcommand)]
@@ -282,6 +295,7 @@ fn main() {
       now,
       min_age_minutes,
     }) => cmd_retire(path, apply, now, min_age_minutes),
+    Some(Cmd::Doctor { apply, id, verbose }) => cmd_doctor(apply, id, verbose),
     Some(Cmd::Quarantine { cmd }) => cmd_quarantine(cmd),
     Some(Cmd::Purge {
       apply,
@@ -972,7 +986,7 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
       let mut rows: Vec<&lease::Lease> = lf.leases.iter().collect();
       rows.sort_by_key(|l| l.expires_unix);
       for l in rows {
-        let gone = !Path::new(&l.path).is_dir();
+        let unavailable = !Path::new(&l.path).is_dir();
         let exp = if l.expired(now) {
           format!("-{}", fmt_rel(now - l.expires_unix))
         } else {
@@ -985,12 +999,155 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
           if l.scratch { "scratch" } else { "normal" },
           l.owner,
           l.path,
-          if gone { "  (gone)" } else { "" }
+          if unavailable {
+            "  (missing or unavailable)"
+          } else {
+            ""
+          }
         );
       }
       println!("\nnegative expiry = expired (retirable with `reap retire --apply`).");
       0
     }
+  }
+}
+
+fn cmd_doctor(apply: bool, id: Option<String>, verbose: bool) -> i32 {
+  let state = state_dir();
+  let _lock = match lock_state(&state) {
+    Ok(lock) => lock,
+    Err(e) => {
+      eprintln!("error: locking state: {e}");
+      return 1;
+    }
+  };
+  let mut lf = match load_leases(&state) {
+    Ok(file) => file,
+    Err(e) => {
+      eprintln!("error: {e}");
+      return 1;
+    }
+  };
+  let selected: Vec<lease::Lease> = lf
+    .leases
+    .iter()
+    .filter(|lease| id.as_deref().is_none_or(|id| lease.id == id))
+    .cloned()
+    .collect();
+  if selected.is_empty() {
+    if let Some(id) = &id {
+      eprintln!("error: lease id {id} not found");
+      return 1;
+    }
+  }
+
+  let mut results: Vec<(lease::Lease, doctor::Diagnosis)> = selected
+    .into_iter()
+    .map(|lease| {
+      let diagnosis = doctor::assess(&lease);
+      (lease, diagnosis)
+    })
+    .collect();
+  if apply {
+    for (lease, diagnosis) in &mut results {
+      if !matches!(
+        diagnosis,
+        doctor::Diagnosis::Gone | doctor::Diagnosis::Remounted(_)
+      ) {
+        continue;
+      }
+      let fresh = doctor::assess(lease);
+      if fresh != *diagnosis {
+        *diagnosis = doctor::Diagnosis::Blocked("state changed during repair".to_string());
+        continue;
+      }
+      match diagnosis {
+        doctor::Diagnosis::Gone => lf
+          .leases
+          .retain(|record| record.id != lease.id || record.path != lease.path),
+        doctor::Diagnosis::Remounted(dev) => {
+          if let Some(record) = lf
+            .leases
+            .iter_mut()
+            .find(|record| record.id == lease.id && record.path == lease.path)
+          {
+            record.dev = *dev;
+          }
+        }
+        _ => unreachable!(),
+      }
+    }
+    if results.iter().any(|(_, diagnosis)| {
+      matches!(
+        diagnosis,
+        doctor::Diagnosis::Gone | doctor::Diagnosis::Remounted(_)
+      )
+    }) {
+      if let Err(e) = save_leases(&state, &lf) {
+        eprintln!("error: saving leases: {e}");
+        return 1;
+      }
+    }
+  }
+
+  let count = |label| results.iter().filter(|(_, d)| d.label() == label).count();
+  println!(
+    "reap doctor -- {}: {} lease(s); valid {}, gone {}, remounted {}, blocked {}",
+    if apply {
+      "APPLY (index only)"
+    } else {
+      "DRY-RUN"
+    },
+    results.len(),
+    count("valid"),
+    count("gone"),
+    count("remounted"),
+    count("blocked")
+  );
+  let limit = if verbose { usize::MAX } else { 20 };
+  let mut shown = 0;
+  let mut omitted = 0;
+  for (lease, diagnosis) in &results {
+    if matches!(diagnosis, doctor::Diagnosis::Valid) && id.is_none() {
+      continue;
+    }
+    if shown >= limit {
+      omitted += 1;
+      continue;
+    }
+    let detail = match diagnosis {
+      doctor::Diagnosis::Gone => if apply {
+        "lease dropped"
+      } else {
+        "--apply drops lease"
+      }
+      .to_string(),
+      doctor::Diagnosis::Remounted(_) => if apply {
+        "device rebound"
+      } else {
+        "--apply rebinds device"
+      }
+      .to_string(),
+      doctor::Diagnosis::Blocked(reason) => reason.clone(),
+      doctor::Diagnosis::Valid => String::new(),
+    };
+    println!(
+      "  {:<10} {:<9} {}  {}",
+      lease.id,
+      diagnosis.label(),
+      lease.path,
+      detail
+    );
+    shown += 1;
+  }
+  if omitted > 0 {
+    println!("  ... {omitted} more non-valid lease(s); use --verbose to show all");
+  }
+  if apply && count("blocked") > 0 {
+    eprintln!("error: {} lease(s) remain blocked", count("blocked"));
+    1
+  } else {
+    0
   }
 }
 
@@ -1082,18 +1239,32 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
   for l in &selected {
     let a = assess_retire(l, now, &opts, &cwd, &qdir, &lf.leases);
     if a.gone {
-      if apply {
-        lf.leases.retain(|x| x.id != l.id);
-        if let Err(e) = save_leases(&state, &lf) {
-          eprintln!("error: saving leases: {}", e);
-          return 1;
+      match doctor::assess(l) {
+        doctor::Diagnosis::Gone => {
+          if apply {
+            lf.leases.retain(|x| x.id != l.id || x.path != l.path);
+            if let Err(e) = save_leases(&state, &lf) {
+              eprintln!("error: saving leases: {e}");
+              return 1;
+            }
+            println!(
+              "  {}  directory gone on recorded volume -- lease {} dropped",
+              l.path, l.id
+            );
+          } else {
+            println!(
+              "  {}  directory gone on recorded volume (--apply drops the lease)",
+              l.path
+            );
+          }
         }
-        println!(
-          "  {}  directory already gone -- lease {} dropped",
-          l.path, l.id
-        );
-      } else {
-        println!("  {}  directory gone (--apply drops the lease)", l.path);
+        diagnosis => {
+          println!("  {}  REFUSED: {}", l.path, diagnosis.label());
+          if let doctor::Diagnosis::Blocked(reason) = diagnosis {
+            println!("      {reason}");
+          }
+          rc = 1;
+        }
       }
       continue;
     }

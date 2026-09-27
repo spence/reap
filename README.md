@@ -160,6 +160,7 @@ Each command class has its own authority and cannot exceed it:
 | `reap sweep` / `plan` / `clean` | regenerable build output inside recognized profiles                               |
 | `reap stores`                   | direct children of stores declared in `.reap.json` v2 and armed with `--init`     |
 | `reap retire`                   | leased directories whose lease expired, moved (not deleted) into the quarantine   |
+| `reap doctor`                   | lease-index records only, with `--apply`; never directory contents               |
 | `reap purge`                    | quarantined entries past the machine's grace period, or an explicit selection     |
 
 An upgrade never widens an existing command's deletion surface.
@@ -228,6 +229,7 @@ reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT]
 reap lease renew <dir> [--ttl 7d]
 reap lease release <dir>
 reap lease list
+reap doctor [--id ID] [--verbose] [--apply]
 reap retire [dir] [--now] [--apply]
 
 # quarantine
@@ -460,6 +462,18 @@ opaque token mirrored in a `.reap-lease` marker inside the directory, an
 owner, a purpose, and the TTL. `--scratch` marks the checkout disposable even
 if dirty; without it, retirement requires the checkout to be clean, fully
 pushed, and stash-free.
+
+`reap doctor` checks the lease index without changing it by default. It reports
+valid, gone, remounted, and blocked records, with at most 20 non-valid details
+unless `--verbose` is passed. `--id ID` narrows inspection or repair to one
+lease. `doctor --apply` only changes the index: it drops a missing path when a
+canonical surviving ancestor is on the lease's recorded device, or rebinds a
+changed device when the path, inode, marker ID and token still match on a live
+mounted volume. A missing path on an unavailable or remounted volume, or any
+marker or inode mismatch, stays blocked. It never removes a directory or its
+contents. `retire --apply` uses the same recorded-volume check before dropping
+a missing lease. `doctor --apply` repairs proved-safe entries even when others
+remain blocked, then exits nonzero to report the incomplete repair.
 
 When leases expire, retirement moves them into the quarantine:
 

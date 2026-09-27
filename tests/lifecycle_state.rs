@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -124,6 +125,155 @@ fn parallel(root: Arc<TestRoot>, commands: Vec<Vec<String>>) -> Vec<Output> {
     .into_iter()
     .map(|handle| handle.join().unwrap())
     .collect()
+}
+
+#[test]
+fn doctor_repairs_only_proved_index_entries_and_retire_preserves_unavailable_leases() {
+  let root = TestRoot::new();
+  let gone = root.project("gone");
+  let unavailable = root.project("unavailable");
+  let valid = root.project("valid");
+  let mismatched = root.project("mismatched");
+  let replaced = root.project("replaced");
+  for dir in [&gone, &unavailable, &valid, &mismatched, &replaced] {
+    success(root.run(args(
+      &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+      dir,
+    )));
+  }
+  fs::remove_dir_all(&gone).unwrap();
+  fs::remove_dir_all(&unavailable).unwrap();
+  fs::write(mismatched.join(".reap-lease"), "foreign marker").unwrap();
+  fs::rename(&replaced, root.root.join("original")).unwrap();
+  fs::create_dir(&replaced).unwrap();
+  fs::write(replaced.join("payload"), "replacement").unwrap();
+  fs::write(
+    replaced.join(".reap-lease"),
+    fs::read(root.root.join("original/.reap-lease")).unwrap(),
+  )
+  .unwrap();
+
+  let lease_path = root.state().join("leases.json");
+  let mut state: Value = serde_json::from_slice(&fs::read(&lease_path).unwrap()).unwrap();
+  let rows = state["leases"].as_array_mut().unwrap();
+  let unavailable_row = rows
+    .iter_mut()
+    .find(|row| row["path"] == unavailable.to_string_lossy().as_ref())
+    .unwrap();
+  unavailable_row["dev"] = Value::from(unavailable_row["dev"].as_u64().unwrap() + 1);
+  fs::write(&lease_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+  let before = fs::read(&lease_path).unwrap();
+
+  let dry = root.run(vec!["doctor".to_string()]);
+  success(dry.clone());
+  let output = String::from_utf8_lossy(&dry.stdout);
+  assert!(output.contains("valid 1, gone 1, remounted 0, blocked 3"));
+  assert!(output.contains("inode changed"));
+  assert!(output.contains(".reap-lease missing or mismatched"));
+  assert!(output.contains("not on its recorded volume"));
+  assert_eq!(
+    fs::read(&lease_path).unwrap(),
+    before,
+    "dry-run is read-only"
+  );
+
+  fs::create_dir(root.state().join("leases.tmp")).unwrap();
+  failure(root.run(vec!["doctor".to_string(), "--apply".to_string()]));
+  assert_eq!(fs::read(&lease_path).unwrap(), before);
+  fs::remove_dir(root.state().join("leases.tmp")).unwrap();
+
+  let applied = root.run(vec!["doctor".to_string(), "--apply".to_string()]);
+  failure(applied);
+  let after = array(&lease_path, "leases");
+  assert_eq!(after.len(), 4);
+  assert!(!after
+    .iter()
+    .any(|row| row["path"] == gone.to_string_lossy().as_ref()));
+  assert!(after
+    .iter()
+    .any(|row| row["path"] == unavailable.to_string_lossy().as_ref()));
+  assert!(valid.join("payload").is_file());
+  assert_eq!(fs::read(replaced.join("payload")).unwrap(), b"replacement");
+  assert!(root.root.join("original/payload").is_file());
+
+  let retire = root.run(args(&["retire", "{path}", "--apply"], &unavailable));
+  assert!(!retire.status.success());
+  assert_eq!(array(&lease_path, "leases").len(), 4);
+}
+
+#[test]
+fn doctor_dry_run_bounds_details() {
+  let root = TestRoot::new();
+  let dir = root.project("seed");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &dir,
+  )));
+  let lease_path = root.state().join("leases.json");
+  let mut state: Value = serde_json::from_slice(&fs::read(&lease_path).unwrap()).unwrap();
+  let seed = state["leases"][0].clone();
+  let rows = state["leases"].as_array_mut().unwrap();
+  for n in 0..25 {
+    let mut row = seed.clone();
+    row["id"] = Value::from(format!("missing-{n}"));
+    row["path"] = Value::from(
+      root
+        .root
+        .join(format!("missing-{n}"))
+        .to_string_lossy()
+        .to_string(),
+    );
+    rows.push(row);
+  }
+  fs::write(&lease_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+  let dry = root.run(vec!["doctor".to_string()]);
+  success(dry.clone());
+  let output = String::from_utf8_lossy(&dry.stdout);
+  assert!(output.contains("26 lease(s); valid 1, gone 25"));
+  assert!(output.contains("5 more non-valid lease(s)"));
+  assert_eq!(output.lines().count(), 22);
+}
+
+#[test]
+fn doctor_rebinds_a_mounted_volume_without_touching_the_directory() {
+  let root = TestRoot::new();
+  let dir = root.project("remounted");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &dir,
+  )));
+  let live_dev = fs::symlink_metadata(&dir).unwrap().dev();
+  let mut path = dir.as_path();
+  let mut mounted = false;
+  while let Some(parent) = path.parent() {
+    if fs::symlink_metadata(parent).unwrap().dev() != live_dev {
+      mounted = true;
+      break;
+    }
+    path = parent;
+  }
+  let lease_path = root.state().join("leases.json");
+  let mut state: Value = serde_json::from_slice(&fs::read(&lease_path).unwrap()).unwrap();
+  state["leases"][0]["dev"] = Value::from(live_dev + 1);
+  fs::write(&lease_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+
+  let dry = root.run(vec!["doctor".to_string()]);
+  success(dry.clone());
+  let output = String::from_utf8_lossy(&dry.stdout);
+  if mounted {
+    assert!(output.contains("remounted 1, blocked 0"));
+    success(root.run(vec!["doctor".to_string(), "--apply".to_string()]));
+    let after = array(&lease_path, "leases");
+    assert_eq!(after[0]["dev"].as_u64(), Some(live_dev));
+    assert!(dir.join("payload").is_file());
+    assert!(dir.join(".reap-lease").is_file());
+  } else {
+    assert!(output.contains("remounted 0, blocked 1"));
+    assert_eq!(
+      array(&lease_path, "leases")[0]["dev"].as_u64(),
+      Some(live_dev + 1)
+    );
+  }
 }
 
 #[test]
