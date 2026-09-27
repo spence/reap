@@ -1503,6 +1503,64 @@ fn unindexed_store_output_stays_blocked_for_manual_review() {
 }
 
 #[test]
+fn cross_device_creation_leases_a_copy_and_worktree_on_kytos() {
+  let Ok(base) = std::env::var("REAP_TEST_CROSS_DEVICE_ROOT") else {
+    return;
+  };
+  let root = TestRoot::new();
+  let external = ExternalFixture::new(Path::new(&base));
+  assert_ne!(
+    fs::symlink_metadata(&root.root).unwrap().dev(),
+    fs::symlink_metadata(&external.0).unwrap().dev(),
+    "fixture must span two devices"
+  );
+  let source = root.project("cross-device-source");
+  git(&source, &["init"]);
+  git(&source, &["add", "payload"]);
+  git(&source, &["commit", "-m", "initial"]);
+  let copied = external.0.join("copied-project");
+  success(root.run(vec![
+    "create".into(),
+    "copy".into(),
+    source.to_string_lossy().into_owned(),
+    copied.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "1h".into(),
+    "--owner".into(),
+    "agent-7".into(),
+    "--purpose".into(),
+    "cross-device copy".into(),
+    "--scratch".into(),
+  ]));
+  let worktree = external.0.join("linked-worktree");
+  success(root.run(vec![
+    "create".into(),
+    "worktree".into(),
+    source.to_string_lossy().into_owned(),
+    worktree.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "1h".into(),
+    "--owner".into(),
+    "agent-7".into(),
+    "--purpose".into(),
+    "cross-device worktree".into(),
+  ]));
+  assert!(copied.join("payload").is_file());
+  assert!(copied.join(".reap-lease").is_file());
+  assert!(worktree.join(".git").is_file());
+  assert!(worktree.join(".reap-lease").is_file());
+  success(
+    Command::new("git")
+      .arg("-C")
+      .arg(&worktree)
+      .args(["status", "--short"])
+      .output()
+      .unwrap(),
+  );
+  assert_eq!(array(&root.state().join("leases.json"), "leases").len(), 2);
+}
+
+#[test]
 fn cross_device_store_quarantine_restores_without_erasing_a_staging_directory() {
   let Ok(base) = std::env::var("REAP_TEST_CROSS_DEVICE_ROOT") else {
     return;
