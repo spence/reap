@@ -2320,6 +2320,88 @@ fn active_nested_child_keeps_expired_parent_in_place() {
 }
 
 #[test]
+fn retire_dry_run_separates_moved_bytes_from_same_volume_free_space() {
+  let root = TestRoot::new();
+  let dir = root.project("scratch");
+  maintenance_config(&root, &dir);
+  let old = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 86400,
+    0,
+  );
+  set_file_mtime(dir.join("payload"), old).unwrap();
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &dir,
+  )));
+  let before = fs::read(root.state().join("leases.json")).unwrap();
+  let plan = root.run(args(&["retire", "{path}"], &dir));
+  success(plan.clone());
+  let text = String::from_utf8_lossy(&plan.stdout);
+  assert!(text.contains("retire move estimate:"));
+  assert!(text.contains("1 distinct tree(s)"));
+  assert!(text.contains("same-volume bytes moved:"));
+  assert!(text.contains("estimated net free: 0 B"));
+  assert!(text.contains("estimated net available change 0 B"));
+  assert_eq!(fs::read(root.state().join("leases.json")).unwrap(), before);
+  assert!(dir.join("payload").is_file());
+  assert!(!root.quarantine().join("index.json").exists());
+}
+
+#[test]
+fn retire_dry_run_accounts_for_destination_cost_across_volumes() {
+  let base = match std::env::var("REAP_TEST_EXTERNAL_VOLUME") {
+    Ok(base) if Path::new(&base).is_dir() => base,
+    _ => return,
+  };
+  let external = ExternalFixture::new(Path::new(&base));
+  let root = TestRoot::new();
+  let dir = root.project("scratch");
+  let qdir = external.0.join("quarantine");
+  fs::create_dir(&qdir).unwrap();
+  let config = root.root.join("home/.config/reap/config.json");
+  fs::create_dir_all(config.parent().unwrap()).unwrap();
+  fs::write(
+    &config,
+    serde_json::to_vec(&json!({
+      "roots": [root.root],
+      "quarantine": {"dir": qdir, "auto_purge": false}
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  assert_ne!(
+    fs::metadata(&dir).unwrap().dev(),
+    fs::metadata(&qdir).unwrap().dev()
+  );
+  let old = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 86400,
+    0,
+  );
+  set_file_mtime(dir.join("payload"), old).unwrap();
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &dir,
+  )));
+  let plan = root.run(args(&["retire", "{path}"], &dir));
+  success(plan.clone());
+  let text = String::from_utf8_lossy(&plan.stdout);
+  assert!(text.contains("same-volume bytes moved: 0 B"));
+  assert!(text.contains("quarantine volume"));
+  assert!(text.contains("estimated net available change -"));
+  assert!(text.contains("source device"));
+  assert!(text.contains("estimated net available change +"));
+  assert!(dir.join("payload").is_file());
+}
+
+#[test]
 fn concurrent_nested_renewal_never_moves_an_active_child_inside_its_parent() {
   let root = Arc::new(TestRoot::new());
   let parent = root.project("parent");

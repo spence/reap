@@ -704,6 +704,13 @@ An explicit `retire <dir>` does not implicitly retire its descendants.
 Linked worktrees additionally get `git worktree prune` run on their main
 repository after the move.
 
+The `retire` dry-run reports eligible logical bytes to move separately from
+estimated free-space change by volume. A move into a quarantine on the same
+volume frees an estimated 0 B there; a cross-volume move consumes space on the
+quarantine volume and frees space on the source volume. These are planning
+estimates, not physical-byte guarantees (for example, APFS compression and
+shared blocks can change the observed result).
+
 Retirement is a move, not a delete. The entry lands in the quarantine with its
 owner, purpose, source machine, original path, and any supplied provenance
 recorded:

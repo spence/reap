@@ -146,6 +146,12 @@ Worktrees get `git worktree prune` on their main repo. Nothing is deleted —
 the directory MOVES to the quarantine
 (per-machine location, can be an external drive) and stays restorable:
 
+The dry-run reports eligible logical bytes to move separately from estimated
+free-space change by volume. Same-volume retirement frees an estimated 0 B;
+cross-volume retirement costs space on the quarantine volume and frees it on
+the source volume. Physical free-space changes can differ from these logical-
+byte estimates (for example, with APFS compression or shared blocks).
+
 ```bash
 reap quarantine                  # list entries; --owner <name> filters
 reap quarantine restore <id>

@@ -31,6 +31,8 @@ mod store_bindings;
 mod stores;
 mod util;
 
+use std::collections::BTreeMap;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::Instant;
@@ -1662,6 +1664,7 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
   let mut planned = lf.leases.clone();
   let mut pass = RetirePass::default();
   let mut failed_paths: Vec<PathBuf> = vec![];
+  let mut eligible_moves: Vec<(PathBuf, u64, u64)> = vec![];
   for l in &selected {
     let source = Path::new(&l.path);
     if lf.overlaps_creation(source) {
@@ -1752,6 +1755,7 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
     }
     if !apply {
       planned.retain(|other| other.id != l.id);
+      eligible_moves.push((source.to_path_buf(), a.bytes, l.dev));
       println!(
         "  {}  ok to retire -> {}  ({}, owner {})",
         l.path,
@@ -1840,7 +1844,65 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
       }
     }
   }
+  if !apply {
+    print_retire_move_estimate(&eligible_moves, &qdir);
+  }
   rc
+}
+
+fn print_retire_move_estimate(moves: &[(PathBuf, u64, u64)], qdir: &Path) {
+  let outermost: Vec<_> = moves
+    .iter()
+    .filter(|(path, _, _)| {
+      !moves
+        .iter()
+        .any(|(other, _, _)| path != other && path.starts_with(other))
+    })
+    .collect();
+  let total: u128 = outermost.iter().map(|(_, bytes, _)| *bytes as u128).sum();
+  println!(
+    "\nretire move estimate: {} logical bytes in {} distinct tree(s)",
+    human(total.min(u64::MAX as u128) as u64),
+    outermost.len()
+  );
+  let qdev = match std::fs::metadata(qdir) {
+    Ok(meta) => meta.dev(),
+    Err(e) => {
+      println!("  net available change: unknown (quarantine volume unavailable: {e})");
+      return;
+    }
+  };
+  let mut same = 0u128;
+  let mut incoming = 0u128;
+  let mut source_gain: BTreeMap<u64, u128> = BTreeMap::new();
+  for (_, bytes, source_dev) in outermost {
+    if *source_dev == qdev {
+      same += *bytes as u128;
+    } else {
+      incoming += *bytes as u128;
+      *source_gain.entry(*source_dev).or_default() += *bytes as u128;
+    }
+  }
+  println!(
+    "  same-volume bytes moved: {} (estimated net free: 0 B)",
+    human(same.min(u64::MAX as u128) as u64)
+  );
+  println!(
+    "  quarantine volume {}: estimated net available change {}",
+    qdir.display(),
+    if incoming == 0 {
+      "0 B".to_string()
+    } else {
+      format!("-{}", human(incoming.min(u64::MAX as u128) as u64))
+    }
+  );
+  for (dev, gain) in source_gain {
+    println!(
+      "  source device {dev}: estimated net available change +{}",
+      human(gain.min(u64::MAX as u128) as u64)
+    );
+  }
+  println!("  logical-byte estimates can differ from physical free-space changes");
 }
 
 fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
