@@ -23,6 +23,15 @@ struct Volume {
   available: u64,
 }
 
+type Issues = BTreeMap<String, (usize, String)>;
+
+fn record_issue(issues: &mut Issues, reason: String, example: String) {
+  issues
+    .entry(reason)
+    .and_modify(|(count, _)| *count += 1)
+    .or_insert((1, example));
+}
+
 fn volume(path: &Path) -> Result<Volume, String> {
   let canonical = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
   let meta = fs::metadata(&canonical).map_err(|e| format!("{}: {e}", canonical.display()))?;
@@ -95,7 +104,7 @@ pub fn run() -> i32 {
   println!("  stores: unknown — run `reap stores` for an exact plan");
   println!("  leased trees: unknown — run `reap retire` for an exact plan");
 
-  let mut blocked = Vec::new();
+  let mut blocked = Issues::new();
   match load_leases(&state) {
     Ok(leases) => {
       let now = crate::plan::now_secs() as i64;
@@ -113,22 +122,34 @@ pub fn run() -> i32 {
           Diagnosis::Valid => valid += 1,
           Diagnosis::Gone => {
             repairable += 1;
-            blocked.push(format!(
-              "lease {}: path gone on recorded volume; review `reap doctor --id {}`",
-              lease.id, lease.id
-            ));
+            record_issue(
+              &mut blocked,
+              "lease: path gone on recorded volume".to_string(),
+              format!(
+                "lease {}: path gone on recorded volume; review `reap doctor --id {}`",
+                lease.id, lease.id
+              ),
+            );
           }
           Diagnosis::Remounted(_) => {
             repairable += 1;
-            blocked.push(format!(
-              "lease {}: recorded device changed across a live mount; review `reap doctor --id {}`",
-              lease.id, lease.id
-            ));
+            record_issue(
+              &mut blocked,
+              "lease: recorded device changed across a live mount".to_string(),
+              format!(
+                "lease {}: recorded device changed across a live mount; review `reap doctor --id {}`",
+                lease.id, lease.id
+              ),
+            );
           }
-          Diagnosis::Blocked(reason) => blocked.push(format!(
-            "lease {}: {}; inspect `reap doctor --id {}` and ask its owner before changing state",
-            lease.id, reason, lease.id
-          )),
+          Diagnosis::Blocked(reason) => record_issue(
+            &mut blocked,
+            format!("lease: {reason}"),
+            format!(
+              "lease {}: {}; inspect `reap doctor --id {}` and ask its owner before changing state",
+              lease.id, reason, lease.id
+            ),
+          ),
         }
       }
       println!(
@@ -140,10 +161,14 @@ pub fn run() -> i32 {
         leases.creating.len()
       );
       for intent in &leases.creating {
-        blocked.push(format!(
-          "creation {}: pending at {}; inspect partial path, then review `reap lease add`",
-          intent.id, intent.path
-        ));
+        record_issue(
+          &mut blocked,
+          "creation: pending".to_string(),
+          format!(
+            "creation {}: pending at {}; inspect partial path, then review `reap lease add`",
+            intent.id, intent.path
+          ),
+        );
       }
       println!(
         "managed parents: {} (use `reap parents list` for children)",
@@ -159,13 +184,25 @@ pub fn run() -> i32 {
   }
 
   println!("last maintenance: none recorded (one-shot maintenance is not installed)");
-  println!("\nblocked/review items: {}", blocked.len());
-  for item in blocked.iter().take(10) {
-    println!("  {item}");
+  let blocked_total: usize = blocked.values().map(|(count, _)| count).sum();
+  println!(
+    "\nblocked/review items: {} across {} reason(s)",
+    blocked_total,
+    blocked.len()
+  );
+  for (count, example) in blocked.values().take(10) {
+    println!(
+      "  {example}{}",
+      if *count > 1 {
+        format!(" (+{} similar)", count - 1)
+      } else {
+        String::new()
+      }
+    );
   }
   if blocked.len() > 10 {
     println!(
-      "  ... {} more; use `reap doctor` and `reap doctor --quarantine`",
+      "  ... {} more reasons; use `reap doctor` and `reap doctor --quarantine`",
       blocked.len() - 10
     );
   }
@@ -182,16 +219,18 @@ fn report_quarantine(
   qdir: &Path,
   cfg: &crate::config::Config,
   leases: &[crate::lease::Lease],
-  blocked: &mut Vec<String>,
+  blocked: &mut Issues,
   errors: &mut i32,
 ) {
   let index = match quarantine::load_index(qdir) {
     Ok(index) => index,
     Err(reason) => {
       println!("  quarantine auto-reclaimable: unknown (index unreadable)");
-      blocked.push(format!(
-        "quarantine index: {reason}; inspect `reap doctor --quarantine`"
-      ));
+      record_issue(
+        blocked,
+        "quarantine index: unreadable".to_string(),
+        format!("quarantine index: {reason}; inspect `reap doctor --quarantine`"),
+      );
       *errors += 1;
       return;
     }
@@ -205,12 +244,20 @@ fn report_quarantine(
   for id in ids {
     match quarantine::diagnose_entry(qdir, &id, &index, leases) {
       EntryDiagnosis::Indexed => {}
-      EntryDiagnosis::Recoverable(_) => blocked.push(format!(
-        "quarantine {id}: interrupted index write; review `reap doctor --quarantine --id {id}`"
-      )),
-      EntryDiagnosis::Blocked(reason) => blocked.push(format!(
-        "quarantine {id}: {reason}; inspect `reap doctor --quarantine --id {id}` before purge"
-      )),
+      EntryDiagnosis::Recoverable(_) => record_issue(
+        blocked,
+        "quarantine: interrupted index write".to_string(),
+        format!(
+          "quarantine {id}: interrupted index write; review `reap doctor --quarantine --id {id}`"
+        ),
+      ),
+      EntryDiagnosis::Blocked(reason) => record_issue(
+        blocked,
+        format!("quarantine: {reason}"),
+        format!(
+          "quarantine {id}: {reason}; inspect `reap doctor --quarantine --id {id}` before purge"
+        ),
+      ),
     }
   }
   let recorded: u64 = index

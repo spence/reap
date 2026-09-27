@@ -219,6 +219,12 @@ fn status_is_metadata_only_and_reports_unknown_and_actionable_blocks() {
     .unwrap()
     .to_string();
   fs::write(leased.join(".reap-lease"), b"wrong marker").unwrap();
+  let other = root.project("another-broken-lease");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &other,
+  )));
+  fs::write(other.join(".reap-lease"), b"wrong marker").unwrap();
 
   let output = root.run(vec!["status".into()]);
   success(output.clone());
@@ -232,6 +238,8 @@ fn status_is_metadata_only_and_reports_unknown_and_actionable_blocks() {
   assert!(text.contains(&format!("reap doctor --id {id}")));
   assert!(text.contains("quarantine abcdef12: unindexed slot has no metadata"));
   assert!(text.contains("reap doctor --quarantine --id abcdef12"));
+  assert!(text.contains("blocked/review items: 3 across 2 reason(s)"));
+  assert!(text.contains("(+1 similar)"));
   assert!(text.contains("last maintenance: none recorded"));
   assert!(text.contains("status time:"));
 
