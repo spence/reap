@@ -6,14 +6,20 @@
 //! copy that another machine's agent parked here, that agent can be asked
 //! whether the files are still needed.
 
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsString;
 use std::fs;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::lease::{read_marker, Lease, LEASE_MARKER};
-use crate::util::{fmt_rel, git_capture, move_dir, tree_stats, write_json_atomic, GitError, Moved};
+use crate::util::{
+  fmt_rel, git_capture, move_dir, tree_stats_ignoring_dir_mtimes, write_json_atomic, GitError,
+  Moved,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
@@ -110,6 +116,157 @@ pub struct Retired {
   pub copied: bool,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct SnapshotEntry {
+  dev: u64,
+  ino: u64,
+  mode: u32,
+  len: u64,
+  mtime: i64,
+  mtime_nsec: i64,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct DirSnapshot {
+  dev: u64,
+  ino: u64,
+  mode: u32,
+  mtime: i64,
+  mtime_nsec: i64,
+  entries: BTreeMap<OsString, SnapshotEntry>,
+}
+
+pub struct PendingMove {
+  parent: PathBuf,
+  child: OsString,
+  before: DirSnapshot,
+}
+
+#[derive(Default)]
+pub struct RetirePass {
+  touched: HashMap<PathBuf, Option<DirSnapshot>>,
+  retired: HashSet<PathBuf>,
+}
+
+impl RetirePass {
+  pub fn quiet_ignores(&self, root: &Path) -> Result<HashSet<PathBuf>, String> {
+    let mut ignored = HashSet::new();
+    for path in &self.retired {
+      if !path.starts_with(root) {
+        continue;
+      }
+      match fs::symlink_metadata(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Ok(_) => return Err(format!("retired child {} reappeared", path.display())),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+      }
+    }
+    for (dir, expected) in &self.touched {
+      if !dir.starts_with(root) || self.retired.iter().any(|path| dir.starts_with(path)) {
+        continue;
+      }
+      let Some(expected) = expected else {
+        return Err(format!(
+          "{} changed during a child retirement",
+          dir.display()
+        ));
+      };
+      if snapshot_dir(dir)? != *expected {
+        return Err(format!(
+          "{} changed after a child retirement",
+          dir.display()
+        ));
+      }
+      ignored.insert(dir.clone());
+    }
+    Ok(ignored)
+  }
+
+  pub fn begin_move(&self, source: &Path) -> Result<PendingMove, String> {
+    let parent = source
+      .parent()
+      .ok_or_else(|| format!("{} has no parent", source.display()))?
+      .to_path_buf();
+    let before = snapshot_dir(&parent)?;
+    if let Some(expected) = self.touched.get(&parent) {
+      if expected.as_ref() != Some(&before) {
+        return Err(format!("{} changed during a retire pass", parent.display()));
+      }
+    }
+    let child = source
+      .file_name()
+      .ok_or_else(|| format!("{} has no basename", source.display()))?
+      .to_os_string();
+    if !before.entries.contains_key(&child) {
+      return Err(format!(
+        "{} disappeared before retirement",
+        source.display()
+      ));
+    }
+    Ok(PendingMove {
+      parent,
+      child,
+      before,
+    })
+  }
+
+  pub fn end_move(&mut self, source: &Path, pending: PendingMove) -> Result<(), String> {
+    self.retired.insert(source.to_path_buf());
+    let mut expected = pending.before;
+    expected.entries.remove(&pending.child);
+    let after = snapshot_dir(&pending.parent);
+    if after.as_ref().is_ok_and(|actual| {
+      actual.dev == expected.dev
+        && actual.ino == expected.ino
+        && actual.mode == expected.mode
+        && actual.entries == expected.entries
+    }) {
+      self.touched.insert(pending.parent, after.ok());
+      Ok(())
+    } else {
+      self.touched.insert(pending.parent.clone(), None);
+      Err(format!(
+        "{} changed beyond the retired child; ancestor kept in place",
+        pending.parent.display()
+      ))
+    }
+  }
+}
+
+fn snapshot_dir(dir: &Path) -> Result<DirSnapshot, String> {
+  let parent = fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+  if !parent.is_dir() {
+    return Err(format!("{} is not a directory", dir.display()));
+  }
+  let mut entries_snapshot = BTreeMap::new();
+  let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+    let meta =
+      fs::symlink_metadata(entry.path()).map_err(|e| format!("{}: {e}", entry.path().display()))?;
+    let git = entry.file_name() == ".git";
+    entries_snapshot.insert(
+      entry.file_name(),
+      SnapshotEntry {
+        dev: meta.dev(),
+        ino: meta.ino(),
+        mode: meta.mode(),
+        len: if git { 0 } else { meta.len() },
+        mtime: if git { 0 } else { meta.mtime() },
+        mtime_nsec: if git { 0 } else { meta.mtime_nsec() },
+      },
+    );
+  }
+  Ok(DirSnapshot {
+    dev: parent.dev(),
+    ino: parent.ino(),
+    mode: parent.mode(),
+    mtime: parent.mtime(),
+    mtime_nsec: parent.mtime_nsec(),
+    entries: entries_snapshot,
+  })
+}
+
 pub enum PurgeSelect {
   Auto,
   All,
@@ -152,6 +309,18 @@ pub fn assess_retire(
   qdir: &Path,
   others: &[Lease],
 ) -> Assessment {
+  assess_retire_ignoring_dir_mtimes(lease, now, opts, cwd, qdir, others, &HashSet::new())
+}
+
+pub fn assess_retire_ignoring_dir_mtimes(
+  lease: &Lease,
+  now: f64,
+  opts: &RetireOpts,
+  cwd: &Path,
+  qdir: &Path,
+  others: &[Lease],
+  ignored_dir_mtimes: &HashSet<PathBuf>,
+) -> Assessment {
   let mut a = Assessment {
     checks: vec![],
     bytes: 0,
@@ -189,7 +358,6 @@ pub fn assess_retire(
     }
   };
 
-  use std::os::unix::fs::MetadataExt;
   let canon_ok = fs::canonicalize(&dir).map(|c| c == dir).unwrap_or(false);
   let inode_ok = meta.dev() == lease.dev && meta.ino() == lease.ino;
   push(
@@ -258,7 +426,7 @@ pub fn assess_retire(
   );
 
   // One walk: activity brake, byte count, and mount uniformity together.
-  let st = tree_stats(&dir, &[LEASE_MARKER]);
+  let st = tree_stats_ignoring_dir_mtimes(&dir, &[LEASE_MARKER], ignored_dir_mtimes);
   a.bytes = st.bytes;
   let age_floor = now - opts.min_age_minutes * 60.0;
   push(
@@ -906,6 +1074,30 @@ mod tests {
       EntryDiagnosis::Blocked(reason) if reason.contains("no metadata")
     ));
     assert!(slot.join("old-payload/data").is_file());
+    let _ = fs::remove_dir_all(root);
+  }
+
+  #[test]
+  fn retire_pass_trusts_only_the_planned_child_removal() {
+    let root = tmp();
+    let parent = root.join("parent");
+    let intermediate = parent.join("intermediate");
+    let child = intermediate.join("child");
+    fs::create_dir_all(&child).unwrap();
+    fs::write(intermediate.join("sibling"), b"keep").unwrap();
+    let mut pass = RetirePass::default();
+    let pending = pass.begin_move(&child).unwrap();
+    fs::rename(&child, root.join("retired-child")).unwrap();
+    pass.end_move(&child, pending).unwrap();
+    assert!(pass.quiet_ignores(&parent).unwrap().contains(&intermediate));
+
+    fs::write(intermediate.join("foreign"), b"new work").unwrap();
+    assert!(pass.quiet_ignores(&parent).is_err());
+    fs::remove_file(intermediate.join("foreign")).unwrap();
+    assert!(pass.quiet_ignores(&parent).is_err());
+    fs::create_dir(&child).unwrap();
+    assert!(pass.quiet_ignores(&parent).is_err());
+    assert!(intermediate.join("sibling").is_file());
     let _ = fs::remove_dir_all(root);
   }
 

@@ -3,6 +3,7 @@
 //! cross-device directory moves, machine identity, TTL parsing, and atomic
 //! JSON state writes.
 
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::fs::{symlink, MetadataExt};
@@ -44,6 +45,14 @@ pub struct TreeStats {
 /// `.git` contents are counted in bytes but excluded from `newest_mtime`,
 /// because git bookkeeping churns even on read-only operations.
 pub fn tree_stats(root: &Path, skip_root_names: &[&str]) -> TreeStats {
+  tree_stats_ignoring_dir_mtimes(root, skip_root_names, &HashSet::new())
+}
+
+pub fn tree_stats_ignoring_dir_mtimes(
+  root: &Path,
+  skip_root_names: &[&str],
+  ignored_dir_mtimes: &HashSet<PathBuf>,
+) -> TreeStats {
   let mut st = TreeStats {
     bytes: 0,
     files: 0,
@@ -90,7 +99,7 @@ pub fn tree_stats(root: &Path, skip_root_names: &[&str]) -> TreeStats {
         st.links += 1;
       } else if ft.is_dir() {
         let in_git = under_git || name == ".git";
-        if !in_git && mt > st.newest_mtime {
+        if !in_git && !ignored_dir_mtimes.contains(&entry.path()) && mt > st.newest_mtime {
           st.newest_mtime = mt;
         }
         stack.push((entry.path(), in_git));

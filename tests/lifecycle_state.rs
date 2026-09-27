@@ -7,6 +7,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use filetime::{set_file_mtime, FileTime};
 use serde_json::{json, Value};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -125,6 +126,28 @@ fn parallel(root: Arc<TestRoot>, commands: Vec<Vec<String>>) -> Vec<Output> {
     .into_iter()
     .map(|handle| handle.join().unwrap())
     .collect()
+}
+
+fn make_tree_quiet(root: &Path) {
+  let old = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 3600,
+    0,
+  );
+  let mut stack = vec![root.to_path_buf()];
+  while let Some(dir) = stack.pop() {
+    for entry in fs::read_dir(&dir).unwrap() {
+      let entry = entry.unwrap();
+      if entry.file_type().unwrap().is_dir() {
+        stack.push(entry.path());
+      }
+      set_file_mtime(entry.path(), old).unwrap();
+    }
+    set_file_mtime(dir, old).unwrap();
+  }
 }
 
 #[test]
@@ -379,6 +402,172 @@ fn quarantine_doctor_rebuilds_only_valid_interrupted_entries() {
   success(root.run(vec!["purge".to_string(), "--apply".to_string()]));
   assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
   assert!(legacy.join("old-payload/data").is_file());
+}
+
+#[test]
+fn nested_retire_plans_and_moves_indirect_child_before_parent() {
+  let root = TestRoot::new();
+  let parent = root.project("nested-parent");
+  let child = parent.join("intermediate/child");
+  fs::create_dir_all(&child).unwrap();
+  fs::write(child.join("payload"), b"child data").unwrap();
+  let grandchild = child.join("grandchild");
+  fs::create_dir(&grandchild).unwrap();
+  fs::write(grandchild.join("payload"), b"grandchild data").unwrap();
+  for dir in [&parent, &child, &grandchild] {
+    success(root.run(args(
+      &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+      dir,
+    )));
+  }
+  make_tree_quiet(&parent);
+
+  let explicit = root.run(args(&["retire", "{path}", "--apply"], &parent));
+  assert!(!explicit.status.success());
+  assert!(parent.join("payload").is_file());
+  assert!(child.join("payload").is_file());
+
+  let retire = vec!["retire".to_string()];
+  let dry = root.run(retire.clone());
+  success(dry.clone());
+  let plan = String::from_utf8_lossy(&dry.stdout);
+  let grandchild_line = format!("  {}  ok to retire", grandchild.display());
+  let child_line = format!("  {}  ok to retire", child.display());
+  let parent_line = format!("  {}  ok to retire", parent.display());
+  assert!(plan.find(&grandchild_line).unwrap() < plan.find(&child_line).unwrap());
+  assert!(plan.find(&child_line).unwrap() < plan.find(&parent_line).unwrap());
+  assert_eq!(plan.matches("ok to retire").count(), 3);
+  assert!(parent.join("payload").is_file());
+  assert!(child.join("payload").is_file());
+  assert!(grandchild.join("payload").is_file());
+
+  let mut apply = retire;
+  apply.push("--apply".to_string());
+  success(root.run(apply));
+  assert!(!parent.exists());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 3);
+  for entry in &entries {
+    let slot = root
+      .quarantine()
+      .join("entries")
+      .join(entry["id"].as_str().unwrap())
+      .join(entry["name"].as_str().unwrap());
+    assert!(slot.join("payload").is_file());
+  }
+  let parent_entry = entries
+    .iter()
+    .find(|entry| entry["name"] == "nested-parent")
+    .unwrap();
+  let parent_slot = root
+    .quarantine()
+    .join("entries")
+    .join(parent_entry["id"].as_str().unwrap())
+    .join("nested-parent");
+  assert!(!parent_slot.join("intermediate/child").exists());
+}
+
+#[test]
+fn blocked_nested_child_keeps_parent_after_sibling_retires() {
+  let root = TestRoot::new();
+  let parent = root.project("parent");
+  let good = parent.join("a-good");
+  let blocked = parent.join("z-blocked");
+  fs::create_dir(&good).unwrap();
+  fs::create_dir(&blocked).unwrap();
+  fs::write(good.join("payload"), b"good").unwrap();
+  fs::write(blocked.join("payload"), b"keep").unwrap();
+  for dir in [&parent, &good, &blocked] {
+    success(root.run(args(
+      &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+      dir,
+    )));
+  }
+  fs::write(blocked.join(".reap-lease"), b"wrong marker").unwrap();
+
+  let dry = root.run(vec![
+    "retire".to_string(),
+    "--min-age-minutes".to_string(),
+    "0".to_string(),
+  ]);
+  assert!(!dry.status.success());
+  assert!(String::from_utf8_lossy(&dry.stdout).contains("no-nested-lease"));
+  assert!(good.join("payload").is_file());
+  assert!(blocked.join("payload").is_file());
+
+  let output = root.run(vec![
+    "retire".to_string(),
+    "--apply".to_string(),
+    "--min-age-minutes".to_string(),
+    "0".to_string(),
+  ]);
+  assert!(!output.status.success());
+  assert!(!good.exists());
+  assert!(blocked.join("payload").is_file());
+  assert!(parent.join("payload").is_file());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 1);
+  assert_eq!(entries[0]["name"], "a-good");
+  assert_eq!(array(&root.state().join("leases.json"), "leases").len(), 2);
+}
+
+#[test]
+fn active_nested_child_keeps_expired_parent_in_place() {
+  let root = TestRoot::new();
+  let parent = root.project("parent");
+  let child = parent.join("active-child");
+  fs::create_dir(&child).unwrap();
+  fs::write(child.join("payload"), b"keep").unwrap();
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &parent,
+  )));
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "1d", "--scratch"],
+    &child,
+  )));
+
+  let output = root.run(vec!["retire".to_string(), "--apply".to_string()]);
+  assert!(!output.status.success());
+  assert!(String::from_utf8_lossy(&output.stdout).contains("no-nested-lease"));
+  assert!(parent.join("payload").is_file());
+  assert!(child.join("payload").is_file());
+  assert!(!root.quarantine().join("index.json").exists());
+}
+
+#[test]
+fn concurrent_nested_renewal_never_moves_an_active_child_inside_its_parent() {
+  let root = Arc::new(TestRoot::new());
+  let parent = root.project("parent");
+  let child = parent.join("child");
+  fs::create_dir(&child).unwrap();
+  fs::write(child.join("payload"), b"keep").unwrap();
+  for dir in [&parent, &child] {
+    success(root.run(args(
+      &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+      dir,
+    )));
+  }
+  let commands = vec![
+    args(&["lease", "renew", "{path}", "--ttl", "1d"], &child),
+    vec![
+      "retire".to_string(),
+      "--apply".to_string(),
+      "--min-age-minutes".to_string(),
+      "0".to_string(),
+    ],
+  ];
+  let outputs = parallel(Arc::clone(&root), commands);
+  let entries = root.quarantine().join("index.json");
+  if outputs[0].status.success() {
+    assert!(parent.join("payload").is_file());
+    assert!(child.join("payload").is_file());
+    assert!(!entries.exists());
+  } else {
+    success(outputs[1].clone());
+    assert!(!parent.exists());
+    assert_eq!(array(&entries, "entries").len(), 2);
+  }
 }
 
 #[test]

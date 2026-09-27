@@ -40,9 +40,9 @@ use lease::{
 use manifest::{find_project_root, load_manifest, Policy, MANIFEST_NAME};
 use plan::{apply_plan, human, now_secs, plan_project, Plan};
 use quarantine::{
-  assess_retire, diagnose_entry, entries_dir, execute_retire, finalize_restore, finalize_retire,
-  load_index, orphaned_ids, purge_entry, restore_entry, rollback_restore, save_index, select_purge,
-  EntryDiagnosis, PurgeSelect, RetireOpts,
+  assess_retire, assess_retire_ignoring_dir_mtimes, diagnose_entry, entries_dir, execute_retire,
+  finalize_restore, finalize_retire, load_index, orphaned_ids, purge_entry, restore_entry,
+  rollback_restore, save_index, select_purge, EntryDiagnosis, PurgeSelect, RetireOpts, RetirePass,
 };
 use stores::{apply_store, init_stores, marker_armed, plan_stores, StorePlan, StoreState};
 use util::{fmt_rel, hostname, lock_state, parse_ttl, state_dir};
@@ -1316,7 +1316,7 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
     .and_then(|d| std::fs::canonicalize(d).ok())
     .unwrap_or_else(|| PathBuf::from("/"));
 
-  let selected: Vec<lease::Lease> = match &path {
+  let mut selected: Vec<lease::Lease> = match &path {
     Some(p) => {
       let abs = absolutize(&PathBuf::from(p));
       match find_by_path(&lf, &abs) {
@@ -1346,6 +1346,13 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
     );
     return 0;
   }
+  selected.sort_by(|left, right| {
+    Path::new(&right.path)
+      .components()
+      .count()
+      .cmp(&Path::new(&left.path).components().count())
+      .then_with(|| left.path.cmp(&right.path))
+  });
 
   println!(
     "reap retire -- {} -- quarantine: {}\n",
@@ -1373,8 +1380,35 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
     Default::default()
   };
   let mut rc = 0;
+  let mut planned = lf.leases.clone();
+  let mut pass = RetirePass::default();
+  let mut failed_paths: Vec<PathBuf> = vec![];
   for l in &selected {
-    let a = assess_retire(l, now, &opts, &cwd, &qdir, &lf.leases);
+    let source = Path::new(&l.path);
+    if apply && failed_paths.iter().any(|failed| failed.starts_with(source)) {
+      println!("  {}  REFUSED: a descendant failed retirement", l.path);
+      failed_paths.push(source.to_path_buf());
+      rc = 1;
+      continue;
+    }
+    let ignored = if apply {
+      match pass.quiet_ignores(source) {
+        Ok(dirs) => dirs,
+        Err(e) => {
+          println!("  {}  REFUSED: {e}", l.path);
+          failed_paths.push(source.to_path_buf());
+          rc = 1;
+          continue;
+        }
+      }
+    } else {
+      Default::default()
+    };
+    let a = if apply {
+      assess_retire_ignoring_dir_mtimes(l, now_secs(), &opts, &cwd, &qdir, &lf.leases, &ignored)
+    } else {
+      assess_retire(l, now, &opts, &cwd, &qdir, &planned)
+    };
     if a.gone {
       match doctor::assess(l) {
         doctor::Diagnosis::Gone => {
@@ -1389,6 +1423,7 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
               l.path, l.id
             );
           } else {
+            planned.retain(|other| other.id != l.id);
             println!(
               "  {}  directory gone on recorded volume (--apply drops the lease)",
               l.path
@@ -1401,6 +1436,7 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
             println!("      {reason}");
           }
           rc = 1;
+          failed_paths.push(source.to_path_buf());
         }
       }
       continue;
@@ -1411,9 +1447,11 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
         println!("      {:<16} {}", c.label, c.detail);
       }
       rc = 1;
+      failed_paths.push(source.to_path_buf());
       continue;
     }
     if !apply {
+      planned.retain(|other| other.id != l.id);
       println!(
         "  {}  ok to retire -> {}  ({}, owner {})",
         l.path,
@@ -1423,6 +1461,22 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
       );
       continue;
     }
+    let has_selected_ancestor = selected
+      .iter()
+      .any(|other| other.id != l.id && source.starts_with(Path::new(&other.path)));
+    let pending = if has_selected_ancestor {
+      match pass.begin_move(source) {
+        Ok(pending) => Some(pending),
+        Err(e) => {
+          println!("  {}  REFUSED: {e}", l.path);
+          failed_paths.push(source.to_path_buf());
+          rc = 1;
+          continue;
+        }
+      }
+    } else {
+      None
+    };
     match execute_retire(l, a.bytes, &qdir, &machine, now as i64) {
       Ok(r) => {
         idx.entries.push(r.entry.clone());
@@ -1456,7 +1510,15 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
         }
         if let Err(e) = finalize_retire(&r, a.main_repo.as_deref()) {
           eprintln!("error: {}: {}", r.dest.display(), e);
+          failed_paths.push(source.to_path_buf());
           rc = 1;
+        }
+        if let Some(pending) = pending {
+          if let Err(e) = pass.end_move(source, pending) {
+            eprintln!("error: {e}");
+            failed_paths.push(source.to_path_buf());
+            rc = 1;
+          }
         }
         println!(
           "  retired {} -> {}  ({}{}, owner {})",
@@ -1473,6 +1535,7 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
       }
       Err(e) => {
         eprintln!("  {}  FAILED: {}", l.path, e);
+        failed_paths.push(source.to_path_buf());
         rc = 1;
       }
     }

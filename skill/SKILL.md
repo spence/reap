@@ -71,9 +71,14 @@ reap retire <dir> --now --apply # finished early with a specific one
 ```
 
 Retire re-validates everything first: identity marker, expiry, a 10-minute
-quiet brake, no nested mounts, cwd outside the tree, no nested lease, and git
-recoverability for non-scratch. Worktrees get `git worktree prune` on their
-main repo. Nothing is deleted — the directory MOVES to the quarantine
+quiet brake, no nested mounts, cwd outside the tree, no remaining nested
+lease, and git recoverability for non-scratch. An all-expired pass plans
+descendants first and rechecks each under the state lock. A blocked child
+keeps its parent in place; eligible siblings may move. Reap verifies the
+expected child removal before discounting its directory mtime from the
+parent's quiet brake. `retire <dir>` does not implicitly retire descendants.
+Worktrees get `git worktree prune` on their main repo. Nothing is deleted —
+the directory MOVES to the quarantine
 (per-machine location, can be an external drive) and stays restorable:
 
 ```bash

@@ -497,9 +497,16 @@ reap retire <dir> --now --apply    # finished early with one of them
 Before moving anything, `retire` re-verifies: the identity marker matches, the
 lease is expired (unless `--now`), nothing inside was modified within the
 minimum-age window, no nested mount points, the current directory is not
-inside the tree, no nested lease, and, for non-scratch checkouts, that git
-shows the content recoverable elsewhere. Linked worktrees additionally get
-`git worktree prune` run on their main repository after the move.
+inside the tree, no remaining nested lease, and, for non-scratch checkouts,
+that git shows the content recoverable elsewhere. An all-expired pass plans
+leased descendants before parents, then rechecks each under the state lock.
+A blocked or failed child keeps its parent in place; independently eligible
+siblings may still move. For indirect descendants, Reap verifies that only
+the planned child was removed before discounting the resulting directory
+mtime from the parent's quiet-time check. This does not lock external writers.
+An explicit `retire <dir>` does not implicitly retire its descendants.
+Linked worktrees additionally get `git worktree prune` run on their main
+repository after the move.
 
 Retirement is a move, not a delete. The entry lands in the quarantine with its
 owner, purpose, source machine, and original path recorded:
