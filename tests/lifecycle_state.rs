@@ -33,7 +33,9 @@ impl TestRoot {
   }
 
   fn command(&self, args: &[String]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_reap"));
+    let binary =
+      std::env::var_os("REAP_TEST_BIN").unwrap_or_else(|| env!("CARGO_BIN_EXE_reap").into());
+    let mut command = Command::new(binary);
     command
       .args(args)
       .env("HOME", self.root.join("home"))
