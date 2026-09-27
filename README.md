@@ -160,7 +160,7 @@ Each command class has its own authority and cannot exceed it:
 | `reap sweep` / `plan` / `clean` | regenerable build output inside recognized profiles                               |
 | `reap stores`                   | direct children of stores declared in `.reap.json` v2 and armed with `--init`     |
 | `reap retire`                   | leased directories whose lease expired, moved (not deleted) into the quarantine   |
-| `reap doctor`                   | lease-index records only, with `--apply`; never directory contents               |
+| `reap doctor`                   | lease or quarantine index only, with `--apply`; never directory contents         |
 | `reap purge`                    | quarantined entries past the machine's grace period, or an explicit selection     |
 
 An upgrade never widens an existing command's deletion surface.
@@ -229,7 +229,7 @@ reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT]
 reap lease renew <dir> [--ttl 7d]
 reap lease release <dir>
 reap lease list
-reap doctor [--id ID] [--verbose] [--apply]
+reap doctor [--quarantine] [--id ID] [--verbose] [--apply]
 reap retire [dir] [--now] [--apply]
 
 # quarantine
@@ -475,6 +475,17 @@ contents. `retire --apply` uses the same recorded-volume check before dropping
 a missing lease. `doctor --apply` repairs proved-safe entries even when others
 remain blocked, then exits nonzero to report the incomplete repair.
 
+`reap doctor --quarantine` inspects indexed entries and unindexed quarantine
+slots. Retirement writes `.reap-entry.json` into a new slot before moving its
+payload. If interrupted after the move but before the index write, applying
+`reap doctor --quarantine --apply` rebuilds the index row only when that
+metadata, the payload's `.reap-lease` marker, the matching lease record, and
+the original path's recorded volume agree. It changes only the index, not the
+payload or lease record. Legacy unindexed slots without this metadata remain
+blocked and visible for manual review. The dry-run is bounded to 20
+non-indexed details; use `--id ID` or `--verbose` to inspect more. An apply can recover proved
+entries while reporting other blocked slots with a nonzero exit.
+
 When leases expire, retirement moves them into the quarantine:
 
 ```bash
@@ -496,6 +507,7 @@ owner, purpose, source machine, and original path recorded:
 ```bash
 reap quarantine                     # list; --owner filters by creator
 reap quarantine restore <id>        # put one back
+reap doctor --quarantine            # inspect indexed and unindexed slots
 reap purge                          # dry-run entries past the grace period
 reap purge --apply
 ```
@@ -504,6 +516,13 @@ The owner attribution answers "who parked this here?". When one machine copies
 a large project to another for testing, the copy is leased with the
 originating agent as owner, and that agent can be asked before its files are
 purged.
+
+Automatic purge withholds an otherwise eligible entry when its lease marker
+still exists or its present quarantine metadata fails validation; an apply
+reports these entries as needing review. This includes entries rebuilt by
+`reap doctor --quarantine --apply`, which retain their original retirement
+time. Explicit `purge --id`, `--owner`, or `--all` bypasses this guard and can
+permanently delete them, so inspect the owner and contents first.
 
 ### quarantine location and per-machine purge policy
 

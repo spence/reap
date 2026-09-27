@@ -35,13 +35,14 @@ use discover::{discover_manifests, discover_targets, is_cargo_target_dir};
 use inventory::scan_projects;
 use lease::{
   add_lease, find_by_path, load_leases, release_lease, remove_released_marker, renew_lease,
-  save_leases, AddOpts,
+  save_leases, AddOpts, LEASE_MARKER,
 };
 use manifest::{find_project_root, load_manifest, Policy, MANIFEST_NAME};
 use plan::{apply_plan, human, now_secs, plan_project, Plan};
 use quarantine::{
-  assess_retire, entries_dir, execute_retire, finalize_retire, load_index, orphaned_ids,
-  purge_entry, restore_entry, rollback_restore, save_index, select_purge, PurgeSelect, RetireOpts,
+  assess_retire, diagnose_entry, entries_dir, execute_retire, finalize_restore, finalize_retire,
+  load_index, orphaned_ids, purge_entry, restore_entry, rollback_restore, save_index, select_purge,
+  EntryDiagnosis, PurgeSelect, RetireOpts,
 };
 use stores::{apply_store, init_stores, marker_armed, plan_stores, StorePlan, StoreState};
 use util::{fmt_rel, hostname, lock_state, parse_ttl, state_dir};
@@ -164,17 +165,20 @@ enum Cmd {
     #[arg(long)]
     min_age_minutes: Option<f64>,
   },
-  /// Classify lease state; --apply drops proved-gone records and rebinds proved remounts
+  /// Inspect lease state or quarantine slots; --apply repairs proved index records
   Doctor {
-    /// Repair only evidence-backed lease-index entries
+    /// Repair only evidence-backed index entries
     #[arg(long)]
     apply: bool,
-    /// Inspect or repair one lease by id
+    /// Inspect or repair one lease or quarantine entry by id
     #[arg(long)]
     id: Option<String>,
-    /// Show every non-valid lease instead of the first 20
+    /// Show every non-valid lease or non-indexed slot instead of the first 20
     #[arg(long)]
     verbose: bool,
+    /// Inspect quarantine slots and recover proved unindexed entries
+    #[arg(long)]
+    quarantine: bool,
   },
   /// List or restore quarantined entries
   Quarantine {
@@ -295,7 +299,12 @@ fn main() {
       now,
       min_age_minutes,
     }) => cmd_retire(path, apply, now, min_age_minutes),
-    Some(Cmd::Doctor { apply, id, verbose }) => cmd_doctor(apply, id, verbose),
+    Some(Cmd::Doctor {
+      apply,
+      id,
+      verbose,
+      quarantine,
+    }) => cmd_doctor(apply, id, verbose, quarantine),
     Some(Cmd::Quarantine { cmd }) => cmd_quarantine(cmd),
     Some(Cmd::Purge {
       apply,
@@ -1012,7 +1021,10 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
   }
 }
 
-fn cmd_doctor(apply: bool, id: Option<String>, verbose: bool) -> i32 {
+fn cmd_doctor(apply: bool, id: Option<String>, verbose: bool, quarantine: bool) -> i32 {
+  if quarantine {
+    return cmd_doctor_quarantine(apply, id, verbose);
+  }
   let state = state_dir();
   let _lock = match lock_state(&state) {
     Ok(lock) => lock,
@@ -1145,6 +1157,131 @@ fn cmd_doctor(apply: bool, id: Option<String>, verbose: bool) -> i32 {
   }
   if apply && count("blocked") > 0 {
     eprintln!("error: {} lease(s) remain blocked", count("blocked"));
+    1
+  } else {
+    0
+  }
+}
+
+fn cmd_doctor_quarantine(apply: bool, id: Option<String>, verbose: bool) -> i32 {
+  let state = state_dir();
+  let _lock = match lock_state(&state) {
+    Ok(lock) => lock,
+    Err(e) => {
+      eprintln!("error: locking state: {e}");
+      return 1;
+    }
+  };
+  let leases = match load_leases(&state) {
+    Ok(file) => file,
+    Err(e) => {
+      eprintln!("error: {e}");
+      return 1;
+    }
+  };
+  let (cfg, _) = load_config();
+  let qdir = cfg.quarantine_dir();
+  let mut index = match load_index(&qdir) {
+    Ok(index) => index,
+    Err(e) => {
+      eprintln!("error: {e}");
+      return 1;
+    }
+  };
+  let mut ids: Vec<String> = index.entries.iter().map(|entry| entry.id.clone()).collect();
+  ids.extend(orphaned_ids(&qdir, &index));
+  ids.sort();
+  ids.dedup();
+  if let Some(only) = &id {
+    ids.retain(|candidate| candidate == only);
+    if ids.is_empty() {
+      eprintln!("error: quarantine id {only} not found");
+      return 1;
+    }
+  }
+  let mut results: Vec<(String, EntryDiagnosis)> = ids
+    .into_iter()
+    .map(|id| {
+      let diagnosis = diagnose_entry(&qdir, &id, &index, &leases.leases);
+      (id, diagnosis)
+    })
+    .collect();
+  if apply {
+    let mut changed = false;
+    for (id, diagnosis) in &mut results {
+      if !matches!(diagnosis, EntryDiagnosis::Recoverable(_)) {
+        continue;
+      }
+      let fresh = diagnose_entry(&qdir, id, &index, &leases.leases);
+      if fresh != *diagnosis {
+        *diagnosis = EntryDiagnosis::Blocked("state changed during recovery".to_string());
+        continue;
+      }
+      if let EntryDiagnosis::Recoverable(entry) = diagnosis {
+        index.entries.push(entry.clone());
+      }
+      changed = true;
+    }
+    if changed {
+      if let Err(e) = save_index(&qdir, &index) {
+        eprintln!("error: saving quarantine index: {e}");
+        return 1;
+      }
+    }
+  }
+  let count = |label| {
+    results
+      .iter()
+      .filter(|(_, diagnosis)| diagnosis.label() == label)
+      .count()
+  };
+  println!(
+    "reap doctor --quarantine -- {}: {} slot(s); indexed {}, recoverable {}, blocked {}",
+    if apply {
+      "APPLY (index only)"
+    } else {
+      "DRY-RUN"
+    },
+    results.len(),
+    count("indexed"),
+    count("recoverable"),
+    count("blocked")
+  );
+  let limit = if verbose { usize::MAX } else { 20 };
+  let mut shown = 0;
+  let mut omitted = 0;
+  for (slot_id, diagnosis) in &results {
+    if matches!(diagnosis, EntryDiagnosis::Indexed) && id.is_none() {
+      continue;
+    }
+    if shown >= limit {
+      omitted += 1;
+      continue;
+    }
+    let detail = match diagnosis {
+      EntryDiagnosis::Indexed => String::new(),
+      EntryDiagnosis::Recoverable(entry) => format!(
+        "{}  {}",
+        entry.original_path,
+        if apply {
+          "index rebuilt"
+        } else {
+          "--apply rebuilds index"
+        }
+      ),
+      EntryDiagnosis::Blocked(reason) => reason.clone(),
+    };
+    println!("  {:<10} {:<11} {}", slot_id, diagnosis.label(), detail);
+    shown += 1;
+  }
+  if omitted > 0 {
+    println!("  ... {omitted} more non-indexed slot(s); use --verbose to show all");
+  }
+  if apply && count("blocked") > 0 {
+    eprintln!(
+      "error: {} quarantine slot(s) remain blocked",
+      count("blocked")
+    );
     1
   } else {
     0
@@ -1291,13 +1428,20 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
         idx.entries.push(r.entry.clone());
         if let Err(e) = save_index(&qdir, &idx) {
           eprintln!("error: saving quarantine index: {}", e);
-          if let Err(rollback) = restore_entry(&qdir, &r.entry, None) {
-            eprintln!(
-              "error: restoring {} after index failure: {}; data remains at {}",
-              l.path,
-              rollback,
-              r.dest.display()
-            );
+          match restore_entry(&qdir, &r.entry, None) {
+            Ok(_) => {
+              if let Err(cleanup) = finalize_restore(&qdir, &r.entry) {
+                eprintln!("error: cleaning rolled-back quarantine slot: {cleanup}");
+              }
+            }
+            Err(rollback) => {
+              eprintln!(
+                "error: restoring {} after index failure: {}; data remains at {}",
+                l.path,
+                rollback,
+                r.dest.display()
+              );
+            }
           }
           return 1;
         }
@@ -1407,7 +1551,7 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
       let orphans = orphaned_ids(&qdir, &idx);
       if !orphans.is_empty() {
         println!(
-          "unindexed entry dir(s) (crash residue; `reap purge --all` removes): {}",
+          "unindexed entry dir(s) (`reap doctor --quarantine` inspects; explicit `reap purge --all` removes): {}",
           orphans.join(", ")
         );
       }
@@ -1434,6 +1578,10 @@ fn cmd_quarantine(cmd: Option<QuarantineCmd>) -> i32 {
                 dest.display()
               );
             }
+            return 1;
+          }
+          if let Err(e) = finalize_restore(&qdir, &entry) {
+            eprintln!("error: restored data but could not clean quarantine slot: {e}");
             return 1;
           }
           println!("restored {} -> {}", id, dest.display());
@@ -1475,6 +1623,7 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
     PurgeSelect::Auto
   };
   let now = now_secs() as i64;
+  let mut withheld = 0;
   let picked: Vec<quarantine::Entry> = match select_purge(
     &idx,
     &sel,
@@ -1482,7 +1631,30 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
     cfg.quarantine.auto_purge,
     cfg.quarantine.purge_after_days,
   ) {
-    Ok(v) => v.into_iter().cloned().collect(),
+    Ok(v) => v
+      .into_iter()
+      .filter(|entry| {
+        if !matches!(sel, PurgeSelect::Auto) {
+          return true;
+        }
+        let marker = entries_dir(&qdir)
+          .join(&entry.id)
+          .join(&entry.name)
+          .join(LEASE_MARKER);
+        let marker_gone = std::fs::symlink_metadata(&marker)
+          .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+        let indexed = matches!(
+          diagnose_entry(&qdir, &entry.id, &idx, &[]),
+          EntryDiagnosis::Indexed
+        );
+        if !marker_gone || !indexed {
+          withheld += 1;
+          return false;
+        }
+        true
+      })
+      .cloned()
+      .collect(),
     Err(e) => {
       eprintln!("error: {}", e);
       return 1;
@@ -1495,11 +1667,16 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
   };
   if picked.is_empty() && orphans.is_empty() {
     println!(
-      "nothing to purge ({} entr{} within the {}d grace period).",
+      "nothing eligible to purge ({} entr{}, grace {}d, {} withheld for review).",
       idx.entries.len(),
       if idx.entries.len() == 1 { "y" } else { "ies" },
-      cfg.quarantine.purge_after_days
+      cfg.quarantine.purge_after_days,
+      withheld
     );
+    if withheld > 0 && apply {
+      eprintln!("error: {withheld} quarantine entry/entries need review before automatic purge");
+      return 1;
+    }
     return 0;
   }
   println!(
@@ -1569,6 +1746,12 @@ fn cmd_purge(apply: bool, all: bool, id: Option<String>, owner: Option<String>) 
     );
   } else {
     println!("\n would purge {}; re-run with --apply", human(total));
+  }
+  if withheld > 0 {
+    eprintln!("error: {withheld} quarantine entry/entries need review before automatic purge");
+    if apply {
+      rc = 1;
+    }
   }
   rc
 }

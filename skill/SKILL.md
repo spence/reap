@@ -7,7 +7,7 @@ description: >-
   user didn't mention cleanup); when a project dir accumulates output run after
   run (declare a reap store); when deciding whether old copies or quarantine
   entries are still needed (list by owner, ask the owner); when diagnosing
-  missing or remounted leases; or when a Rust
+  missing or remounted leases or unindexed quarantine entries; or when a Rust
   project vendors something non-regenerable into target/. `reap` deletes only
   what a marker, manifest, or lease proves disposable: `reap sweep --apply`
   compacts cargo targets, `reap stores --apply` cleans declared stores,
@@ -79,6 +79,7 @@ main repo. Nothing is deleted — the directory MOVES to the quarantine
 ```bash
 reap quarantine                  # list entries; --owner <name> filters
 reap quarantine restore <id>
+reap doctor --quarantine         # inspect indexed and unindexed slots
 reap purge                       # dry-run: entries past the grace period
 reap purge --apply               # delete those (self-refuses if auto_purge=false)
 reap purge --owner <name> --apply  # explicit selectors bypass auto_purge
@@ -91,6 +92,17 @@ still match on a live mounted volume. Other mismatches remain blocked. Dry-run
 output is bounded to 20 non-valid records unless `--verbose` is given.
 An apply repairs proved-safe entries even if other records stay blocked; it
 exits nonzero to report those blocked records.
+
+`reap doctor --quarantine [--id ID]` is a bounded dry-run of quarantine slots.
+New retirements write `.reap-entry.json` before moving data. With `--apply`,
+doctor rebuilds an interrupted entry's quarantine index row only when the
+sidecar, payload lease marker, lease record, and original source volume agree.
+It does not move or delete data or change the lease index. Legacy unindexed
+slots without a sidecar remain blocked for manual review. Recovered entries
+retain their original retirement time but are withheld from automatic purge
+while the lease marker remains; explicitly selected purge can still delete
+them permanently. An apply reports any remaining blocked slots with a nonzero
+exit.
 
 ## 3. Accumulating outputs: declare a store
 
@@ -147,7 +159,8 @@ NOT standing — ask the user, or the recorded owner, first:
 
 - `reap purge --all` / `--owner` / `--id`;
 - `reap retire --now`;
-- `reap doctor --apply` (changes lease state, never directory contents);
+- `reap doctor --apply` (changes a lease index, or with `--quarantine` the
+  quarantine index; never directory contents);
 - leasing a directory the agent did not create.
 
 ## Config (`~/.config/reap/config.json`)

@@ -7,7 +7,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -274,6 +274,111 @@ fn doctor_rebinds_a_mounted_volume_without_touching_the_directory() {
       Some(live_dev + 1)
     );
   }
+}
+
+#[test]
+fn quarantine_doctor_rebuilds_only_valid_interrupted_entries() {
+  let root = TestRoot::new();
+  let source = root.project("interrupted");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &source,
+  )));
+  let lease = array(&root.state().join("leases.json"), "leases")[0].clone();
+  let id = lease["id"].as_str().unwrap();
+  let slot = root.quarantine().join("entries").join(id);
+  fs::create_dir_all(&slot).unwrap();
+  let entry = json!({
+    "id": id,
+    "name": "interrupted",
+    "original_path": lease["path"],
+    "owner": lease["owner"],
+    "purpose": lease["purpose"],
+    "scratch": lease["scratch"],
+    "machine": "test-host",
+    "bytes": 11,
+    "retired_unix": 0
+  });
+  let evidence = json!({
+    "version": 1,
+    "entry": entry,
+    "source_dev": lease["dev"],
+    "source_ino": lease["ino"]
+  });
+  fs::write(
+    slot.join(".reap-entry.json"),
+    serde_json::to_vec_pretty(&evidence).unwrap(),
+  )
+  .unwrap();
+  fs::rename(&source, slot.join("interrupted")).unwrap();
+
+  let legacy_id = if id == "deadbeef" {
+    "feedcafe"
+  } else {
+    "deadbeef"
+  };
+  let legacy = root.quarantine().join("entries").join(legacy_id);
+  fs::create_dir_all(legacy.join("old-payload")).unwrap();
+  fs::write(legacy.join("old-payload/data"), b"keep").unwrap();
+
+  let dry = root.run(vec!["doctor".to_string(), "--quarantine".to_string()]);
+  success(dry.clone());
+  let output = String::from_utf8_lossy(&dry.stdout);
+  assert!(output.contains("indexed 0, recoverable 1, blocked 1"));
+  assert!(output.contains("unindexed slot has no metadata"));
+  assert!(!root.quarantine().join("index.json").exists());
+
+  fs::create_dir(root.quarantine().join("index.tmp")).unwrap();
+  failure(root.run(vec![
+    "doctor".to_string(),
+    "--quarantine".to_string(),
+    "--apply".to_string(),
+  ]));
+  assert!(!root.quarantine().join("index.json").exists());
+  assert!(slot.join("interrupted/payload").is_file());
+  fs::remove_dir(root.quarantine().join("index.tmp")).unwrap();
+
+  let applied = root.run(vec![
+    "doctor".to_string(),
+    "--quarantine".to_string(),
+    "--apply".to_string(),
+  ]);
+  failure(applied);
+  let rows = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(rows, vec![entry]);
+  assert!(slot.join("interrupted/payload").is_file());
+  assert!(legacy.join("old-payload/data").is_file());
+  assert_eq!(array(&root.state().join("leases.json"), "leases").len(), 1);
+
+  let config = root.root.join("home/.config/reap/config.json");
+  fs::create_dir_all(config.parent().unwrap()).unwrap();
+  fs::write(&config, br#"{"quarantine":{"purge_after_days":0}}"#).unwrap();
+  failure(root.run(vec!["purge".to_string(), "--apply".to_string()]));
+  assert!(slot.join("interrupted/payload").is_file());
+  assert!(legacy.join("old-payload/data").is_file());
+  success(root.run(vec![
+    "quarantine".to_string(),
+    "restore".to_string(),
+    id.to_string(),
+  ]));
+  assert!(source.join("payload").is_file());
+  assert!(!slot.exists());
+  assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
+
+  success(root.run(args(
+    &[
+      "retire",
+      "{path}",
+      "--now",
+      "--apply",
+      "--min-age-minutes",
+      "0",
+    ],
+    &source,
+  )));
+  success(root.run(vec!["purge".to_string(), "--apply".to_string()]));
+  assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
+  assert!(legacy.join("old-payload/data").is_file());
 }
 
 #[test]

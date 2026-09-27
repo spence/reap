@@ -8,14 +8,14 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::lease::{read_marker, Lease, LEASE_MARKER};
 use crate::util::{fmt_rel, git_capture, move_dir, tree_stats, write_json_atomic, GitError, Moved};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
   pub id: String,
   pub name: String,
@@ -27,6 +27,34 @@ pub struct Entry {
   pub machine: String,
   pub bytes: u64,
   pub retired_unix: i64,
+}
+
+pub const ENTRY_EVIDENCE: &str = ".reap-entry.json";
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EntryEvidence {
+  version: u32,
+  entry: Entry,
+  source_dev: u64,
+  source_ino: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum EntryDiagnosis {
+  Indexed,
+  Recoverable(Entry),
+  Blocked(String),
+}
+
+impl EntryDiagnosis {
+  pub fn label(&self) -> &'static str {
+    match self {
+      Self::Indexed => "indexed",
+      Self::Recoverable(_) => "recoverable",
+      Self::Blocked(_) => "blocked",
+    }
+  }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +123,10 @@ pub fn index_path(qdir: &Path) -> PathBuf {
 
 pub fn entries_dir(qdir: &Path) -> PathBuf {
   qdir.join("entries")
+}
+
+fn evidence_path(slot: &Path) -> PathBuf {
+  slot.join(ENTRY_EVIDENCE)
 }
 
 pub fn load_index(qdir: &Path) -> Result<IndexFile, String> {
@@ -259,33 +291,66 @@ pub fn execute_retire(
   now: i64,
 ) -> Result<Retired, String> {
   let src = PathBuf::from(&lease.path);
+  let (entry, dest) = prepare_retire(lease, bytes, qdir, machine, now)?;
+  let slot = dest.parent().expect("prepared payload has a slot");
+  let moved = move_dir(&src, &dest).map_err(|e| {
+    format!(
+      "move {} -> {}: {}; inspect {} before retrying",
+      src.display(),
+      dest.display(),
+      e,
+      slot.display()
+    )
+  })?;
+  Ok(Retired {
+    entry,
+    dest,
+    copied: matches!(moved, Moved::Copied),
+  })
+}
+
+fn prepare_retire(
+  lease: &Lease,
+  bytes: u64,
+  qdir: &Path,
+  machine: &str,
+  now: i64,
+) -> Result<(Entry, PathBuf), String> {
+  let src = PathBuf::from(&lease.path);
   let name = src
     .file_name()
     .map(|s| s.to_string_lossy().into_owned())
     .unwrap_or_else(|| lease.id.clone());
+  if name == ENTRY_EVIDENCE || name == ".reap-entry.tmp" {
+    return Err(format!(
+      "{} conflicts with quarantine metadata",
+      src.display()
+    ));
+  }
   let slot = entries_dir(qdir).join(&lease.id);
-  fs::create_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
+  fs::create_dir_all(entries_dir(qdir)).map_err(|e| format!("{}: {}", qdir.display(), e))?;
+  fs::create_dir(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
   let dest = slot.join(&name);
-  let moved = move_dir(&src, &dest).map_err(|e| {
-    // Remove only an empty slot; a failed cross-device move may have landed data.
-    let _ = fs::remove_dir(&slot);
-    format!("move {} -> {}: {}", src.display(), dest.display(), e)
-  })?;
-  Ok(Retired {
-    entry: Entry {
-      id: lease.id.clone(),
-      name,
-      original_path: lease.path.clone(),
-      owner: lease.owner.clone(),
-      purpose: lease.purpose.clone(),
-      scratch: lease.scratch,
-      machine: machine.to_string(),
-      bytes,
-      retired_unix: now,
-    },
-    dest,
-    copied: matches!(moved, Moved::Copied),
-  })
+  let entry = Entry {
+    id: lease.id.clone(),
+    name,
+    original_path: lease.path.clone(),
+    owner: lease.owner.clone(),
+    purpose: lease.purpose.clone(),
+    scratch: lease.scratch,
+    machine: machine.to_string(),
+    bytes,
+    retired_unix: now,
+  };
+  let evidence = EntryEvidence {
+    version: 1,
+    entry: entry.clone(),
+    source_dev: lease.dev,
+    source_ino: lease.ino,
+  };
+  write_json_atomic(&evidence_path(&slot), &evidence)
+    .map_err(|e| format!("writing {}: {}", evidence_path(&slot).display(), e))?;
+  Ok((entry, dest))
 }
 
 pub fn finalize_retire(retired: &Retired, main_repo: Option<&Path>) -> Result<(), String> {
@@ -370,7 +435,6 @@ pub fn restore_entry(qdir: &Path, entry: &Entry, to: Option<&Path>) -> Result<Pa
     fs::create_dir_all(parent).map_err(|e| format!("{}: {}", parent.display(), e))?;
   }
   move_dir(&src, &dest).map_err(|e| e.to_string())?;
-  let _ = fs::remove_dir(entries_dir(qdir).join(&entry.id));
   Ok(dest)
 }
 
@@ -379,6 +443,26 @@ pub fn rollback_restore(qdir: &Path, entry: &Entry, dest: &Path) -> Result<(), S
   fs::create_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;
   move_dir(dest, &slot.join(&entry.name)).map_err(|e| e.to_string())?;
   Ok(())
+}
+
+pub fn finalize_restore(qdir: &Path, entry: &Entry) -> Result<(), String> {
+  let slot = entries_dir(qdir).join(&entry.id);
+  let path = evidence_path(&slot);
+  match fs::symlink_metadata(&path) {
+    Ok(meta) if meta.is_file() => {
+      let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+      let evidence: EntryEvidence =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+      if evidence.version != 1 || evidence.entry != *entry {
+        return Err(format!("{} does not match restored entry", path.display()));
+      }
+      fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(_) => return Err(format!("{} is not a metadata file", path.display())),
+    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+    Err(e) => return Err(format!("{}: {e}", path.display())),
+  }
+  fs::remove_dir(&slot).map_err(|e| format!("{}: {e}", slot.display()))
 }
 
 /// Entry dirs on disk with no index row (e.g. a crash between move and index
@@ -395,6 +479,124 @@ pub fn orphaned_ids(qdir: &Path, index: &IndexFile) -> Vec<String> {
   }
   out.sort();
   out
+}
+
+pub fn diagnose_entry(
+  qdir: &Path,
+  id: &str,
+  index: &IndexFile,
+  leases: &[Lease],
+) -> EntryDiagnosis {
+  if id.len() != 8 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+    return EntryDiagnosis::Blocked("invalid entry id".to_string());
+  }
+  if index.entries.iter().filter(|entry| entry.id == id).count() > 1 {
+    return EntryDiagnosis::Blocked("duplicate index id".to_string());
+  }
+  let row = index.entries.iter().find(|entry| entry.id == id);
+  let slot = entries_dir(qdir).join(id);
+  match fs::symlink_metadata(&slot) {
+    Ok(meta) if meta.is_dir() => {}
+    Ok(_) => return EntryDiagnosis::Blocked("slot is not a directory".to_string()),
+    Err(e) => return EntryDiagnosis::Blocked(format!("slot unavailable: {e}")),
+  }
+  let evidence_file = evidence_path(&slot);
+  let evidence = match fs::symlink_metadata(&evidence_file) {
+    Ok(meta) if meta.is_file() => {
+      let text = match fs::read_to_string(&evidence_file) {
+        Ok(text) => text,
+        Err(e) => return EntryDiagnosis::Blocked(format!("reading metadata: {e}")),
+      };
+      match serde_json::from_str::<EntryEvidence>(&text) {
+        Ok(evidence) => Some(evidence),
+        Err(e) => return EntryDiagnosis::Blocked(format!("invalid metadata: {e}")),
+      }
+    }
+    Ok(_) => return EntryDiagnosis::Blocked("metadata is not a file".to_string()),
+    Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+    Err(e) => return EntryDiagnosis::Blocked(format!("metadata unavailable: {e}")),
+  };
+  let entry = match &evidence {
+    Some(evidence) => {
+      if evidence.version != 1 || evidence.entry.id != id {
+        return EntryDiagnosis::Blocked("metadata version or id mismatch".to_string());
+      }
+      if row.is_some_and(|row| row != &evidence.entry) {
+        return EntryDiagnosis::Blocked("index and metadata differ".to_string());
+      }
+      &evidence.entry
+    }
+    None => match row {
+      Some(row) => row,
+      None => return EntryDiagnosis::Blocked("unindexed slot has no metadata".to_string()),
+    },
+  };
+  let mut components = Path::new(&entry.name).components();
+  if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+    return EntryDiagnosis::Blocked("payload name is not one path component".to_string());
+  }
+  let payload = slot.join(&entry.name);
+  match fs::symlink_metadata(&payload) {
+    Ok(meta) if meta.is_dir() => {}
+    Ok(_) => return EntryDiagnosis::Blocked("payload is not a directory".to_string()),
+    Err(e) => return EntryDiagnosis::Blocked(format!("payload unavailable: {e}")),
+  }
+  let slot_canon = match fs::canonicalize(&slot) {
+    Ok(path) => path,
+    Err(e) => return EntryDiagnosis::Blocked(format!("resolving slot: {e}")),
+  };
+  let payload_canon = match fs::canonicalize(&payload) {
+    Ok(path) => path,
+    Err(e) => return EntryDiagnosis::Blocked(format!("resolving payload: {e}")),
+  };
+  if payload_canon.parent() != Some(slot_canon.as_path()) {
+    return EntryDiagnosis::Blocked("payload leaves its slot".to_string());
+  }
+  if row.is_some() {
+    return EntryDiagnosis::Indexed;
+  }
+
+  let children: Vec<_> = match fs::read_dir(&slot) {
+    Ok(entries) => match entries.collect::<io::Result<Vec<_>>>() {
+      Ok(children) => children,
+      Err(e) => return EntryDiagnosis::Blocked(format!("reading slot: {e}")),
+    },
+    Err(e) => return EntryDiagnosis::Blocked(format!("reading slot: {e}")),
+  };
+  if children.len() != 2 {
+    return EntryDiagnosis::Blocked("unindexed slot has unexpected children".to_string());
+  }
+  let evidence = match evidence.as_ref() {
+    Some(evidence) => evidence,
+    None => return EntryDiagnosis::Blocked("unindexed slot has no metadata".to_string()),
+  };
+  let matching: Vec<&Lease> = leases.iter().filter(|lease| lease.id == id).collect();
+  if matching.len() != 1 {
+    return EntryDiagnosis::Blocked("matching lease record is missing or duplicated".to_string());
+  }
+  let lease = matching[0];
+  if lease.path != entry.original_path
+    || lease.dev != evidence.source_dev
+    || lease.ino != evidence.source_ino
+    || lease.owner != entry.owner
+    || lease.purpose != entry.purpose
+    || lease.scratch != entry.scratch
+  {
+    return EntryDiagnosis::Blocked("lease and metadata differ".to_string());
+  }
+  if !matches!(crate::doctor::assess(lease), crate::doctor::Diagnosis::Gone) {
+    return EntryDiagnosis::Blocked("source is not proved gone on its volume".to_string());
+  }
+  let marker_path = payload.join(LEASE_MARKER);
+  if !fs::symlink_metadata(&marker_path).is_ok_and(|meta| meta.is_file()) {
+    return EntryDiagnosis::Blocked("payload lease marker is missing or unsafe".to_string());
+  }
+  let marker_ok = read_marker(&payload)
+    .is_some_and(|marker| marker.id == lease.id && marker.token == lease.token);
+  if !marker_ok {
+    return EntryDiagnosis::Blocked("payload lease marker does not match".to_string());
+  }
+  EntryDiagnosis::Recoverable(entry.clone())
 }
 
 fn push(checks: &mut Vec<RetireCheck>, label: &'static str, ok: bool, fail_detail: String) {
@@ -582,6 +784,132 @@ mod tests {
   }
 
   #[test]
+  fn interrupted_retirement_and_restore_leave_data_or_a_recoverable_entry() {
+    let root = tmp();
+    let source = root.join("scratch");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("payload"), b"important").unwrap();
+    let source = fs::canonicalize(source).unwrap();
+    let qdir = root.join("quarantine");
+    let mut leases = LeaseFile::default();
+    let lease = add(&mut leases, &source, 0, true);
+    let index = IndexFile::default();
+
+    let (entry, dest) = prepare_retire(&lease, 9, &qdir, "test-host", 1_000).unwrap();
+    assert!(
+      source.join("payload").is_file(),
+      "source survives before move"
+    );
+    assert!(matches!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Blocked(_)
+    ));
+
+    move_dir(&source, &dest).unwrap();
+    assert!(!source.exists());
+    assert_eq!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Recoverable(entry.clone())
+    );
+    let mut index = index;
+    index.entries.push(entry.clone());
+    assert_eq!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Indexed
+    );
+
+    leases.leases.clear();
+    let retired = Retired {
+      entry: entry.clone(),
+      dest: dest.clone(),
+      copied: false,
+    };
+    finalize_retire(&retired, None).unwrap();
+    assert_eq!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Indexed
+    );
+
+    restore_entry(&qdir, &entry, None).unwrap();
+    assert!(source.join("payload").is_file());
+    assert!(matches!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Blocked(_)
+    ));
+    rollback_restore(&qdir, &entry, &source).unwrap();
+    assert_eq!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Indexed
+    );
+    restore_entry(&qdir, &entry, None).unwrap();
+    index.entries.clear();
+    finalize_restore(&qdir, &entry).unwrap();
+    assert!(source.join("payload").is_file());
+    assert!(!entries_dir(&qdir).join(&lease.id).exists());
+    let _ = fs::remove_dir_all(root);
+  }
+
+  #[test]
+  fn unindexed_recovery_requires_matching_marker_and_lease() {
+    let root = tmp();
+    let source = root.join("scratch");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("payload"), b"important").unwrap();
+    let qdir = root.join("quarantine");
+    let mut leases = LeaseFile::default();
+    let lease = add(&mut leases, &source, 0, true);
+    let retired = execute_retire(&lease, 9, &qdir, "test-host", 1_000).unwrap();
+    let index = IndexFile::default();
+    assert!(matches!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Recoverable(_)
+    ));
+
+    let marker_path = retired.dest.join(LEASE_MARKER);
+    let marker = fs::read(&marker_path).unwrap();
+    fs::write(&marker_path, b"foreign marker").unwrap();
+    assert!(matches!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Blocked(_)
+    ));
+    fs::write(&marker_path, marker).unwrap();
+
+    let path = evidence_path(retired.dest.parent().unwrap());
+    let original = fs::read(&path).unwrap();
+    let mut evidence: EntryEvidence = serde_json::from_slice(&original).unwrap();
+    evidence.source_ino += 1;
+    write_json_atomic(&path, &evidence).unwrap();
+    assert!(matches!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Blocked(_)
+    ));
+    fs::write(&path, original).unwrap();
+
+    leases.leases.clear();
+    assert!(matches!(
+      diagnose_entry(&qdir, &lease.id, &index, &leases.leases),
+      EntryDiagnosis::Blocked(_)
+    ));
+    assert!(retired.dest.join("payload").is_file());
+    let _ = fs::remove_dir_all(root);
+  }
+
+  #[test]
+  fn legacy_unindexed_slot_is_visible_but_not_rebuilt() {
+    let root = tmp();
+    let qdir = root.join("quarantine");
+    let slot = entries_dir(&qdir).join("1234abcd");
+    fs::create_dir_all(slot.join("old-payload")).unwrap();
+    fs::write(slot.join("old-payload/data"), b"keep").unwrap();
+    assert!(matches!(
+      diagnose_entry(&qdir, "1234abcd", &IndexFile::default(), &[]),
+      EntryDiagnosis::Blocked(reason) if reason.contains("no metadata")
+    ));
+    assert!(slot.join("old-payload/data").is_file());
+    let _ = fs::remove_dir_all(root);
+  }
+
+  #[test]
   fn scratch_retire_moves_to_quarantine_with_owner() {
     let root = tmp();
     let proj = root.join("bench-copy");
@@ -620,8 +948,10 @@ mod tests {
     assert!(orphaned_ids(&qdir, &idx2).is_empty());
 
     let back = restore_entry(&qdir, &idx2.entries[0], None).unwrap();
+    finalize_restore(&qdir, &idx2.entries[0]).unwrap();
     assert_eq!(back, proj);
     assert!(proj.join("data/out.log").is_file(), "restored intact");
+    assert!(!entries_dir(&qdir).join(&lease.id).exists());
     let _ = fs::remove_dir_all(&root);
   }
 
