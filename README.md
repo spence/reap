@@ -316,6 +316,13 @@ layouts. Because the signature is a general cache-directory convention rather
 than a Cargo-exclusive identifier, structural profile validation remains part
 of the safety boundary.
 
+For an apply, Reap takes Cargo's per-profile `.cargo-lock` before planning and
+holds it through deletion. A target with an active build or an unavailable
+lock is skipped; other targets can continue. Dry-runs do not take locks. The
+minimum-age brake still protects recently touched artifacts. This lock check
+relies on Cargo cooperating on the local filesystem; it does not make an NFS
+target safe to clean while a build runs.
+
 During discovery:
 
 * `.git`, `.cargo`, and `node_modules` are skipped;
@@ -469,7 +476,10 @@ A lease records the canonical path, filesystem identity (device and inode), an
 opaque token mirrored in a `.reap-lease` marker inside the directory, an
 owner, a purpose, and the TTL. `--scratch` marks the checkout disposable even
 if dirty; without it, retirement requires the checkout to be clean, fully
-pushed, and stash-free.
+pushed, stash-free, and free of ignored local data whose recoverability Git
+cannot prove. If a temporary checkout will contain disposable ignored output,
+opt into `--scratch` when leasing it; Git ignore rules alone are not deletion
+authority. A non-scratch directory without real Git metadata is refused.
 
 `reap doctor` checks the lease index without changing it by default. It reports
 valid, gone, remounted, and blocked records, with at most 20 non-valid details

@@ -256,6 +256,7 @@ enum QuarantineCmd {
 enum RunError {
   Manifest(String),
   Protected(PathBuf),
+  CargoLock(String),
 }
 
 fn main() {
@@ -357,6 +358,11 @@ fn build_and_run(
     manifest.target = t.to_string_lossy().into_owned();
   }
   apply_overrides(&mut manifest.policy, overrides);
+  let _cargo_locks = if apply {
+    Some(plan::lock_cargo_profiles(&manifest).map_err(RunError::CargoLock)?)
+  } else {
+    None
+  };
   let plan = plan_project(&manifest, now_secs(), quick).map_err(|p| RunError::Protected(p.0))?;
   if apply {
     apply_plan(&plan);
@@ -431,6 +437,10 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
           name,
           pp.display()
         );
+        errors += 1;
+      }
+      Err(RunError::CargoLock(e)) => {
+        eprintln!("  {}: SKIPPED Cargo cleanup: {}", name, e);
         errors += 1;
       }
     }
@@ -511,6 +521,10 @@ fn cmd_one(
         p.display()
       );
       return 99;
+    }
+    Err(RunError::CargoLock(e)) => {
+      eprintln!("SKIPPED Cargo cleanup: {}", e);
+      return 1;
     }
   };
   println!(

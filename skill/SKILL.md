@@ -39,8 +39,10 @@ Discovery walks configured roots (default `~/src`) for cargo's `CACHEDIR.TAG`
 marker; no registration. Add `--quick` to skip sizing on a critically full
 disk; tune per run with `--keep-recent N`, `--stale-debug DAYS`,
 `--min-age-minutes M`, `--no-incremental`. The 10-minute min-age brake makes
-overlap with a running build unlikely, but it is not a lock — prefer applying
-when no build is writing. Worst case: cargo recompiles a crate.
+recent artifacts ineligible. For apply, Reap holds Cargo's per-profile
+`.cargo-lock` from planning through deletion and skips a target if a build or
+lock error prevents that. Dry-runs do not lock. Cargo does not use this lock
+on NFS, so do not apply there during a build.
 
 ## 2. Temporary checkouts: lease at creation, retire when expired
 
@@ -56,7 +58,9 @@ reap doctor                   # bounded, read-only lease-state diagnosis
 ```
 
 - `--scratch` = disposable even if dirty/unpushed. Without it, retirement
-  requires clean + fully pushed + no stashes (recoverable elsewhere).
+  requires clean + fully pushed + no stashes + no ignored local data with
+  unproved recoverability. A non-Git directory is refused. `.gitignore` is not
+  deletion authority.
 - `--owner` (or `$REAP_OWNER`): name the creating agent/session. When you copy
   a project to ANOTHER machine (e.g. for benchmarking), lease the copy on that
   machine with yourself as owner — whoever later sweeps that machine sees who

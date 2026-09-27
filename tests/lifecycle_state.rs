@@ -1,7 +1,7 @@
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -92,6 +92,23 @@ fn success(output: Output) {
     output.status,
     String::from_utf8_lossy(&output.stdout),
     String::from_utf8_lossy(&output.stderr)
+  );
+}
+
+fn git(dir: &Path, args: &[&str]) {
+  success(
+    Command::new("git")
+      .arg("-C")
+      .arg(dir)
+      .args([
+        "-c",
+        "user.name=Reap Test",
+        "-c",
+        "user.email=reap@test.invalid",
+      ])
+      .args(args)
+      .output()
+      .unwrap(),
   );
 }
 
@@ -439,6 +456,143 @@ fn stores_cli_removes_only_a_still_eligible_older_run() {
   assert!(!old.exists());
   assert!(fresh.join("output.log").is_file());
   assert!(store.join("REAP-STORE.TAG").is_file());
+}
+
+#[test]
+fn active_cargo_build_keeps_an_old_cleanup_candidate() {
+  let root = TestRoot::new();
+  let project = root.project("active-cargo");
+  fs::write(
+    project.join("Cargo.toml"),
+    "[package]\nname = \"reap-active-cargo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+  )
+  .unwrap();
+  fs::create_dir(project.join("src")).unwrap();
+  fs::write(project.join("src/main.rs"), "fn main() {}\n").unwrap();
+  fs::write(
+    project.join("build.rs"),
+    r#"fn main() {
+  let ready = std::env::var("REAP_BUILD_READY").unwrap();
+  let release = std::env::var("REAP_BUILD_RELEASE").unwrap();
+  std::fs::write(ready, "running").unwrap();
+  for _ in 0..200 {
+    if std::path::Path::new(&release).exists() { break; }
+    std::thread::sleep(std::time::Duration::from_millis(100));
+  }
+}"#,
+  )
+  .unwrap();
+  let old = project.join("target/debug/incremental/old-run");
+  fs::create_dir_all(&old).unwrap();
+  fs::write(old.join("artifact"), b"old but not while Cargo runs").unwrap();
+  let old_time = FileTime::from_unix_time(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_secs() as i64
+      - 86400,
+    0,
+  );
+  set_file_mtime(old.join("artifact"), old_time).unwrap();
+  set_file_mtime(&old, old_time).unwrap();
+  let ready = root.root.join("cargo-ready");
+  let release = root.root.join("cargo-release");
+  let mut cargo = Command::new("cargo")
+    .args(["build", "--offline"])
+    .current_dir(&project)
+    .env("REAP_BUILD_READY", &ready)
+    .env("REAP_BUILD_RELEASE", &release)
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
+  let mut started = false;
+  for _ in 0..200 {
+    if ready.exists() {
+      started = true;
+      break;
+    }
+    if cargo.try_wait().unwrap().is_some() {
+      break;
+    }
+    thread::sleep(std::time::Duration::from_millis(100));
+  }
+  let attempted = started.then(|| root.run(args(&["clean", "{path}"], &project)));
+  fs::write(&release, b"continue").unwrap();
+  let cargo_output = cargo.wait_with_output().unwrap();
+  assert!(
+    cargo_output.status.success(),
+    "{}",
+    String::from_utf8_lossy(&cargo_output.stderr)
+  );
+  assert!(started, "Cargo build script did not run");
+  let attempted = attempted.unwrap();
+  assert!(!attempted.status.success());
+  assert!(String::from_utf8_lossy(&attempted.stderr).contains("SKIPPED Cargo cleanup"));
+  assert!(old.join("artifact").is_file());
+  success(root.run(args(&["clean", "{path}"], &project)));
+  assert!(!old.exists());
+}
+
+#[test]
+fn ignored_checkout_data_blocks_normal_retire_but_explicit_scratch_moves() {
+  let root = TestRoot::new();
+  let checkout = root.project("normal-checkout");
+  git(&checkout, &["init", "-q"]);
+  fs::write(checkout.join(".gitignore"), b"logs/\n").unwrap();
+  git(&checkout, &["add", "."]);
+  git(&checkout, &["commit", "-qm", "fixture"]);
+  let origin = root.root.join("origin.git");
+  git(
+    &root.root,
+    &["init", "-q", "--bare", origin.to_str().unwrap()],
+  );
+  git(
+    &checkout,
+    &["remote", "add", "origin", origin.to_str().unwrap()],
+  );
+  git(&checkout, &["push", "-q", "-u", "origin", "HEAD"]);
+  success(root.run(args(&["lease", "add", "{path}", "--ttl", "0"], &checkout)));
+  fs::create_dir(checkout.join("logs")).unwrap();
+  fs::write(checkout.join("logs/local.log"), b"keep this local log").unwrap();
+  let output = root.run(args(
+    &[
+      "retire",
+      "{path}",
+      "--now",
+      "--apply",
+      "--min-age-minutes",
+      "0",
+    ],
+    &checkout,
+  ));
+  assert!(!output.status.success());
+  assert!(String::from_utf8_lossy(&output.stdout).contains("git-ignored"));
+  assert!(checkout.join("logs/local.log").is_file());
+  assert!(!root.quarantine().join("index.json").exists());
+
+  let scratch = root.project("scratch-output");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &scratch,
+  )));
+  success(root.run(args(
+    &[
+      "retire",
+      "{path}",
+      "--now",
+      "--apply",
+      "--min-age-minutes",
+      "0",
+    ],
+    &scratch,
+  )));
+  assert!(!scratch.exists());
+  assert_eq!(
+    array(&root.quarantine().join("index.json"), "entries").len(),
+    1
+  );
+  assert!(checkout.join("logs/local.log").is_file());
 }
 
 #[test]

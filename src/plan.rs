@@ -7,7 +7,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fs::{self, Metadata};
+use std::fs::{self, File, Metadata, OpenOptions};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -428,6 +428,80 @@ fn discover_profiles(target_dir: &Path, guards: &Guards) -> Vec<(String, PathBuf
   found
 }
 
+/// Hold Cargo's per-profile lock across planning and deletion, or skip the target.
+pub fn lock_cargo_profiles(manifest: &Manifest) -> Result<Vec<File>, String> {
+  let target = manifest.target_dir();
+  if !target.is_dir() {
+    return Ok(vec![]);
+  }
+  let guards = Guards::new(&manifest.keep);
+  let profiles = discover_profiles(&target, &guards);
+  let mut locks = Vec::with_capacity(profiles.len());
+  for (_, profile) in profiles {
+    check_profile_path(&target, &profile)?;
+    let path = profile.join(".cargo-lock");
+    match fs::symlink_metadata(&path) {
+      Ok(meta) if !meta.is_file() => {
+        return Err(format!(
+          "{} is not a regular Cargo lock file",
+          path.display()
+        ));
+      }
+      Ok(_) => {}
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+      Err(e) => return Err(format!("{}: {e}", path.display())),
+    }
+    let file = OpenOptions::new()
+      .read(true)
+      .write(true)
+      .create(true)
+      .truncate(false)
+      .open(&path)
+      .map_err(|e| format!("{}: {e}", path.display()))?;
+    let path_meta = fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file_meta = file
+      .metadata()
+      .map_err(|e| format!("{}: {e}", path.display()))?;
+    if !path_meta.is_file()
+      || path_meta.dev() != file_meta.dev()
+      || path_meta.ino() != file_meta.ino()
+    {
+      return Err(format!("{} changed identity", path.display()));
+    }
+    file.try_lock().map_err(|e| {
+      format!(
+        "{}: active Cargo build or unavailable lock: {e}",
+        path.display()
+      )
+    })?;
+    locks.push(file);
+  }
+  Ok(locks)
+}
+
+fn check_profile_path(target: &Path, profile: &Path) -> Result<(), String> {
+  let target_meta =
+    fs::symlink_metadata(target).map_err(|e| format!("{}: {e}", target.display()))?;
+  if !target_meta.is_dir() {
+    return Err(format!(
+      "{} is not a real target directory",
+      target.display()
+    ));
+  }
+  let rel = profile
+    .strip_prefix(target)
+    .map_err(|_| format!("{} escapes the target", profile.display()))?;
+  let mut path = target.to_path_buf();
+  for component in rel.components() {
+    path.push(component);
+    let meta = fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !meta.is_dir() || meta.dev() != target_meta.dev() {
+      return Err(format!("{} is not a same-volume directory", path.display()));
+    }
+  }
+  Ok(())
+}
+
 // --------------------------------------------------------------------------- //
 // Planning
 // --------------------------------------------------------------------------- //
@@ -801,6 +875,21 @@ mod tests {
       .iter()
       .flat_map(|c| c.paths.iter().cloned())
       .collect()
+  }
+
+  #[test]
+  fn cargo_lock_refuses_symlinked_profile() {
+    let root = tmpdir();
+    let target = root.join("target");
+    let outside = root.join("valuable");
+    fs::create_dir(&target).unwrap();
+    fs::create_dir_all(outside.join("deps")).unwrap();
+    fs::write(outside.join("deps/local-data"), b"keep").unwrap();
+    std::os::unix::fs::symlink(&outside, target.join("debug")).unwrap();
+    let manifest = manifest_for(&root, Keep::default(), Policy::default());
+    assert!(lock_cargo_profiles(&manifest).is_err());
+    assert!(outside.join("deps/local-data").is_file());
+    let _ = fs::remove_dir_all(root);
   }
 
   fn manifest_for(root: &Path, keep: Keep, policy: Policy) -> Manifest {

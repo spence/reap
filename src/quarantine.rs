@@ -780,10 +780,24 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool) {
   let gm = match fs::symlink_metadata(&dot) {
     Ok(m) => m,
     Err(_) => {
-      push(&mut a.checks, "git", true, String::new());
+      push(
+        &mut a.checks,
+        "git",
+        scratch,
+        "no Git checkout -- non-scratch data has no recoverability proof".to_string(),
+      );
       return;
     }
   };
+  if !gm.is_file() && !gm.is_dir() {
+    push(
+      &mut a.checks,
+      "git",
+      scratch,
+      "Git metadata is not a real file or directory".to_string(),
+    );
+    return;
+  }
   if gm.is_file() {
     // Linked worktree: `.git` is a pointer file into the main repo.
     if let Ok(text) = fs::read_to_string(&dot) {
@@ -807,7 +821,15 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool) {
     return;
   }
   // Non-scratch: everything must be recoverable elsewhere.
-  match git_capture(dir, &["status", "--porcelain"]) {
+  match git_capture(
+    dir,
+    &[
+      "status",
+      "--porcelain=v1",
+      "--ignored=matching",
+      "--untracked-files=normal",
+    ],
+  ) {
     Err(GitError::Missing) => {
       push(
         &mut a.checks,
@@ -822,12 +844,25 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool) {
       return;
     }
     Ok(out) => {
-      let dirty: Vec<&str> = out.lines().filter(|l| !l.ends_with(LEASE_MARKER)).collect();
+      let marker_untracked = format!("?? {LEASE_MARKER}");
+      let marker_ignored = format!("!! {LEASE_MARKER}");
+      let paths: Vec<&str> = out
+        .lines()
+        .filter(|line| *line != marker_untracked && *line != marker_ignored)
+        .collect();
+      let dirty = paths.iter().filter(|line| !line.starts_with("!! ")).count();
+      let ignored = paths.len() - dirty;
       push(
         &mut a.checks,
         "git-clean",
-        dirty.is_empty(),
-        format!("{} uncommitted/untracked path(s)", dirty.len()),
+        dirty == 0,
+        format!("{} uncommitted/untracked path(s)", dirty),
+      );
+      push(
+        &mut a.checks,
+        "git-ignored",
+        ignored == 0,
+        format!("{} ignored path(s) with unproved recoverability", ignored),
       );
     }
   }
@@ -1228,6 +1263,7 @@ mod tests {
     fs::create_dir_all(&proj).unwrap();
     git(&proj, &["init", "-q"]);
     fs::write(proj.join("a.txt"), b"hello").unwrap();
+    fs::write(proj.join(".gitignore"), b"logs/\n").unwrap();
     git(&proj, &["add", "."]);
     git(&proj, &["commit", "-qm", "one"]);
     let qdir = root.join("q");
@@ -1264,6 +1300,48 @@ mod tests {
         .map(|c| (c.label, c.detail.clone()))
         .collect::<Vec<_>>()
     );
+
+    fs::create_dir(proj.join("logs")).unwrap();
+    fs::write(
+      proj.join("logs/only-local.log"),
+      b"important ignored output",
+    )
+    .unwrap();
+    old_mtimes(&proj);
+    let a = assess_retire(&lease, now_secs(), &waived, &elsewhere, &qdir, &lf.leases);
+    assert!(a.failures().iter().any(|c| c.label == "git-ignored"));
+    assert!(!a.failures().iter().any(|c| c.label == "git-clean"));
+    assert!(proj.join("logs/only-local.log").is_file());
+
+    let scratch_dir = root.join("scratch");
+    git(
+      &root,
+      &[
+        "clone",
+        "-q",
+        bare.to_str().unwrap(),
+        scratch_dir.to_str().unwrap(),
+      ],
+    );
+    fs::create_dir(scratch_dir.join("logs")).unwrap();
+    fs::write(
+      scratch_dir.join("logs/only-local.log"),
+      b"disposable output",
+    )
+    .unwrap();
+    let scratch = add(&mut lf, &scratch_dir, 0, true);
+    old_mtimes(&scratch_dir);
+    let a = assess_retire(&scratch, now_secs(), &waived, &elsewhere, &qdir, &lf.leases);
+    assert!(a.ok(), "explicit scratch lease allows its local output");
+
+    let plain_dir = root.join("plain");
+    fs::create_dir(&plain_dir).unwrap();
+    fs::write(plain_dir.join("only-local.log"), b"unproved output").unwrap();
+    let plain = add(&mut lf, &plain_dir, 0, false);
+    old_mtimes(&plain_dir);
+    let a = assess_retire(&plain, now_secs(), &waived, &elsewhere, &qdir, &lf.leases);
+    assert!(a.failures().iter().any(|c| c.label == "git"));
+    assert!(plain_dir.join("only-local.log").is_file());
 
     // Dirty it -> refused; scratch would allow.
     fs::write(proj.join("b.txt"), b"local only").unwrap();
