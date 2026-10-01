@@ -1,0 +1,789 @@
+{
+ "spec": "SPEC-REAP-FILE",
+ "now": "2026-10-01T00:00:00Z",
+ "cases": [
+  {
+   "id": "build-output-expired",
+   "clauses": [
+    "C6",
+    "C11"
+   ],
+   "note": "inventory category build-output",
+   "tree": {
+    "p/targets": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z",
+      "purpose": "cargo target dir"
+     }
+    },
+    "p/targets/debug": {
+     "type": "dir",
+     "age_days": 1
+    },
+    "p/targets/debug/app": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/targets"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "build-output-live",
+   "clauses": [
+    "C6"
+   ],
+   "note": "",
+   "tree": {
+    "p/targets": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-10-10T00:00:00Z"
+     }
+    },
+    "p/targets/debug": {
+     "type": "dir",
+     "age_days": 1
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": []
+   }
+  },
+  {
+   "id": "bench-series-newest-and-age",
+   "clauses": [
+    "C7",
+    "C8",
+    "C9"
+   ],
+   "note": "inventory category benchmark-run; unmatched notes.txt is never removed by rules",
+   "tree": {
+    "p/bench": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "benchmark history"
+      },
+      "children": [
+       {
+        "pattern": "run-*",
+        "keep_newest": 2,
+        "max_age_days": 30
+       }
+      ]
+     }
+    },
+    "p/bench/run-a": {
+     "type": "dir",
+     "age_days": 1
+    },
+    "p/bench/run-b": {
+     "type": "dir",
+     "age_days": 5
+    },
+    "p/bench/run-c": {
+     "type": "dir",
+     "age_days": 40
+    },
+    "p/bench/run-d": {
+     "type": "dir",
+     "age_days": 60
+    },
+    "p/bench/notes.txt": {
+     "type": "file",
+     "age_days": 90,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/bench/run-c",
+     "p/bench/run-d"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "newest-protected-even-when-old",
+   "clauses": [
+    "C9"
+   ],
+   "note": "",
+   "tree": {
+    "p/bench": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "retained evidence"
+      },
+      "children": [
+       {
+        "pattern": "run-*",
+        "keep_newest": 2,
+        "max_age_days": 30
+       }
+      ]
+     }
+    },
+    "p/bench/run-x": {
+     "type": "dir",
+     "age_days": 40
+    },
+    "p/bench/run-y": {
+     "type": "dir",
+     "age_days": 50
+    },
+    "p/bench/run-z": {
+     "type": "dir",
+     "age_days": 60
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/bench/run-z"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "unit-age-is-newest-inside",
+   "clauses": [
+    "C9"
+   ],
+   "note": "",
+   "tree": {
+    "p/bench": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "retained evidence"
+      },
+      "children": [
+       {
+        "pattern": "run-*",
+        "max_age_days": 30
+       }
+      ]
+     }
+    },
+    "p/bench/run-x": {
+     "type": "dir",
+     "age_days": 90
+    },
+    "p/bench/run-x/fresh.log": {
+     "type": "file",
+     "age_days": 2,
+     "bytes": 10
+    },
+    "p/bench/run-y": {
+     "type": "dir",
+     "age_days": 90
+    },
+    "p/bench/run-y/old.log": {
+     "type": "file",
+     "age_days": 90,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/bench/run-y"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "count-cap",
+   "clauses": [
+    "C7",
+    "C9"
+   ],
+   "note": "inventory category evidence/run-log; the owner-requested count cap",
+   "tree": {
+    "p/qual": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "qualification history"
+      },
+      "children": [
+       {
+        "pattern": "attempt-*",
+        "keep_newest": 1,
+        "max_count": 3
+       }
+      ]
+     }
+    },
+    "p/qual/attempt-1": {
+     "type": "dir",
+     "age_days": 1
+    },
+    "p/qual/attempt-2": {
+     "type": "dir",
+     "age_days": 2
+    },
+    "p/qual/attempt-3": {
+     "type": "dir",
+     "age_days": 3
+    },
+    "p/qual/attempt-4": {
+     "type": "dir",
+     "age_days": 4
+    },
+    "p/qual/attempt-5": {
+     "type": "dir",
+     "age_days": 5
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/qual/attempt-4",
+     "p/qual/attempt-5"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "byte-cap",
+   "clauses": [
+    "C7",
+    "C9"
+   ],
+   "note": "inventory category run-log",
+   "tree": {
+    "p/logs": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "runner logs"
+      },
+      "children": [
+       {
+        "pattern": "log-*.txt",
+        "keep_newest": 1,
+        "max_bytes": 250
+       }
+      ]
+     }
+    },
+    "p/logs/log-1.txt": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 100
+    },
+    "p/logs/log-2.txt": {
+     "type": "file",
+     "age_days": 2,
+     "bytes": 100
+    },
+    "p/logs/log-3.txt": {
+     "type": "file",
+     "age_days": 3,
+     "bytes": 100
+    },
+    "p/logs/log-4.txt": {
+     "type": "file",
+     "age_days": 4,
+     "bytes": 100
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/logs/log-3.txt",
+     "p/logs/log-4.txt"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "expired-scratch-keeps-declared-evidence",
+   "clauses": [
+    "C10",
+    "C11"
+   ],
+   "note": "partial retirement around a kept child",
+   "tree": {
+    "p/scratch-1": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z"
+     }
+    },
+    "p/scratch-1/a.log": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    },
+    "p/scratch-1/tmp": {
+     "type": "dir",
+     "age_days": 1
+    },
+    "p/scratch-1/tmp/x": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    },
+    "p/scratch-1/evidence": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "proof cited by a gate"
+      }
+     }
+    },
+    "p/scratch-1/evidence/proof.json": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/scratch-1/a.log",
+     "p/scratch-1/tmp"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "child-keep-overrides-parent-rule",
+   "clauses": [
+    "C10"
+   ],
+   "note": "",
+   "tree": {
+    "p/bench": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "retained evidence"
+      },
+      "children": [
+       {
+        "pattern": "run-*",
+        "max_age_days": 30
+       }
+      ]
+     }
+    },
+    "p/bench/run-old": {
+     "type": "dir",
+     "age_days": 90,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "baseline"
+      }
+     }
+    },
+    "p/bench/run-older": {
+     "type": "dir",
+     "age_days": 95
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/bench/run-older"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "child-expiry-overrides-parent-rule",
+   "clauses": [
+    "C10"
+   ],
+   "note": "",
+   "tree": {
+    "p/bench": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "retained evidence"
+      },
+      "children": [
+       {
+        "pattern": "run-*",
+        "max_age_days": 30
+       }
+      ]
+     }
+    },
+    "p/bench/run-new": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z"
+     }
+    },
+    "p/bench/run-newer": {
+     "type": "dir",
+     "age_days": 0
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/bench/run-new"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "seal-overrides-descendants",
+   "clauses": [
+    "C4"
+   ],
+   "note": "a preservation copy inside the root",
+   "tree": {
+    "p/copy": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "preservation copy"
+      },
+      "seal": true
+     }
+    },
+    "p/copy/run-x": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z"
+     }
+    },
+    "p/copy/run-x/f": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": []
+   }
+  },
+  {
+   "id": "worktree-scratch-expired",
+   "clauses": [
+    "C6",
+    "C11"
+   ],
+   "note": "inventory category worktree",
+   "tree": {
+    "p/wt-feature": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z",
+      "purpose": "temporary worktree"
+     }
+    },
+    "p/wt-feature/src": {
+     "type": "dir",
+     "age_days": 1
+    },
+    "p/wt-feature/src/main.rs": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/wt-feature"
+    ],
+    "invalid": []
+   }
+  },
+  {
+   "id": "invalid-ambiguous-patterns",
+   "clauses": [
+    "C7"
+   ],
+   "note": "a child matching two rules makes the declaration invalid; nothing is removed",
+   "tree": {
+    "p/runs": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "retained evidence"
+      },
+      "children": [
+       {
+        "pattern": "run-*",
+        "max_age_days": 1
+       },
+       {
+        "pattern": "*-old",
+        "max_age_days": 1
+       }
+      ]
+     }
+    },
+    "p/runs/run-old": {
+     "type": "dir",
+     "age_days": 50
+    },
+    "p/runs/run-new": {
+     "type": "dir",
+     "age_days": 50
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": [
+     "p/runs"
+    ]
+   }
+  },
+  {
+   "id": "invalid-count-below-keep",
+   "clauses": [
+    "C7"
+   ],
+   "note": "",
+   "tree": {
+    "p/runs": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z",
+      "children": [
+       {
+        "pattern": "run-*",
+        "keep_newest": 2,
+        "max_count": 1
+       }
+      ]
+     }
+    },
+    "p/runs/run-a": {
+     "type": "dir",
+     "age_days": 1
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": [
+     "p/runs"
+    ]
+   }
+  },
+  {
+   "id": "invalid-unknown-field",
+   "clauses": [
+    "C5"
+   ],
+   "note": "",
+   "tree": {
+    "p/a": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z",
+      "ttl": "2d"
+     }
+    },
+    "p/a/f": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": [
+     "p/a"
+    ]
+   }
+  },
+  {
+   "id": "invalid-no-lifetime",
+   "clauses": [
+    "C6"
+   ],
+   "note": "",
+   "tree": {
+    "p/a": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "purpose": "forgot the lifetime"
+     }
+    },
+    "p/a/f": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": [
+     "p/a"
+    ]
+   }
+  },
+  {
+   "id": "invalid-bad-disposition",
+   "clauses": [
+    "C12"
+   ],
+   "note": "",
+   "tree": {
+    "p/a": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z",
+      "disposition": "shred"
+     }
+    },
+    "p/a/f": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": [
+     "p/a"
+    ]
+   }
+  },
+  {
+   "id": "invalid-child-protects-subtree-in-expired-parent",
+   "clauses": [
+    "C5",
+    "C11"
+   ],
+   "note": "",
+   "tree": {
+    "p/run": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "expires": "2026-09-20T00:00:00Z"
+     }
+    },
+    "p/run/x.log": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    },
+    "p/run/kept": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 2
+     }
+    },
+    "p/run/kept/f": {
+     "type": "file",
+     "age_days": 1,
+     "bytes": 10
+    }
+   },
+   "expect": {
+    "removed": [
+     "p/run/x.log"
+    ],
+    "invalid": [
+     "p/run/kept"
+    ]
+   }
+  },
+  {
+   "id": "declared-child-not-counted",
+   "clauses": [
+    "C9",
+    "C10"
+   ],
+   "note": "a child with its own declaration is outside the parent's rules, including the count",
+   "tree": {
+    "p/runs": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "run history"
+      },
+      "children": [
+       {
+        "pattern": "run-*",
+        "max_count": 2
+       }
+      ]
+     }
+    },
+    "p/runs/run-1": {
+     "type": "dir",
+     "age_days": 1,
+     "reap": {
+      "version": 1,
+      "keep": {
+       "reason": "baseline"
+      }
+     }
+    },
+    "p/runs/run-2": {
+     "type": "dir",
+     "age_days": 2
+    },
+    "p/runs/run-3": {
+     "type": "dir",
+     "age_days": 3
+    }
+   },
+   "expect": {
+    "removed": [],
+    "invalid": []
+   }
+  }
+ ]
+}
