@@ -22,6 +22,14 @@ age, count, or total size), an optional seal, and a disposition (quarantine by d
 nearest honoured declaration governs every path. Anything the evaluator cannot read with
 certainty protects its subtree.
 
+## Git work survives (added 2026-09-30)
+
+A path that holds a git work tree with uncommitted, stashed, or unpushed work is never removed by
+a declaration, whatever its disposition, unless the declaration sets `"scratch": true`. This
+carries over the protection reap's non-scratch leases give today (retirement requires git
+recoverability) so the changeover weakens nothing; quarantine alone is not enough, because purge
+ends recoverability.
+
 ## Why these shapes
 
 - One own lifetime per file keeps "undeclared" from passing as declared.

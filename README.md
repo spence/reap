@@ -591,8 +591,9 @@ without crossing a symlink, that it was not modified within
 file handle, that it does not overlap a recorded lease, and that the current
 directory is outside it. `disposition` `quarantine` (the default) moves the path
 into the indexed quarantine with the declaration's owner and reason;
-`delete` removes it directly and refuses a git tree with uncommitted, stashed,
-or unpushed work. First-seen times live in `reap-files-seen.json` in the state
+`delete` removes it directly. Whatever the disposition, a path holding a git
+work tree (up to three levels down) with uncommitted, stashed, or unpushed work,
+or no upstream, is never removed unless its declaration sets `"scratch": true`. First-seen times live in `reap-files-seen.json` in the state
 directory; deleting that cache only delays action.
 
 Every run also lists `UNDECLARED` paths: a target (`<root>/<project>/<target>`)

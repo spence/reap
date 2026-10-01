@@ -8,7 +8,7 @@
 - Grounds: `DEC-LIFETIME-AUTHORITY`, `DEC-LIFETIME-FORMAT` (both proposed)
 - Fixtures: `docs/specs/reap-file.fixtures.json`, read by `src/reapfile.rs::tests::spec_fixtures`
   (C4–C13); on-disk honour rules in `tests/reap_files.rs` (C1–C3)
-- Conformance: 13 of 13 clauses met · 2026-09-30
+- Conformance: 14 of 14 clauses met · 2026-09-30
 
 ## Surface
 
@@ -42,7 +42,7 @@ reap's existing behavior and are governed by its own documentation, not by this 
 ### The file
 
 - **C5** — A `.reap` file is a JSON object with `"version": 1` and only the fields `expires`,
-  `keep`, `seal`, `children`, `disposition`, `owner`, `purpose`. Any other field, or unreadable
+  `keep`, `seal`, `scratch`, `children`, `disposition`, `owner`, `purpose`. Any other field, or unreadable
   content, makes the declaration invalid; an invalid declaration's whole subtree is protected
   from removal.
   · Binding: `fixture:invalid-unknown-field`, `fixture:invalid-child-protects-subtree-in-expired-parent`
@@ -78,6 +78,10 @@ reap's existing behavior and are governed by its own documentation, not by this 
 - **C12** — `disposition` is `quarantine` (default, recoverable until purge) or `delete`; any
   other value is invalid.
   · Binding: `fixture:invalid-bad-disposition` · Conformance: `met`
+- **C14** — A path holding a git work tree with uncommitted, stashed, or unpushed work, or no
+  upstream to prove its commits are pushed, is not removed by a declaration unless the declaration
+  that removes it sets `"scratch": true`.
+  · Binding: `tests/reap_files.rs::git_work_survives_unless_scratch` · Conformance: `met`
 - **C13** — `owner` and `purpose` are informational and never change what is removed.
   · Binding: `fixture:build-output-expired` (`purpose` present) · Conformance: `met`
 
@@ -85,7 +89,7 @@ reap's existing behavior and are governed by its own documentation, not by this 
 
 | Clauses | Check | State |
 |---|---|---|
-| C1–C3 | `cargo test --test reap_files` | met |
+| C1–C3, C14 | `cargo test --test reap_files` | met |
 | C4–C13 | `cargo test reapfile::tests::spec_fixtures` (reads the fixture path) | met |
 | C1–C13 (reference) | `python3 prototypes/lifetime-authority/scenarios.py`, `python3 prototypes/lifetime-format/evaluate.py` | pass |
 

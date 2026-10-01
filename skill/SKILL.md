@@ -284,7 +284,9 @@ reap files --apply    # remove what declarations say, re-checking each path
 
 A new declaration takes effect after 24 hours; git-tracked ones are ignored; an
 invalid one protects its subtree. Removal re-checks quiet time, open handles,
-mounts, lease overlap, and symlinks, and quarantines by default. Leases and
+mounts, lease overlap, and symlinks, and quarantines by default. A git tree
+with uncommitted, stashed, or unpushed work survives unless the declaration
+sets `"scratch": true`. Leases and
 stores remain in force during the transition; a `.reap` path that overlaps a
 lease is never removed by its declaration.
 

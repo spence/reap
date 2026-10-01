@@ -266,26 +266,39 @@ fn open_files_block_removal() {
 }
 
 #[test]
-fn delete_refuses_unpushed_git_work() {
+fn git_work_survives_unless_scratch() {
   let env = Env::new(0.0);
-  let wt = env.work().join("p/wt");
-  declare(
-    &wt,
-    json!({"version": 1, "expires": PAST, "disposition": "delete"}),
-  );
-  fs::write(wt.join(".gitignore"), ".reap\n").unwrap();
-  assert!(Command::new("git")
-    .arg("-C")
-    .arg(&wt)
-    .args(["init", "-q"])
-    .status()
-    .unwrap()
-    .success());
-  file(&wt.join("uncommitted.rs"));
+  let mk = |name: &str, extra: Value| {
+    let wt = env.work().join("p").join(name);
+    let mut body = json!({"version": 1, "expires": PAST});
+    body
+      .as_object_mut()
+      .unwrap()
+      .extend(extra.as_object().unwrap().clone());
+    declare(&wt, body);
+    fs::write(wt.join(".gitignore"), ".reap\n").unwrap();
+    assert!(Command::new("git")
+      .arg("-C")
+      .arg(&wt)
+      .args(["init", "-q"])
+      .status()
+      .unwrap()
+      .success());
+    file(&wt.join("uncommitted.rs"));
+    wt
+  };
+  let kept = mk("wt-quarantine", json!({}));
+  let kept_delete = mk("wt-delete", json!({"disposition": "delete"}));
+  let scratch = mk("wt-scratch", json!({"scratch": true}));
   age(&env.work(), 2.0);
   let out = env.apply();
-  assert!(wt.join("uncommitted.rs").exists(), "{out}");
-  assert!(out.contains("delete refused"), "{out}");
+  assert!(kept.join("uncommitted.rs").exists(), "{out}");
+  assert!(kept_delete.join("uncommitted.rs").exists(), "{out}");
+  assert!(out.contains("is not recoverable"), "{out}");
+  assert!(
+    !scratch.exists(),
+    "scratch declaration should allow removal: {out}"
+  );
 }
 
 #[test]

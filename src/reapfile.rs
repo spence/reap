@@ -23,6 +23,9 @@ pub struct Decl {
   pub keep: Option<Keep>,
   #[serde(default)]
   pub seal: Option<bool>,
+  /// Disposable even when it holds unrecoverable git work (C14).
+  #[serde(default)]
+  pub scratch: Option<bool>,
   #[serde(default)]
   pub children: Option<Vec<Rule>>,
   #[serde(default)]

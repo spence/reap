@@ -14,7 +14,7 @@ import json
 import os
 import sys
 
-TOP = {"version", "expires", "keep", "seal", "children", "disposition", "owner", "purpose"}
+TOP = {"version", "expires", "keep", "seal", "scratch", "children", "disposition", "owner", "purpose"}
 RULE = {"pattern", "keep_newest", "max_age_days", "max_count", "max_bytes"}
 
 

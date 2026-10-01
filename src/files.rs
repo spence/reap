@@ -224,6 +224,7 @@ pub fn undeclared(scan: &Scan) -> Vec<(PathBuf, String)> {
 /// Why a planned removal must not happen now; `None` when every check passes.
 fn blocked(
   r: &Removal,
+  scratch: bool,
   root: &Path,
   qdir: &Path,
   leases: &[Lease],
@@ -270,14 +271,39 @@ fn blocked(
     Ok(None) => {}
     Err(e) => return Some(format!("cannot inspect open handles: {e}")),
   }
-  if r.disposition == Disposition::Delete && meta.is_dir() && p.join(".git").exists() {
-    if let Some(why) = git_unrecoverable(p) {
-      return Some(format!(
-        "delete refused: {why} (quarantine keeps it recoverable)"
-      ));
+  if meta.is_dir() && !scratch {
+    for tree in git_trees(p) {
+      if let Some(why) = git_unrecoverable(&tree) {
+        return Some(format!(
+          "git work at {} is not recoverable: {why} (set \"scratch\": true to allow)",
+          tree.display()
+        ));
+      }
     }
   }
   None
+}
+
+/// Git work trees at `dir` or up to three levels below it (not descending into `.git`).
+fn git_trees(dir: &Path) -> Vec<PathBuf> {
+  let mut out = vec![];
+  let mut stack = vec![(dir.to_path_buf(), 0)];
+  while let Some((d, depth)) = stack.pop() {
+    if d.join(".git").exists() {
+      out.push(d.clone());
+    }
+    if depth == 3 {
+      continue;
+    }
+    if let Ok(rd) = fs::read_dir(&d) {
+      for e in rd.flatten() {
+        if e.file_name() != ".git" && e.file_type().is_ok_and(|t| t.is_dir()) {
+          stack.push((e.path(), depth + 1));
+        }
+      }
+    }
+  }
+  out
 }
 
 fn git_unrecoverable(dir: &Path) -> Option<String> {
@@ -422,7 +448,8 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
         Disposition::Quarantine => "quarantine",
         Disposition::Delete => "delete",
       };
-      if let Some(why) = blocked(r, &scan.root, &qdir, &leases, now, min_age) {
+      let scratch = matches!(scan.view.decls.get(&r.by), Some(Ok(d)) if d.scratch == Some(true));
+      if let Some(why) = blocked(r, scratch, &scan.root, &qdir, &leases, now, min_age) {
         println!("  blocked    {}  ({why})", r.path.display());
         continue;
       }
