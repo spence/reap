@@ -365,3 +365,36 @@ fn low_disk_gate_skips_above_and_runs_below_the_threshold() {
     "{text}"
   );
 }
+
+#[test]
+fn undeclared_targets_are_reported_and_declared_ones_are_not() {
+  let env = Env::new(0.0);
+  declare(
+    &env.work().join("p/declared"),
+    json!({"version": 1, "keep": {"reason": "kept"}}),
+  );
+  declare(
+    &env.work().join("q"),
+    json!({"version": 1, "keep": {"reason": "project-wide"}}),
+  );
+  file(&env.work().join("q/run-1/out"));
+  file(&env.work().join("p/undeclared/out"));
+  file(&env.work().join("loose.log"));
+  let out = String::from_utf8_lossy(&env.reap(&["files"]).stdout).into_owned();
+  assert!(
+    out.contains(&format!(
+      "UNDECLARED {}",
+      env.work().join("p/undeclared").display()
+    )),
+    "{out}"
+  );
+  assert!(
+    out.contains(&format!(
+      "UNDECLARED {}",
+      env.work().join("loose.log").display()
+    )),
+    "{out}"
+  );
+  assert!(!out.contains("p/declared"), "{out}");
+  assert!(!out.contains("q/run-1"), "{out}");
+}

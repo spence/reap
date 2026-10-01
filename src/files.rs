@@ -177,6 +177,50 @@ pub fn scan(root: &Path, now: i64, grace_secs: i64) -> Result<Scan, String> {
   })
 }
 
+/// Targets (`<root>/<project>/<target>`) and loose entries at those two levels that no `.reap`
+/// covers, itself or through an ancestor below the root, with the project that likely owns them.
+pub fn undeclared(scan: &Scan) -> Vec<(PathBuf, String)> {
+  let declared: Vec<&Path> = scan.found.iter().map(|f| f.dir.as_path()).collect();
+  let covered = |p: &Path| {
+    declared
+      .iter()
+      .any(|d| p.starts_with(d) && *d != scan.root.as_path())
+  };
+  let names = |dir: &Path| -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = fs::read_dir(dir)
+      .map(|rd| {
+        rd.flatten()
+          .filter(|e| e.file_name() != FILE_NAME && e.file_name() != ".DS_Store")
+          .map(|e| e.path())
+          .collect()
+      })
+      .unwrap_or_default();
+    v.sort();
+    v
+  };
+  let mut out = vec![];
+  for project in names(&scan.root) {
+    let name = project
+      .file_name()
+      .map(|n| n.to_string_lossy().into_owned())
+      .unwrap_or_default();
+    let is_dir = fs::symlink_metadata(&project).is_ok_and(|m| m.is_dir());
+    if covered(&project) {
+      continue;
+    }
+    if !is_dir {
+      out.push((project, name));
+      continue;
+    }
+    for target in names(&project) {
+      if !covered(&target) {
+        out.push((target, name.clone()));
+      }
+    }
+  }
+  out
+}
+
 /// Why a planned removal must not happen now; `None` when every check passes.
 fn blocked(
   r: &Removal,
@@ -338,6 +382,12 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
       println!(
         "  INVALID    {}  ({why}); its whole subtree is protected",
         dir.display()
+      );
+    }
+    for (path, project) in undeclared(&scan) {
+      println!(
+        "  UNDECLARED {}  (project {project}; add a .reap)",
+        path.display()
       );
     }
     if ev.removals.is_empty() {

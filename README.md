@@ -595,6 +595,11 @@ into the indexed quarantine with the declaration's owner and reason;
 or unpushed work. First-seen times live in `reap-files-seen.json` in the state
 directory; deleting that cache only delays action.
 
+Every run also lists `UNDECLARED` paths: a target (`<root>/<project>/<target>`)
+or a loose entry at those two levels that no `.reap` covers, itself or through
+an ancestor, with its project as the likely owner. Nothing undeclared is
+removed; the list is the review queue.
+
 ## leases, retirement, and quarantine
 
 Worktrees, benchmark clones, and scratch copies accumulate because nothing
