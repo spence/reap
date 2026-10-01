@@ -259,6 +259,9 @@ enum Cmd {
     /// Run one stage instead of the whole sequence
     #[arg(long, value_enum)]
     only: Option<maintenance::Stage>,
+    /// Run only when the lowest free space across managed volumes is below this many GiB
+    #[arg(long, value_name = "GIB")]
+    if_free_below: Option<f64>,
   },
 }
 
@@ -391,7 +394,11 @@ fn main() {
     Some(Cmd::Inventory { quick }) => cmd_inventory(quick),
     Some(Cmd::Status) => status::run(),
     Some(Cmd::Coverage) => coverage::run(),
-    Some(Cmd::Maintain { apply, only }) => maintenance::run(apply, only),
+    Some(Cmd::Maintain {
+      apply,
+      only,
+      if_free_below,
+    }) => maintenance::run(apply, only, if_free_below),
   };
   exit(code);
 }

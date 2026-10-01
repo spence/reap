@@ -3,12 +3,14 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.spence.reap.maintenance</string>
+  <string>com.spence.reap.lowdisk</string>
   <key>ProgramArguments</key>
   <array>
     <string>/Users/spencer/.cargo/bin/reap</string>
     <string>maintain</string>
     <string>--apply</string>
+    <string>--if-free-below</string>
+    <string>15</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -24,7 +26,7 @@
   <key>WorkingDirectory</key>
   <string>/Users/spencer</string>
   <key>StartInterval</key>
-  <integer>3600</integer>
+  <integer>300</integer>
   <key>RunAtLoad</key>
   <false/>
   <key>KeepAlive</key>

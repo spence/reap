@@ -351,3 +351,17 @@ fn invalid_declaration_protects_and_future_expiry_waits() {
   assert!(out.contains("INVALID"), "{out}");
   assert!(live.join("data").exists(), "{out}");
 }
+
+#[test]
+fn low_disk_gate_skips_above_and_runs_below_the_threshold() {
+  let env = Env::new(0.0);
+  let out = env.reap(&["maintain", "--if-free-below", "0.000001"]);
+  let text = String::from_utf8_lossy(&out.stdout);
+  assert!(out.status.success() && text.contains("skipped"), "{text}");
+  let out = env.reap(&["maintain", "--if-free-below", "1000000000"]);
+  let text = String::from_utf8_lossy(&out.stdout);
+  assert!(
+    text.contains("is below") && text.contains("running"),
+    "{text}"
+  );
+}

@@ -22,16 +22,18 @@ pub enum Stage {
   DoctorQuarantine,
   Cargo,
   Stores,
+  Files,
   Retire,
   Purge,
 }
 
 impl Stage {
-  const ALL: [Stage; 6] = [
+  const ALL: [Stage; 7] = [
     Stage::DoctorLeases,
     Stage::DoctorQuarantine,
     Stage::Cargo,
     Stage::Stores,
+    Stage::Files,
     Stage::Retire,
     Stage::Purge,
   ];
@@ -42,6 +44,7 @@ impl Stage {
       Self::DoctorQuarantine => "doctor-quarantine",
       Self::Cargo => "cargo",
       Self::Stores => "stores",
+      Self::Files => "files",
       Self::Retire => "retire",
       Self::Purge => "purge",
     }
@@ -53,6 +56,7 @@ impl Stage {
       Self::DoctorQuarantine => &["doctor", "--quarantine"],
       Self::Cargo => &["sweep"],
       Self::Stores => &["stores"],
+      Self::Files => &["files"],
       Self::Retire => &["retire"],
       Self::Purge => &["purge"],
     }
@@ -64,6 +68,7 @@ impl Stage {
       Self::DoctorQuarantine => "reap doctor --quarantine --verbose",
       Self::Cargo => "reap sweep",
       Self::Stores => "reap stores",
+      Self::Files => "reap files",
       Self::Retire => "reap retire",
       Self::Purge => "reap doctor --quarantine",
     }
@@ -101,7 +106,42 @@ struct Receipt {
   next_action: Option<String>,
 }
 
-pub fn run(apply: bool, only: Option<Stage>) -> i32 {
+/// Lowest free space across the volumes reap manages: discovery and governed roots and the
+/// quarantine. A missing path is skipped; no readable volume reports `None`.
+fn lowest_free(cfg: &Config) -> Option<(u64, String)> {
+  cfg
+    .expanded_roots()
+    .into_iter()
+    .chain(cfg.expanded_governed_roots())
+    .chain([cfg.quarantine_dir()])
+    .filter(|p| p.exists())
+    .filter_map(|p| {
+      available_bytes(&p)
+        .ok()
+        .map(|b| (b, p.display().to_string()))
+    })
+    .min_by_key(|(b, _)| *b)
+}
+
+pub fn run(apply: bool, only: Option<Stage>, if_free_below_gib: Option<f64>) -> i32 {
+  if let Some(gib) = if_free_below_gib {
+    let (cfg, _) = crate::config::load_config();
+    let floor = (gib * 1024.0 * 1024.0 * 1024.0) as u64;
+    match lowest_free(&cfg) {
+      Some((free, path)) if free >= floor => {
+        println!(
+          "reap maintain: skipped; lowest free space {:.1} GiB at {path} is not below {gib} GiB",
+          free as f64 / 1073741824.0
+        );
+        return 0;
+      }
+      Some((free, path)) => println!(
+        "reap maintain: {:.1} GiB free at {path} is below {gib} GiB; running",
+        free as f64 / 1073741824.0
+      ),
+      None => println!("reap maintain: no managed volume readable; running"),
+    }
+  }
   let state = state_dir();
   if let Err(e) = fs::create_dir_all(&state) {
     eprintln!("error: creating maintenance state: {e}");

@@ -2839,8 +2839,8 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
   let dry: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
   assert_eq!(dry["outcome"], "ok");
   assert_eq!(dry["mode"], "dry-run");
-  assert_eq!(dry["stages"].as_array().unwrap().len(), 6);
-  assert_eq!(dry["stages"][5]["outcome"], "skipped");
+  assert_eq!(dry["stages"].as_array().unwrap().len(), 7);
+  assert_eq!(dry["stages"][6]["outcome"], "skipped");
   assert!(dry["stages"][3]["stdout"]
     .as_str()
     .unwrap()
@@ -2858,7 +2858,7 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
     .as_str()
     .unwrap()
     .contains("removed 1 item"));
-  assert!(applied["stages"][5]["reason"]
+  assert!(applied["stages"][6]["reason"]
     .as_str()
     .unwrap()
     .contains("auto_purge=false"));
@@ -2926,7 +2926,7 @@ fn maintenance_failure_receipt_names_next_step_without_touching_data() {
   let partial: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
   assert_eq!(partial["outcome"], "partial");
   assert_eq!(partial["stages"][3]["outcome"], "failed");
-  assert_eq!(partial["stages"][4]["outcome"], "ok");
+  assert_eq!(partial["stages"][5]["outcome"], "ok");
 
   fs::write(&config, b"{broken").unwrap();
   failure(root.run(vec!["maintain".into()]));
