@@ -269,6 +269,25 @@ with a warning. Directory scans fail closed on unreadable entries, special
 files, and nested mounts, and never follow symlinks. Reap does not lock run
 producers; finish writing before an old run becomes eligible for eviction.
 
+## 3b. `.reap` lifetime declarations
+
+A `.reap` file inside a directory under a governed root (`~/work` by default)
+declares that directory's lifetime: `expires` (RFC 3339) or `keep` with a
+reason, plus optional `children` rules by name pattern (`keep_newest`,
+`max_age_days`, `max_count`, `max_bytes`). Contract and examples:
+`docs/specs/reap-file.md` in the reap repo.
+
+```bash
+reap files            # dry-run; shows honoured, set-aside, and invalid declarations
+reap files --apply    # remove what declarations say, re-checking each path
+```
+
+A new declaration takes effect after 24 hours; git-tracked ones are ignored; an
+invalid one protects its subtree. Removal re-checks quiet time, open handles,
+mounts, lease overlap, and symlinks, and quarantines by default. Leases and
+stores remain in force during the transition; a `.reap` path that overlaps a
+lease is never removed by its declaration.
+
 ## 4. Exception manifest (v1, unchanged)
 
 Most projects need NO `.reap.json`. Add `keep.paths`/`keep.names` only when

@@ -494,7 +494,7 @@ pub fn assess_retire_ignoring_dir_mtimes(
 }
 
 #[cfg(target_os = "macos")]
-fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> {
+pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> {
   let output = Command::new("/usr/sbin/lsof")
     .args(["-n", "-P", "-F0n"])
     .output()
@@ -558,6 +558,49 @@ pub fn execute_store_retire(
   store: StoreProvenance,
   provenance: Provenance,
 ) -> Result<Retired, String> {
+  let purpose = format!("store {}", store.store);
+  retire_unit(
+    source,
+    bytes,
+    qdir,
+    machine,
+    now,
+    default_owner(),
+    purpose,
+    provenance,
+    Some(store),
+  )
+}
+
+/// Stage a path removed by a `.reap` declaration with the declaration's owner and reason.
+#[allow(clippy::too_many_arguments)]
+pub fn execute_path_retire(
+  source: &Path,
+  bytes: u64,
+  qdir: &Path,
+  machine: &str,
+  now: i64,
+  owner: String,
+  purpose: String,
+  provenance: Provenance,
+) -> Result<Retired, String> {
+  retire_unit(
+    source, bytes, qdir, machine, now, owner, purpose, provenance, None,
+  )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn retire_unit(
+  source: &Path,
+  bytes: u64,
+  qdir: &Path,
+  machine: &str,
+  now: i64,
+  owner: String,
+  purpose: String,
+  provenance: Provenance,
+  store: Option<StoreProvenance>,
+) -> Result<Retired, String> {
   let meta = fs::symlink_metadata(source).map_err(|e| format!("{}: {e}", source.display()))?;
   if !meta.is_file() && !meta.is_dir() && !meta.file_type().is_symlink() {
     return Err(format!("{} is not a movable store unit", source.display()));
@@ -595,14 +638,14 @@ pub fn execute_store_retire(
     id,
     name: name.to_string(),
     original_path: original_path.to_string(),
-    owner: default_owner(),
-    purpose: format!("store {}", store.store),
+    owner,
+    purpose,
     scratch: false,
     machine: machine.to_string(),
     bytes,
     retired_unix: now,
     provenance: Some(provenance),
-    store: Some(store),
+    store,
   };
   let evidence = EntryEvidence {
     version: 1,

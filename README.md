@@ -561,6 +561,40 @@ If a store move is interrupted before its index write,
 silently index or purge it. Legacy stores without `disposition` continue to
 delete directly, so migration is an explicit manifest change.
 
+## lifetime declarations (`.reap`)
+
+A directory can declare its own lifetime in a `.reap` file. The contract is
+[`docs/specs/reap-file.md`](docs/specs/reap-file.md); its fixture corpus is the
+test reap runs (`cargo test reapfile`).
+
+```json
+{"version": 1, "expires": "2026-10-14T00:00:00Z", "purpose": "parser worktree"}
+{"version": 1, "keep": {"reason": "proof cited by gate G3", "review_after": "2027-01-01"}}
+{"version": 1, "keep": {"reason": "benchmark history"},
+ "children": [{"pattern": "run-*", "keep_newest": 5, "max_age_days": 30, "max_count": 20}]}
+```
+
+```bash
+reap files            # dry-run: every governed root
+reap files --apply    # remove what the declarations say, after re-checking each path
+```
+
+Reap honours a `.reap` file only under a governed root (`governed_roots`,
+default `["~/work"]`; the root may be a symlink, nothing below it is followed),
+only when git does not track it, and only after its file identity has been seen
+for `reap_file_grace_hours` (default 24). A sealed declaration overrides the
+declarations beneath it. An invalid file protects its whole subtree.
+
+Before each removal, `--apply` re-checks that the path is still inside the root
+without crossing a symlink, that it was not modified within
+`reap_file_min_age_minutes` (default 10), that it holds no nested mount or open
+file handle, that it does not overlap a recorded lease, and that the current
+directory is outside it. `disposition` `quarantine` (the default) moves the path
+into the indexed quarantine with the declaration's owner and reason;
+`delete` removes it directly and refuses a git tree with uncommitted, stashed,
+or unpushed work. First-seen times live in `reap-files-seen.json` in the state
+directory; deleting that cache only delays action.
+
 ## leases, retirement, and quarantine
 
 Worktrees, benchmark clones, and scratch copies accumulate because nothing

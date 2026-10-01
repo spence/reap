@@ -18,6 +18,7 @@ mod coverage;
 mod create;
 mod discover;
 mod doctor;
+mod files;
 mod inventory;
 mod lease;
 mod maintenance;
@@ -26,6 +27,7 @@ mod parents;
 mod plan;
 mod provenance;
 mod quarantine;
+mod reapfile;
 mod status;
 mod store_bindings;
 mod stores;
@@ -166,6 +168,14 @@ enum Cmd {
     to: Option<String>,
     #[arg(long)]
     verbose: bool,
+  },
+  /// Apply `.reap` lifetime declarations under the governed roots (dry-run unless --apply)
+  Files {
+    /// One governed root (default: every configured governed root)
+    path: Option<String>,
+    /// Move or delete what the declarations remove, after re-checking each path
+    #[arg(long)]
+    apply: bool,
   },
   /// Lease a temporary checkout so it can be retired once its TTL expires
   Lease {
@@ -355,6 +365,7 @@ fn main() {
       to,
       verbose,
     }) => cmd_stores(path, apply, init, bind, to, verbose),
+    Some(Cmd::Files { path, apply }) => files::run(path, apply),
     Some(Cmd::Lease { cmd }) => cmd_lease(cmd),
     Some(Cmd::Create { cmd }) => create::run(cmd),
     Some(Cmd::Parents { cmd }) => parents::run(cmd),

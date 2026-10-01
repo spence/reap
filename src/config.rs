@@ -18,6 +18,12 @@ pub struct Config {
   pub coverage_roots: Option<Vec<String>>,
   pub exclude: Vec<String>,
   pub quarantine: QuarantineConfig,
+  /// Roots whose `.reap` declarations reap honours (SPEC-REAP-FILE C1).
+  pub governed_roots: Vec<String>,
+  /// A newly seen `.reap` file takes effect after this many hours (C3).
+  pub reap_file_grace_hours: f64,
+  /// A path modified more recently than this is never removed by a declaration.
+  pub reap_file_min_age_minutes: f64,
 }
 
 impl Default for Config {
@@ -27,6 +33,9 @@ impl Default for Config {
       coverage_roots: None,
       exclude: vec![],
       quarantine: QuarantineConfig::default(),
+      governed_roots: vec!["~/work".to_string()],
+      reap_file_grace_hours: 24.0,
+      reap_file_min_age_minutes: 10.0,
     }
   }
 }
@@ -41,6 +50,14 @@ impl Config {
       .coverage_roots
       .as_ref()
       .unwrap_or(&self.roots)
+      .iter()
+      .map(|root| expand(root))
+      .collect()
+  }
+
+  pub fn expanded_governed_roots(&self) -> Vec<PathBuf> {
+    self
+      .governed_roots
       .iter()
       .map(|root| expand(root))
       .collect()
