@@ -1,25 +1,17 @@
 ---
 name: reap
 description: >-
-  Use before creating a project-owned directory outside its repository, even
-  when the user did not mention cleanup; when a machine is low on disk or
-  you're asked to reclaim Cargo target/ space; before creating a temporary
-  checkout, worktree, benchmark clone, or cross-machine project copy (lease it
-  at creation); when an external tool creates work under a
-  stable scratch parent (inspect or explicitly arm it); when a project dir accumulates output run after
-  run (declare a reap store); when deciding whether old copies or quarantine
-  entries are still needed (list by owner, ask the owner); when diagnosing
-  missing or remounted leases or unindexed quarantine entries; or when a Rust
-  project vendors something non-regenerable into target/; or when auditing
-  external roots for registered versus unknown directories; or when setting up
-  one-shot maintenance. `reap` deletes only
-  what a marker, manifest, or lease proves disposable: `reap sweep --apply`
-  compacts cargo targets, `reap stores --apply` deletes or quarantines declared
-  store output according to its manifest,
-  `reap create` records temporary work at creation;
-  `reap lease`/`reap retire` move expired temp dirs into a recoverable
-  quarantine, `reap purge` empties it after a grace period. If missing:
-  `cargo install --git https://github.com/spence/reap`.
+  Use before creating project-owned external directories, temporary checkouts,
+  worktrees, benchmark clones, or cross-machine copies, even when cleanup was
+  not requested; when delivering an interactive workspace (request human
+  closeout); or when an external tool creates work under a scratch parent.
+  Use when disk is low, reclaiming Cargo output, declaring accumulating logs
+  or caches, protecting non-regenerable target/ data, reviewing old copies or
+  quarantine, diagnosing broken leases or unindexed entries, auditing external
+  roots, or running one-shot maintenance.
+  Reap acts only on declared cleanup authority; merged code and agent completion
+  do not release an interactive workspace.
+  If missing, install with `cargo install --git https://github.com/spence/reap`.
 ---
 
 # reap — evidence-driven disk reclamation
@@ -34,7 +26,8 @@ governs everything it does:
 > registration, and quarantine restore are explicit actions.
 
 Before creating a project-owned directory outside its repo, classify it:
-temporary whole trees use `reap create` with an explicit lease; recurring
+explicitly time-bounded disposable trees use `reap create` with a lease;
+interactive workspaces stay protected until human closeout (below); recurring
 outputs use a project `.reap.json` store and a machine-local external binding;
 external-tool scratch parents need the parent's owner to approve `parents arm`
 and each disposable child needs its own lease. Retained evidence or a location
@@ -63,8 +56,11 @@ on NFS, so do not apply there during a build.
 
 ## 2. Temporary checkouts: lease at creation, retire when expired
 
-Worktrees, benchmark clones, cross-machine copies, scratch experiments — use
-`reap create` for work you make, so intent is recorded before the tree exists:
+For work authorized for time-bounded retirement (benchmark clones, disposable
+worktrees, cross-machine copies, scratch experiments), use `reap create` so
+intent is recorded before the tree exists. An interactive development
+workspace is not disposable merely because it is temporary; use the human
+closeout workflow below instead of assigning it an arbitrary cleanup TTL:
 
 ```bash
 reap create scratch <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source>
@@ -126,6 +122,50 @@ infer an actor from an old free-form owner string.
   a project to ANOTHER machine (e.g. for benchmarking), lease the copy on that
   machine with yourself as owner — whoever later sweeps that machine sees who
   to ask.
+
+### Interactive workspace closeout
+
+Keep these events separate: code merged, agent goal completed, and human
+finished with the workspace. Only the last grants cleanup permission for an
+interactive workspace. A quiet directory, idle agent, or absence of open
+handles does not supply that permission.
+
+`Working → Awaiting human closeout → Authorized for quarantine → Quarantined → Purged`
+
+- **While working or awaiting closeout:** keep the workspace protected. Where
+  `.reap` declarations are honoured, use `keep` with a reason such as
+  `"interactive workspace awaiting human closeout"`, not `expires`.
+  A `.reap` keep does **not** cancel an existing lease or override a sealed
+  ancestor. Inspect overlapping cleanup authority before claiming protection.
+  With the workspace owner's authorization, `reap lease release <dir>` drops
+  an existing lease and keeps the directory; it does **not** mean "ready to
+  delete". Renewal only postpones expiry, so it is not indefinite protection.
+- **At delivery:** verify where the commits are recoverable, inspect remaining
+  local work, and identify where important evidence and the conversation/session
+  are retained outside the disposable checkout. Present the exact workspace
+  path, what landed, and any remaining risks. Ask the human to choose **Keep
+  this workspace open** or **Archive this workspace**, stating the configured
+  quarantine grace period and whether automatic purge is enabled.
+- **If unanswered or kept open:** do not arm cleanup. Record the path, owner,
+  session, and pending closeout in the project's existing durable tracker or
+  handoff, and surface it when the session resumes or completed workspaces are
+  reviewed. Silence is not consent. These are agent workflow states; Reap has
+  no built-in human-closeout queue or acceptance flag.
+- **After explicit archive approval:** record the authorization and use an
+  ordinary, non-scratch lease followed by `retire`, or an honoured `.reap`
+  expiry with `disposition: "quarantine"`. Registering someone else's directory
+  or retiring early still requires owner authority. Re-check recoverability,
+  activity, and retained evidence; approval does not bypass Reap's guards.
+  Do not switch to `--scratch` merely to get past a refusal.
+- **Session and process safety:** archiving a checkout does not close its
+  conversation or authorize terminating its agent, shell, or editor. Leave
+  foreign processes alone; open handles can keep retirement blocked. Preserve
+  session history and verify how resumption or worktree restoration behaves
+  before promising seamless follow-up after quarantine.
+
+Explicitly disposable scratch work authorized at creation follows its agreed
+lease/expiry without another closeout decision. Do not infer that exception
+from a merge, a completed goal, a worktree name, or an agent-created directory.
 
 When leases expire:
 
@@ -346,8 +386,10 @@ Any agent may run these autonomously, no prompt or prior dry-run needed:
   deletion or quarantine disposition;
 - `reap retire --apply` — **expired** leases only;
 - `reap create` on new destinations the agent itself creates, with `--scratch`
-  only when that work is expressly disposable;
-- `reap lease add --scratch` on directories the agent itself creates;
+  only when that work is expressly disposable; interactive workspaces follow
+  human closeout instead of an arbitrary cleanup TTL;
+- `reap lease add --scratch` on expressly disposable directories the agent
+  itself creates, not as a substitute for interactive workspace closeout;
 - bare `reap purge --apply` (auto-selection) — during low-disk recovery only;
   it self-refuses on machines configured `auto_purge: false`.
 
