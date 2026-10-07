@@ -1,6 +1,6 @@
 # SPEC-LIFECYCLE-WAITS — activity probes and lifecycle lock contention
 
-- Status: accepted
+- Status: draft; implementation verified, native specification acceptance pending
 - Surface: operator-visible refusal when activity inspection or the lifecycle state lock is unavailable.
 - Consumers: workspace owners renewing leases and operators applying lifetime cleanup.
 - Grounds: `DEC-REAP-BOUNDED-GUARDS`.
