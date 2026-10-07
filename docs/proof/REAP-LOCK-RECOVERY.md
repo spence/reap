@@ -1,6 +1,6 @@
 # REAP-LOCK-RECOVERY — Mini lifecycle availability
 
-Source: `2909b99836a853b311136fc84cdef18d6d8d7ce5`.
+Source: `b8150c2` (building on `2909b99836a853b311136fc84cdef18d6d8d7ce5`).
 Owner ruling: `ESC-REAP-MINI-LOCK-RECOVERY`, response 2.
 Defect: `ISS-UNBOUNDED-MACOS-OPEN-HANDLE-PROBE-STRAND`.
 
@@ -24,14 +24,20 @@ No agent or editor was restarted. No live retirement or purge was manually invok
 
 ## Verification
 
-- Catalyst: all 120 tests passed (`cargo test -- --test-threads=4`).
+- Catalyst: all 121 tests passed (`cargo test -- --test-threads=4`).
 - Both machines: `install.sh` ran; installed binaries report `reap 0.1.0`.
 - Shared canonical skill copies were committed and shipped on both machines.
   The source and installed skill copies have SHA-256
-  `a31df61d5b4fb114eb7cc1a611b52c200750ba8decda2449d1b39297e74286d0`.
+  `a70dcdcd11fc538fdf890a807b77e8ce4872ba776bf33cf99c23492214e75479`.
 - Mini installed binary, isolated runtime fixture: an unavailable activity
   scan refused retirement in 5.015 seconds. Payload, lease bytes, and marker
   bytes survived unchanged. A following renewal succeeded in 0.010 seconds.
+- Mini installed binary with the process-health guard: retirement refused in
+  0.091 seconds, without spawning another lsof process. Payload, lease bytes,
+  and marker bytes survived unchanged; renewal succeeded in 0.022 seconds.
+  The disposable fixture was removed after verification.
+- Mini installed binary: the real 30-second state-lock contention CLI test
+  passed, including preservation of the lease and a successful retry.
 
 ## Remaining host condition
 
