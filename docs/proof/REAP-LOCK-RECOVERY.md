@@ -1,6 +1,7 @@
 # REAP-LOCK-RECOVERY — Mini lifecycle availability
 
-Source: `b8150c2` (building on `2909b99836a853b311136fc84cdef18d6d8d7ce5`).
+Source: `dbd90aa` (building on `b8150c2` and
+`2909b99836a853b311136fc84cdef18d6d8d7ce5`).
 Owner ruling: `ESC-REAP-MINI-LOCK-RECOVERY`, response 2.
 Defect: `ISS-UNBOUNDED-MACOS-OPEN-HANDLE-PROBE-STRAND`.
 
@@ -33,11 +34,14 @@ No agent or editor was restarted. No live retirement or purge was manually invok
   scan refused retirement in 5.015 seconds. Payload, lease bytes, and marker
   bytes survived unchanged. A following renewal succeeded in 0.010 seconds.
 - Mini installed binary with the process-health guard: retirement refused in
-  0.091 seconds, without spawning another lsof process. Payload, lease bytes,
-  and marker bytes survived unchanged; renewal succeeded in 0.022 seconds.
+  0.060 seconds, without spawning another lsof process. Payload, lease bytes,
+  and marker bytes survived unchanged; renewal succeeded in 0.004 seconds.
   The disposable fixture was removed after verification.
 - Mini installed binary: the real 30-second state-lock contention CLI test
   passed, including preservation of the lease and a successful retry.
+- The real Mini state also returned an ordinary read-only `reap purge` plan:
+  eight age-policy candidates, 2.53 GiB reported. No purge was applied and
+  that reported size is not a measurement of physical reclaim on APFS.
 
 ## Remaining host condition
 
@@ -54,3 +58,9 @@ The skill's optional YAML validator could not run because PyYAML is absent.
 Installed consumer copies were verified directly. Strict Clippy found existing
 `io_other_error` and `cloned_ref_to_slice_refs` warnings; checks with only those
 existing categories allowed reported no further warnings.
+
+Burn refused registration of the committed decision and proof with a work
+asset link uniqueness error. The owning Burndown project tracks
+`ISS-ASSET-REGISTRATION-REJECTS-DISTINCT-COMM`; these documents are not claimed
+as registered Assets. The native lifecycle-waits specification remains a
+draft pending its typed acceptance workflow, not an accepted owner ruling.
