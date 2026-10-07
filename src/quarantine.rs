@@ -499,14 +499,25 @@ pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> 
   if let Some(error) = FAILURE.get() {
     return Err(error.clone());
   }
-  let blocked = crate::util::capture_probe(
+  let health = crate::util::capture_probe(
     Command::new("/bin/ps").args(["-axo", "state=,etime=,comm="]),
     Duration::from_secs(5),
   )
-  .map_err(|e| format!("inspecting activity probe health: {e}"))?;
-  if !blocked.status.success() || !blocked.stderr.is_empty() {
-    return Err("cannot inspect activity probe health".to_string());
-  }
+  .map_err(|e| format!("inspecting activity probe health: {e}"))
+  .and_then(|output| {
+    if output.status.success() && output.stderr.is_empty() {
+      Ok(output)
+    } else {
+      Err("cannot inspect activity probe health".to_string())
+    }
+  });
+  let blocked = match health {
+    Ok(output) => output,
+    Err(error) => {
+      let _ = FAILURE.set(error.clone());
+      return Err(error);
+    }
+  };
   if kernel_blocked_lsof(&blocked.stdout) {
     let error = "lsof is already kernel-blocked on this host; refusing activity inspection without spawning another probe".to_string();
     let _ = FAILURE.set(error.clone());
