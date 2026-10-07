@@ -19,3 +19,8 @@ mutating lifecycle state. No timeout waives a guard or replaces a lock file.
 An unbounded activity subprocess held the Mini's lifecycle lock for more than three days,
 preventing an active workspace from renewing its lease. Bounded subprocess and lock waits contain
 that failure without interpreting unavailable activity as permission to remove work.
+
+Before launching lsof, a bounded process-health check refuses when a lsof
+process has remained kernel-blocked for at least five seconds. This prevents
+repeated scheduled runs from accumulating unkillable probes on the affected
+Mini; it does not terminate the existing process or waive inspection.

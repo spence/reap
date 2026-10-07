@@ -740,6 +740,8 @@ On macOS, an observable open file or working-directory handle inside a leased
 tree also blocks retirement; failure to inspect open handles blocks it too.
 The macOS activity probe has a five-second running/output budget; a timeout
 refuses cleanup, including later assessments in that invocation.
+An already kernel-blocked `lsof` causes refusal without starting another
+`lsof`, preventing repeated maintenance from accumulating stuck probes.
 This is an additional brake, not proof that a tree without open handles is
 unused.
 A blocked or failed child keeps its parent in place; independently eligible

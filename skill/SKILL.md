@@ -185,6 +185,8 @@ refuses the move. The probe's running/output wait is bounded to five seconds;
 a timeout also refuses later assessments in that invocation. Cancellation
 targets only that probe's own helpers; kernel-blocked termination can remain
 pending. No observed handle is not proof that work is finished.
+If a kernel-blocked `lsof` is already present, Reap refuses without spawning
+another one. Renewal remains available; do not bypass that activity refusal.
 Reap verifies the expected child removal before discounting its directory mtime from the
 parent's quiet brake. `retire <dir>` does not implicitly retire descendants.
 Worktrees get `git worktree prune` on their main repo. Nothing is deleted —

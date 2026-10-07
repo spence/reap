@@ -499,6 +499,19 @@ pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> 
   if let Some(error) = FAILURE.get() {
     return Err(error.clone());
   }
+  let blocked = crate::util::capture_probe(
+    Command::new("/bin/ps").args(["-axo", "state=,etime=,comm="]),
+    Duration::from_secs(5),
+  )
+  .map_err(|e| format!("inspecting activity probe health: {e}"))?;
+  if !blocked.status.success() || !blocked.stderr.is_empty() {
+    return Err("cannot inspect activity probe health".to_string());
+  }
+  if kernel_blocked_lsof(&blocked.stdout) {
+    let error = "lsof is already kernel-blocked on this host; refusing activity inspection without spawning another probe".to_string();
+    let _ = FAILURE.set(error.clone());
+    return Err(error);
+  }
   let output = match crate::util::capture_probe(
     Command::new("/usr/sbin/lsof").args(["-n", "-P", "-F0n"]),
     Duration::from_secs(5),
@@ -530,6 +543,36 @@ pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> 
     }
   }
   Ok(None)
+}
+
+#[cfg(target_os = "macos")]
+fn kernel_blocked_lsof(output: &[u8]) -> bool {
+  String::from_utf8_lossy(output).lines().any(|line| {
+    let mut fields = line.split_whitespace();
+    let (Some(state), Some(elapsed), Some(command)) = (fields.next(), fields.next(), fields.next())
+    else {
+      return false;
+    };
+    if !state.contains('U')
+      || Path::new(command)
+        .file_name()
+        .is_none_or(|name| name != "lsof")
+    {
+      return false;
+    }
+    let (days, clock) = elapsed
+      .split_once('-')
+      .map_or((0, elapsed), |(days, clock)| {
+        (days.parse::<u64>().unwrap_or(0), clock)
+      });
+    let seconds = clock.split(':').try_fold(0u64, |sum, part| {
+      part
+        .parse::<u64>()
+        .ok()
+        .and_then(|n| sum.checked_mul(60)?.checked_add(n))
+    });
+    seconds.is_some_and(|seconds| days.saturating_mul(86400).saturating_add(seconds) >= 5)
+  })
 }
 
 /// Move the leased dir into `<quarantine>/entries/<lease id>/<basename>` and
@@ -1229,6 +1272,16 @@ mod tests {
 
   static N: AtomicUsize = AtomicUsize::new(0);
 
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn kernel_probe_health_distinguishes_pending_from_transient_io_and_other_processes() {
+    assert!(kernel_blocked_lsof(b"U 03-02:53:19 /usr/sbin/lsof\n"));
+    assert!(kernel_blocked_lsof(b"Us 00:05 /usr/sbin/lsof\n"));
+    assert!(!kernel_blocked_lsof(b"U 00:01 /usr/sbin/lsof\n"));
+    assert!(!kernel_blocked_lsof(b"S 03-02:53:19 /usr/sbin/lsof\n"));
+    assert!(!kernel_blocked_lsof(b"U 03-02:53:19 /bin/other\n"));
+    assert!(!kernel_blocked_lsof(b"Z 03-02:53:19 /usr/sbin/lsof\n"));
+  }
   fn tmp() -> PathBuf {
     let n = N.fetch_add(1, Ordering::SeqCst);
     let d = std::env::temp_dir().join(format!("reap-quar-{}-{}", std::process::id(), n));
