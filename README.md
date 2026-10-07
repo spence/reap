@@ -738,6 +738,8 @@ that git shows the content recoverable elsewhere. An all-expired pass plans
 leased descendants before parents, then rechecks each under the state lock.
 On macOS, an observable open file or working-directory handle inside a leased
 tree also blocks retirement; failure to inspect open handles blocks it too.
+The macOS activity probe has a five-second running/output budget; a timeout
+refuses cleanup, including later assessments in that invocation.
 This is an additional brake, not proof that a tree without open handles is
 unused.
 A blocked or failed child keeps its parent in place; independently eligible
@@ -836,6 +838,10 @@ lives in `~/.local/state/reap/`. Lifecycle commands hold a machine-local lock
 from state load through the move and index update. If an index write fails
 during retirement or restore, Reap attempts to move the unit back and exits
 nonzero; any failed rollback is reported with the data's location.
+
+Advisory state-lock acquisition waits at most 30 seconds, then reports that
+the state is busy without changing it. Retry after inspecting the holder;
+never remove or replace `state.lock` to bypass another operation.
 
 ## one-shot maintenance
 

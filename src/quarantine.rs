@@ -13,7 +13,7 @@ use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 #[cfg(target_os = "macos")]
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command};
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command, sync::OnceLock, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
@@ -495,16 +495,29 @@ pub fn assess_retire_ignoring_dir_mtimes(
 
 #[cfg(target_os = "macos")]
 pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> {
-  let output = Command::new("/usr/sbin/lsof")
-    .args(["-n", "-P", "-F0n"])
-    .output()
-    .map_err(|e| format!("running lsof: {e}"))?;
+  static FAILURE: OnceLock<String> = OnceLock::new();
+  if let Some(error) = FAILURE.get() {
+    return Err(error.clone());
+  }
+  let output = match crate::util::capture_probe(
+    Command::new("/usr/sbin/lsof").args(["-n", "-P", "-F0n"]),
+    Duration::from_secs(5),
+  ) {
+    Ok(output) => output,
+    Err(e) => {
+      let error = format!("running lsof: {e}");
+      let _ = FAILURE.set(error.clone());
+      return Err(error);
+    }
+  };
   if !output.status.success() || !output.stderr.is_empty() {
-    return Err(format!(
+    let error = format!(
       "lsof returned {}: {}",
       output.status,
       String::from_utf8_lossy(&output.stderr)
-    ));
+    );
+    let _ = FAILURE.set(error.clone());
+    return Err(error);
   }
   for field in output.stdout.split(|byte| *byte == 0) {
     let field = field.strip_prefix(b"\n").unwrap_or(field);

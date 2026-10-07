@@ -181,7 +181,10 @@ lease, and git recoverability for non-scratch. An all-expired pass plans
 descendants first and rechecks each under the state lock. A blocked child
 keeps its parent in place; eligible siblings may move. On macOS, observable
 open handles inside the tree also block retirement; a failed handle scan
-refuses the move. No observed handle is not proof that work is finished.
+refuses the move. The probe's running/output wait is bounded to five seconds;
+a timeout also refuses later assessments in that invocation. Cancellation
+targets only that probe's own helpers; kernel-blocked termination can remain
+pending. No observed handle is not proof that work is finished.
 Reap verifies the expected child removal before discounting its directory mtime from the
 parent's quiet brake. `retire <dir>` does not implicitly retire descendants.
 Worktrees get `git worktree prune` on their main repo. Nothing is deleted —
@@ -420,6 +423,10 @@ external drive per machine, and set `auto_purge: false` there to make the
 quarantine keep-forever (only explicit selectors purge). Machine state
 (leases, quarantine index) lives in `~/.local/state/reap/`. `reap config`
 prints effective values; `reap config --init` writes the default file.
+
+Lifecycle lock contention returns an error after a 30-second advisory-lock
+wait. Retry after inspecting the holder; never remove or replace `state.lock`
+to bypass it. A busy result does not renew a lease or grant cleanup permission.
 
 ---
 

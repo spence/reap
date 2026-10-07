@@ -5,11 +5,14 @@
 
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io;
+use std::io::{self, Read};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{symlink, MetadataExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
@@ -331,6 +334,10 @@ pub fn state_dir() -> PathBuf {
 
 /// Keep this file in place: replacing it would let processes lock different inodes.
 pub fn lock_state(state: &Path) -> io::Result<File> {
+  lock_state_with_timeout(state, Duration::from_secs(30))
+}
+
+fn lock_state_with_timeout(state: &Path, timeout: Duration) -> io::Result<File> {
   fs::create_dir_all(state)?;
   let file = OpenOptions::new()
     .read(true)
@@ -338,8 +345,104 @@ pub fn lock_state(state: &Path) -> io::Result<File> {
     .create(true)
     .truncate(false)
     .open(state.join("state.lock"))?;
-  file.lock()?;
-  Ok(file)
+  let start = Instant::now();
+  loop {
+    match file.try_lock() {
+      Ok(()) => return Ok(file),
+      Err(fs::TryLockError::WouldBlock) if start.elapsed() < timeout => {
+        thread::sleep(Duration::from_millis(10));
+      }
+      Err(fs::TryLockError::WouldBlock) => {
+        return Err(io::Error::new(io::ErrorKind::TimedOut,
+          "Reap state is busy; another lifecycle command holds the lock. Retry after inspecting that command; do not remove state.lock."));
+      }
+      Err(fs::TryLockError::Error(e)) => return Err(e),
+    }
+  }
+}
+
+/// Bound a guard probe, including pipe reads and cancellation of its own helpers.
+pub fn capture_probe(command: &mut Command, timeout: Duration) -> io::Result<Output> {
+  let mut child = command
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .process_group(0)
+    .spawn()?;
+  let pid = child.id();
+  let result = (|| {
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    for fd in [stdout.as_raw_fd(), stderr.as_raw_fd()] {
+      // SAFETY: Both descriptors belong to the live piped child handles.
+      let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+      if flags < 0 {
+        return Err(io::Error::last_os_error());
+      }
+      // SAFETY: Preserve existing flags while making the owned pipe nonblocking.
+      if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+      }
+    }
+    let start = Instant::now();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let (mut out_done, mut err_done) = (false, false);
+    let mut status = None;
+    loop {
+      if !out_done {
+        out_done = read_probe_pipe(&mut stdout, &mut out)?;
+      }
+      if !err_done {
+        err_done = read_probe_pipe(&mut stderr, &mut err)?;
+      }
+      if status.is_none() {
+        status = child.try_wait()?;
+      }
+      if let Some(status) = status {
+        if out_done && err_done {
+          return Ok(Output {
+            status,
+            stdout: out,
+            stderr: err,
+          });
+        }
+      }
+      if start.elapsed() >= timeout {
+        return Err(io::Error::new(io::ErrorKind::TimedOut,
+          format!("activity probe timed out after {}s (owned process group {pid}; termination requested, kernel-blocked processes may remain pending)", timeout.as_secs_f64())));
+      }
+      thread::sleep(Duration::from_millis(10));
+    }
+  })();
+  if result.is_err() {
+    // SAFETY: The probe starts its own process group; only it and its forked helpers are signaled.
+    unsafe {
+      libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+    // Kernel-blocked children cannot be synchronously waited on, even after SIGKILL.
+    let _ = child.try_wait();
+  }
+  result
+}
+
+fn read_probe_pipe(pipe: &mut impl Read, output: &mut Vec<u8>) -> io::Result<bool> {
+  let mut bytes = [0u8; 65536];
+  match pipe.read(&mut bytes) {
+    Ok(0) => Ok(true),
+    Ok(n) => {
+      output.extend_from_slice(&bytes[..n]);
+      Ok(false)
+    }
+    Err(e)
+      if matches!(
+        e.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+      ) =>
+    {
+      Ok(false)
+    }
+    Err(e) => Err(e),
+  }
 }
 
 pub fn hostname() -> String {
@@ -474,6 +577,64 @@ mod tests {
     let d = std::env::temp_dir().join(format!("reap-util-{}-{}", std::process::id(), n));
     fs::create_dir_all(&d).unwrap();
     d
+  }
+
+  #[test]
+  fn guard_probe_drains_output_larger_than_a_pipe() {
+    let output = capture_probe(
+      Command::new("/bin/sh").args(["-c", "i=0; while [ $i -lt 3000 ]; do printf 'probe-data-0123456789-0123456789\\n'; i=$((i+1)); done"]),
+      Duration::from_secs(5),
+    ).unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+      output.stdout.len(),
+      b"probe-data-0123456789-0123456789\n".len() * 3000
+    );
+    assert!(output.stderr.is_empty());
+  }
+
+  #[test]
+  fn guard_probe_timeout_cancels_helpers_without_waiting_on_pipes() {
+    let start = Instant::now();
+    let error = capture_probe(
+      Command::new("/bin/sh").args(["-c", "sleep 60 & wait"]),
+      Duration::from_millis(100),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert!(start.elapsed() < Duration::from_secs(2));
+  }
+
+  #[test]
+  fn guard_probe_bounds_a_helper_that_keeps_pipes_after_parent_exit() {
+    let start = Instant::now();
+    let error = capture_probe(
+      Command::new("/bin/sh").args(["-c", "sleep 60 & exit 0"]),
+      Duration::from_millis(100),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert!(start.elapsed() < Duration::from_secs(2));
+  }
+
+  #[test]
+  fn state_lock_deadline_preserves_identity_and_allows_retry() {
+    let state = tmp();
+    let held = lock_state(&state).unwrap();
+    let before = fs::metadata(state.join("state.lock")).unwrap().ino();
+    let start = Instant::now();
+    let error = lock_state_with_timeout(&state, Duration::from_millis(100)).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert!(start.elapsed() < Duration::from_secs(2));
+    assert_eq!(
+      before,
+      fs::metadata(state.join("state.lock")).unwrap().ino()
+    );
+    drop(held);
+    let acquired = lock_state_with_timeout(&state, Duration::from_millis(100)).unwrap();
+    assert_eq!(before, acquired.metadata().unwrap().ino());
+    drop(acquired);
+    fs::remove_dir_all(state).unwrap();
   }
 
   #[test]

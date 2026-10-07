@@ -5,7 +5,7 @@ use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use filetime::{set_file_mtime, set_symlink_file_times, FileTime};
 use serde_json::{json, Value};
@@ -2578,6 +2578,52 @@ fn lock_and_lease_write_failures_preserve_the_source() {
   fs::remove_dir(root.state().join("leases.tmp")).unwrap();
   success(root.run(release));
   assert!(!dir.join(".reap-lease").exists());
+  assert!(dir.join("payload").is_file());
+}
+
+#[test]
+fn lease_renewal_returns_on_a_stuck_state_lock_without_changing_the_lease() {
+  let root = TestRoot::new();
+  let dir = root.project("active-lane");
+  success(root.run(args(
+    &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+    &dir,
+  )));
+  let before = fs::read(root.state().join("leases.json")).unwrap();
+  let marker = fs::read(dir.join(".reap-lease")).unwrap();
+  let lock = fs::OpenOptions::new()
+    .read(true)
+    .write(true)
+    .open(root.state().join("state.lock"))
+    .unwrap();
+  lock.lock().unwrap();
+  let start = Instant::now();
+  let mut child = root
+    .command(&args(&["lease", "renew", "{path}", "--ttl", "1d"], &dir))
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
+  loop {
+    if child.try_wait().unwrap().is_some() {
+      break;
+    }
+    if start.elapsed() > Duration::from_secs(35) {
+      child.kill().unwrap();
+      child.wait().unwrap();
+      panic!("lease renewal hung beyond its state-lock deadline");
+    }
+    thread::sleep(Duration::from_millis(20));
+  }
+  let output = child.wait_with_output().unwrap();
+  failure(output.clone());
+  assert!(String::from_utf8_lossy(&output.stderr).contains("Reap state is busy"));
+  assert_eq!(before, fs::read(root.state().join("leases.json")).unwrap());
+  assert_eq!(marker, fs::read(dir.join(".reap-lease")).unwrap());
+  assert!(dir.join("payload").is_file());
+  assert!(!root.quarantine().join("index.json").exists());
+  drop(lock);
+  success(root.run(args(&["lease", "renew", "{path}", "--ttl", "1d"], &dir)));
   assert!(dir.join("payload").is_file());
 }
 
