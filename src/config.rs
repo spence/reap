@@ -33,7 +33,7 @@ impl Default for Config {
       coverage_roots: None,
       exclude: vec![],
       quarantine: QuarantineConfig::default(),
-      governed_roots: vec!["~/work".to_string()],
+      governed_roots: vec!["~/projects".to_string()],
       reap_file_grace_hours: 24.0,
       reap_file_min_age_minutes: 10.0,
     }

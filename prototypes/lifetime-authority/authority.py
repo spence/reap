@@ -3,8 +3,8 @@
 
 Which `.reap` files may reap act on? A declaration is honoured only when all hold:
 
-1. It lies under a governed root. The root path may itself be a symlink (the mini's ~/work points
-   at /Volumes/kytos/work); nothing below the root is followed, so a symlink inside the tree never
+1. It lies under a governed root. The root path may itself be a symlink (the mini's ~/projects points
+   at /Volumes/kytos/projects); nothing below the root is followed, so a symlink inside the tree never
    leads the scan elsewhere and a copy outside the root is never seen.
 2. It is not tracked by git; a committed declaration travels with every clone.
 3. Its file identity (device, inode) has been seen for at least the grace period. A rename or move

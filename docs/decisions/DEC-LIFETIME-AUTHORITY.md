@@ -7,7 +7,7 @@ Status: proposed, awaiting owner ratification. Milestone: `MS-LIFETIME-AUTHORITY
 A `.reap` file inside a directory is the sole authority for that directory's lifetime and its
 children's rules. Reap honours a declaration only when:
 
-1. it lies under a configured governed root (`~/work` on both Macs; the root path may be a
+1. it lies under a configured governed root (`~/projects` on both Macs; the root path may be a
    symlink, nothing below it is followed);
 2. it is not tracked by git (`.reap` is also excluded in the global git ignore);
 3. its file identity has been seen for at least the grace period (default 24 hours);
@@ -50,3 +50,10 @@ expiries are stored as dates.
 ## Ratification
 
 Owner: _pending_.
+
+## Governed root name
+
+Owner ruling, 2026-10-08: use `~/projects` for the governed root on both Macs. On the mini,
+it points to `/Volumes/kytos/projects`. Renaming this root does not relocate existing primary
+repositories or grant cleanup authority for their contents. This naming ruling does not
+ratify the proposed replacement of leases and stores.

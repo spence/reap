@@ -333,6 +333,7 @@ The default configuration is equivalent to:
 ```json
 {
   "roots": ["~/src"],
+  "governed_roots": ["~/projects"],
   "exclude": [],
   "quarantine": {
     "dir": null,
@@ -346,7 +347,7 @@ A more selective configuration might be:
 
 ```json
 {
-  "roots": ["~/src", "~/work"],
+  "roots": ["~/src", "~/projects"],
   "coverage_roots": ["/Volumes/kytos", "/Volumes/kytos/src"],
   "exclude": ["*/vendor/*", "*/third_party/*"]
 }
@@ -601,7 +602,7 @@ reap files --apply    # remove what the declarations say, after re-checking each
 ```
 
 Reap honours a `.reap` file only under a governed root (`governed_roots`,
-default `["~/work"]`; the root may be a symlink, nothing below it is followed),
+default `["~/projects"]`; the root may be a symlink, nothing below it is followed),
 only when git does not track it, and only after its file identity has been seen
 for `reap_file_grace_hours` (default 24). A sealed declaration overrides the
 declarations beneath it. An invalid file protects its whole subtree.

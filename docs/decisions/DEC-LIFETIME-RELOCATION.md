@@ -5,7 +5,7 @@ Evidence: `docs/proof/LIFETIME-RELOCATION-T1.md`.
 
 ## Decision
 
-Moving a project directory (gradually, as its work naturally moves to `~/work/<project>/<target>`)
+Moving a project directory (gradually, as its work naturally moves to `~/projects/<project>/<target>`)
 uses one method:
 
 1. Move the directory and leave a symlink at the old path, so scripts, launchd jobs, editors, and

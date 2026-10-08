@@ -316,7 +316,7 @@ producers; finish writing before an old run becomes eligible for eviction.
 
 ## 3b. `.reap` lifetime declarations
 
-A `.reap` file inside a directory under a governed root (`~/work` by default)
+A `.reap` file inside a directory under a governed root (`~/projects` by default)
 declares that directory's lifetime: `expires` (RFC 3339) or `keep` with a
 reason, plus optional `children` rules by name pattern (`keep_newest`,
 `max_age_days`, `max_count`, `max_bytes`). Contract and examples:

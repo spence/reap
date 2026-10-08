@@ -28,7 +28,7 @@ impl Env {
       NEXT.fetch_add(1, Ordering::SeqCst)
     ));
     fs::create_dir_all(root.join("home/.config/reap")).unwrap();
-    fs::create_dir_all(root.join("home/work")).unwrap();
+    fs::create_dir_all(root.join("home/projects")).unwrap();
     fs::create_dir_all(root.join("state/reap/quarantine")).unwrap();
     let root = fs::canonicalize(root).unwrap();
     let cfg = json!({"reap_file_grace_hours": grace_hours, "reap_file_min_age_minutes": 10.0});
@@ -36,8 +36,8 @@ impl Env {
     Env { root }
   }
 
-  fn work(&self) -> PathBuf {
-    self.root.join("home/work")
+  fn projects(&self) -> PathBuf {
+    self.root.join("home/projects")
   }
 
   fn reap(&self, args: &[&str]) -> Output {
@@ -116,15 +116,33 @@ fn age(path: &Path, days: f64) {
 }
 
 #[test]
+fn default_governed_root_removes_only_declared_projects() {
+  let env = Env::new(0.0);
+  let disposable = env.projects().join("p/disposable");
+  let legacy = env.root.join("home/work/p/preserved");
+  let primary = env.root.join("home/src/p");
+  for dir in [&disposable, &legacy, &primary] {
+    declare(dir, json!({"version": 1, "expires": PAST}));
+    file(&dir.join("data"));
+  }
+  age(&env.root.join("home"), 2.0);
+  let out = env.apply();
+  assert!(!disposable.exists(), "{out}");
+  assert!(legacy.join("data").exists(), "{out}");
+  assert!(primary.join("data").exists(), "{out}");
+  assert!(out.contains(env.projects().to_str().unwrap()), "{out}");
+}
+
+#[test]
 fn expired_declaration_is_quarantined_with_provenance() {
   let env = Env::new(0.0);
-  let run = env.work().join("p/run-1");
+  let run = env.projects().join("p/run-1");
   declare(
     &run,
     json!({"version": 1, "expires": PAST, "purpose": "one-off probe", "owner": "tester"}),
   );
   file(&run.join("out.log"));
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(!run.exists(), "{out}");
   let idx = env.quarantine_index();
@@ -137,7 +155,7 @@ fn expired_declaration_is_quarantined_with_provenance() {
 #[test]
 fn kept_child_survives_expired_parent() {
   let env = Env::new(0.0);
-  let run = env.work().join("p/run-1");
+  let run = env.projects().join("p/run-1");
   declare(&run, json!({"version": 1, "expires": PAST}));
   file(&run.join("scratch.log"));
   declare(
@@ -145,7 +163,7 @@ fn kept_child_survives_expired_parent() {
     json!({"version": 1, "keep": {"reason": "cited proof"}}),
   );
   file(&run.join("evidence/proof.json"));
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(!run.join("scratch.log").exists(), "{out}");
   assert!(run.join("evidence/proof.json").exists(), "{out}");
@@ -155,7 +173,7 @@ fn kept_child_survives_expired_parent() {
 #[test]
 fn child_rules_keep_newest_and_cap_count() {
   let env = Env::new(0.0);
-  let bench = env.work().join("p/bench");
+  let bench = env.projects().join("p/bench");
   declare(
     &bench,
     json!({"version": 1, "keep": {"reason": "history"},
@@ -188,17 +206,17 @@ fn copies_outside_the_root_and_symlinks_inside_are_never_touched() {
   let outside = env.root.join("home/backup/run");
   declare(&outside, json!({"version": 1, "expires": PAST}));
   file(&outside.join("data"));
-  std::os::unix::fs::symlink(&outside, env.work().join("link")).unwrap();
+  std::os::unix::fs::symlink(&outside, env.projects().join("link")).unwrap();
   age(&env.root.join("home"), 2.0);
   let out = env.apply();
   assert!(outside.join("data").exists(), "{out}");
-  assert!(env.work().join("link").exists(), "{out}");
+  assert!(env.projects().join("link").exists(), "{out}");
 }
 
 #[test]
 fn git_tracked_declaration_is_set_aside() {
   let env = Env::new(0.0);
-  let repo = env.work().join("p/repo");
+  let repo = env.projects().join("p/repo");
   declare(&repo, json!({"version": 1, "expires": PAST}));
   let git = |args: &[&str]| {
     assert!(Command::new("git")
@@ -222,7 +240,7 @@ fn git_tracked_declaration_is_set_aside() {
   git(&["init", "-q"]);
   git(&["add", "-f", ".reap"]);
   git(&["commit", "-q", "-m", "tracked"]);
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(repo.join(".reap").exists(), "{out}");
   assert!(out.contains("tracked by git"), "{out}");
@@ -231,9 +249,9 @@ fn git_tracked_declaration_is_set_aside() {
 #[test]
 fn new_declaration_waits_out_the_grace_period() {
   let env = Env::new(24.0);
-  let run = env.work().join("p/run-1");
+  let run = env.projects().join("p/run-1");
   declare(&run, json!({"version": 1, "expires": PAST}));
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(run.exists(), "{out}");
   assert!(out.contains("takes effect in"), "{out}");
@@ -242,7 +260,7 @@ fn new_declaration_waits_out_the_grace_period() {
 #[test]
 fn recent_writes_block_removal() {
   let env = Env::new(0.0);
-  let run = env.work().join("p/run-1");
+  let run = env.projects().join("p/run-1");
   declare(&run, json!({"version": 1, "expires": PAST}));
   age(&run, 2.0);
   file(&run.join("still-writing.log"));
@@ -255,10 +273,10 @@ fn recent_writes_block_removal() {
 #[test]
 fn open_files_block_removal() {
   let env = Env::new(0.0);
-  let run = env.work().join("p/run-1");
+  let run = env.projects().join("p/run-1");
   declare(&run, json!({"version": 1, "expires": PAST}));
   file(&run.join("held.log"));
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let _held = fs::File::open(run.join("held.log")).unwrap();
   let out = env.apply();
   assert!(run.exists(), "{out}");
@@ -269,7 +287,7 @@ fn open_files_block_removal() {
 fn git_work_survives_unless_scratch() {
   let env = Env::new(0.0);
   let mk = |name: &str, extra: Value| {
-    let wt = env.work().join("p").join(name);
+    let wt = env.projects().join("p").join(name);
     let mut body = json!({"version": 1, "expires": PAST});
     body
       .as_object_mut()
@@ -290,7 +308,7 @@ fn git_work_survives_unless_scratch() {
   let kept = mk("wt-quarantine", json!({}));
   let kept_delete = mk("wt-delete", json!({"disposition": "delete"}));
   let scratch = mk("wt-scratch", json!({"scratch": true}));
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(kept.join("uncommitted.rs").exists(), "{out}");
   assert!(kept_delete.join("uncommitted.rs").exists(), "{out}");
@@ -304,7 +322,7 @@ fn git_work_survives_unless_scratch() {
 #[test]
 fn lease_overlap_blocks_removal() {
   let env = Env::new(0.0);
-  let run = env.work().join("p/run-1");
+  let run = env.projects().join("p/run-1");
   declare(&run, json!({"version": 1, "expires": PAST}));
   file(&run.join("data"));
   assert!(env
@@ -322,7 +340,7 @@ fn lease_overlap_blocks_removal() {
     ])
     .status
     .success());
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(run.join("data").exists(), "{out}");
   assert!(out.contains("overlaps lease"), "{out}");
@@ -333,7 +351,7 @@ fn symlink_unit_is_removed_without_touching_its_target() {
   let env = Env::new(0.0);
   let target = env.root.join("home/elsewhere");
   file(&target.join("keep-me"));
-  let runs = env.work().join("p/runs");
+  let runs = env.projects().join("p/runs");
   declare(
     &runs,
     json!({"version": 1, "keep": {"reason": "runs"},
@@ -352,13 +370,13 @@ fn symlink_unit_is_removed_without_touching_its_target() {
 #[test]
 fn invalid_declaration_protects_and_future_expiry_waits() {
   let env = Env::new(0.0);
-  let bad = env.work().join("p/bad");
+  let bad = env.projects().join("p/bad");
   declare(&bad, json!({"version": 1, "expires": PAST, "ttl": "2d"}));
   file(&bad.join("data"));
-  let live = env.work().join("p/live");
+  let live = env.projects().join("p/live");
   declare(&live, json!({"version": 1, "expires": FUTURE}));
   file(&live.join("data"));
-  age(&env.work(), 2.0);
+  age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(bad.join("data").exists(), "{out}");
   assert!(out.contains("INVALID"), "{out}");
@@ -383,28 +401,28 @@ fn low_disk_gate_skips_above_and_runs_below_the_threshold() {
 fn undeclared_targets_are_reported_and_declared_ones_are_not() {
   let env = Env::new(0.0);
   declare(
-    &env.work().join("p/declared"),
+    &env.projects().join("p/declared"),
     json!({"version": 1, "keep": {"reason": "kept"}}),
   );
   declare(
-    &env.work().join("q"),
+    &env.projects().join("q"),
     json!({"version": 1, "keep": {"reason": "project-wide"}}),
   );
-  file(&env.work().join("q/run-1/out"));
-  file(&env.work().join("p/undeclared/out"));
-  file(&env.work().join("loose.log"));
+  file(&env.projects().join("q/run-1/out"));
+  file(&env.projects().join("p/undeclared/out"));
+  file(&env.projects().join("loose.log"));
   let out = String::from_utf8_lossy(&env.reap(&["files"]).stdout).into_owned();
   assert!(
     out.contains(&format!(
       "UNDECLARED {}",
-      env.work().join("p/undeclared").display()
+      env.projects().join("p/undeclared").display()
     )),
     "{out}"
   );
   assert!(
     out.contains(&format!(
       "UNDECLARED {}",
-      env.work().join("loose.log").display()
+      env.projects().join("loose.log").display()
     )),
     "{out}"
   );

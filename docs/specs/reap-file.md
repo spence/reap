@@ -8,7 +8,7 @@
 - Grounds: `DEC-LIFETIME-AUTHORITY`, `DEC-LIFETIME-FORMAT` (both proposed)
 - Fixtures: `docs/specs/reap-file.fixtures.json`, read by `src/reapfile.rs::tests::spec_fixtures`
   (C4–C13); on-disk honour rules in `tests/reap_files.rs` (C1–C3)
-- Conformance: 14 of 14 clauses met · 2026-09-30
+- Conformance: 14 of 14 clauses met · 2026-10-08
 
 ## Surface
 
@@ -28,8 +28,10 @@ reap's existing behavior and are governed by its own documentation, not by this 
 ### Which declarations count
 
 - **C1** — Reap evaluates `.reap` files only under a configured governed root, and never follows a
-  symlink below that root.
-  · Binding: `tests/reap_files.rs::copies_outside_the_root_and_symlinks_inside_are_never_touched` · Conformance: `met`
+  symlink below that root. The default `governed_roots` is `["~/projects"]`, grounded in
+  `DEC-LIFETIME-AUTHORITY`'s 2026-10-08 naming ruling.
+  · Binding: `tests/reap_files.rs::default_governed_root_removes_only_declared_projects`,
+    `tests/reap_files.rs::copies_outside_the_root_and_symlinks_inside_are_never_touched` · Conformance: `met`
 - **C2** — A `.reap` file tracked by git is ignored.
   · Binding: `tests/reap_files.rs::git_tracked_declaration_is_set_aside` · Conformance: `met`
 - **C3** — A declaration takes effect only once its file identity has been seen for the grace

@@ -2,7 +2,7 @@
 """Positive cases and negative controls for the `.reap` honour rules. Throwaway trees only.
 
 Usage: scenarios.py   (exit 0 when every verdict matches; prints a table either way)
-The root is a symlink to a real directory, as the mini's ~/work is. A naive scanner (follows
+The root is a symlink to a real directory, as the mini's ~/projects is. A naive scanner (follows
 symlinks, no git or grace check, no seal) runs over the same tree and must disagree with the
 controls; otherwise the controls prove nothing.
 """
@@ -41,8 +41,8 @@ def naive(root):
 def main():
   base = os.path.realpath(tempfile.mkdtemp(prefix="reap-authority-"))
   try:
-    real = os.path.join(base, "kytos-work")
-    root = os.path.join(base, "work")
+    real = os.path.join(base, "kytos-projects")
+    root = os.path.join(base, "projects")
     os.makedirs(real)
     os.symlink(real, root)
     elsewhere = os.path.join(base, "elsewhere")
