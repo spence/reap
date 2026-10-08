@@ -216,6 +216,13 @@ preserves code identity, not a blanket grant: new permission scopes, revoked
 grants, identity/path changes, or OS policy can require approval again.
 Local source installs do not perform notarization or change privacy settings.
 
+If signing over SSH returns `errSecInternalComponent`, run `./install.sh` once
+in the Mac's logged-in GUI Terminal. Unlock the login Keychain if needed and
+approve the native prompt for `/usr/bin/codesign` to use the selected private
+key with **Always Allow**. Do not put a password in the config or weaken
+Keychain access controls. Verify subsequent SSH installation before relying
+on unattended local updates.
+
 The bundled skill contains standing authorization for an agent to perform
 cleanup during low-disk recovery. Review and adjust that authorization before
 installing it on a machine where concurrent builds or target-directory

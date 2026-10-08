@@ -5,8 +5,10 @@
 - Consumers: operators and macOS code-identity evaluators.
 - Grounds: `DEC-REAP-NATIVE-IDENTITY`.
 - Fixtures: `docs/specs/macos-install.fixtures.json`.
-- Conformance: installer fixtures and the 121-test Cargo suite pass on Catalyst;
-  native fleet verification is in progress.
+- Conformance: installer fixtures pass on both Macs; the 121-test Cargo suite
+  passes on Catalyst. Installed signatures and the common designated
+  requirement verify on both Macs. Mini-local signing still requires native
+  Keychain authorization. See `docs/proof/REAP-NATIVE-IDENTITY.md`.
 
 ## Contract
 
