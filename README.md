@@ -198,9 +198,23 @@ git clone https://github.com/spence/reap ~/src/reap
 
 The installer:
 
-* installs the binary with `cargo install`;
+* builds the binary in staging with Cargo, verifies its macOS signature, and
+  atomically installs it into Cargo's binary directory;
 * copies `skill/SKILL.md` into `~/.claude/skills/reap` when that directory exists;
 * copies it into `~/.codex/skills/reap` when that directory exists.
+
+For stable macOS permission identity, copy `.codesign.env.example` to
+`.codesign.env` and set `REAP_CODESIGN_IDENTITY` to your Developer ID
+Application certificate's public hash. A nonempty environment value overrides
+the file. The installer signs as `dev.micro.reap` before publishing; failed
+signing preserves the installed binary. It refuses an unsigned downgrade of
+a certificate-signed installation. Use this installer, not direct
+`cargo install`, when preserving macOS approvals.
+
+The first signed install needs its own approval on each Mac. Stable signing
+preserves code identity, not a blanket grant: new permission scopes, revoked
+grants, identity/path changes, or OS policy can require approval again.
+Local source installs do not perform notarization or change privacy settings.
 
 The bundled skill contains standing authorization for an agent to perform
 cleanup during low-disk recovery. Review and adjust that authorization before

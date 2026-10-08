@@ -27,3 +27,8 @@ them as Burn assets.
   the skill. Complete when: `install.sh` has been run on each machine that uses reap, so the
   installed binary and homed skill copies match repo HEAD. Execute and verify with:
   `./install.sh && reap --version`.
+- **macOS identity survives installs** — Applies when: changing the installer or signing setup.
+  Complete when: installer failure/downgrade tests pass and certificate-signed fleet binaries
+  verify natively with the same designated requirement. Execute and verify with:
+  `python3 tests/install_signing.py`, `codesign --verify --strict ~/.cargo/bin/reap`, and
+  `codesign -d -r- ~/.cargo/bin/reap` on each configured Mac.

@@ -11,7 +11,7 @@ description: >-
   roots, or running one-shot maintenance.
   Reap acts only on declared cleanup authority; merged code and agent completion
   do not release an interactive workspace.
-  If missing, install with `cargo install --git https://github.com/spence/reap`.
+  If missing, clone https://github.com/spence/reap into ~/src/reap and run install.sh.
 ---
 
 # reap — evidence-driven disk reclamation
@@ -434,3 +434,13 @@ to bypass it. A busy result does not renew a lease or grant cleanup permission.
 
 Source in `~/src/reap`. Self-test after changes: `cargo test`; `install.sh`
 installs the binary and homes this skill.
+
+On macOS, use `install.sh` to update a permission-bearing installation. Its
+machine-local `.codesign.env` selects `REAP_CODESIGN_IDENTITY` (public cert hash
+only); a nonempty environment value overrides the file. Configured installs
+use the stable `dev.micro.reap` identifier and sign/verify before atomic
+replacement. Failed signing preserves the old binary; missing configuration
+cannot downgrade a certificate-signed install. Direct `cargo install` bypasses
+this protection. Native first-time grants remain per-machine, and new scopes,
+revoked grants, changed identity/path, or OS policy can require approval again.
+Never reset TCC or weaken Keychain policy to suppress a prompt.

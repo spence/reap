@@ -1,0 +1,5 @@
+{
+  "identifier": "dev.micro.reap",
+  "environment": "REAP_CODESIGN_IDENTITY",
+  "cases": ["fresh", "configured", "environment_override", "build_failure", "sign_failure", "verify_failure", "unsigned_downgrade", "linux"]
+}
