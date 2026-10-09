@@ -198,6 +198,24 @@ def native_command(items, target):
     return result + ['--quick', '--verbose']
 
 
+def profile_batches(target, items):
+    batches = collections.defaultdict(list)
+    for item in items:
+        indexes = collections.defaultdict(list)
+        for ix, path in enumerate(item['cleanup_paths']):
+            relative = str(Path(path).relative_to(target))
+            match = re.search(r'^(.*?)(debug|release)/(deps|\.fingerprint|build|incremental)/', relative)
+            if not match:
+                raise ValueError(f'not a native Cargo artifact path: {path}')
+            indexes[match[1] + match[2]].append(ix)
+        for profile, selected in indexes.items():
+            subset = {**item, 'cleanup_paths': [item['cleanup_paths'][ix] for ix in selected]}
+            if item.get('cleanup_identity_records'):
+                subset['cleanup_identity_records'] = [item['cleanup_identity_records'][ix] for ix in selected]
+            batches[profile].append(subset)
+    return list(batches.values())
+
+
 def remove_path(path):
     if not stat.S_ISDIR(os.lstat(path).st_mode):
         os.unlink(path)
@@ -411,7 +429,7 @@ class Cleanup:
         if ix < len(paths) and below(paths[ix], path):
             raise ValueError(f'lease overlap: {paths[ix]}')
         for parent in [path] + [str(x) for x in Path(path).parents]:
-            if parent in self.lease_sets[cargo]:
+            if not cargo and parent in self.lease_sets[cargo]:
                 raise ValueError(f'lease overlap: {parent}')
         for parent in [Path(path)] + list(Path(path).parents):
             decl = parent / '.reap'
@@ -637,7 +655,8 @@ class Cleanup:
                 else:
                     direct.append(item)
             for target, subset in jobs.items():
-                self.cargo(project, target, subset)
+                for profile in profile_batches(target, subset):
+                    self.cargo(project, target, profile)
             for item in direct:
                 self.direct(project, item)
             for item in quarantine:

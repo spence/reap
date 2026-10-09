@@ -96,6 +96,16 @@ class CleanupTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cleanup.cargo_profiles(target, [str(target / 'release/deps/old')])
 
+    def test_profile_batches_keep_exact_scope_identity_alignment(self):
+        target = Path('/Volumes/kytos/source/target')
+        item = {'cleanup_paths': [str(target / 'debug/deps/old'), str(target / 'release/deps/old')],
+                'cleanup_identity_records': [['debug-identity'], ['release-identity']], 'cleanup_identity_columns': ['inode']}
+        batches = cleanup.profile_batches(target, [item])
+        self.assertEqual(len(batches), 2)
+        self.assertEqual(batches[0][0]['cleanup_identity_records'], [['debug-identity']])
+        self.assertEqual(batches[1][0]['cleanup_identity_records'], [['release-identity']])
+        self.assertEqual(len(item['cleanup_paths']), 2)
+
     def test_readonly_approved_tree_is_removed_without_following_links(self):
         with tempfile.TemporaryDirectory() as root:
             selected, retained = Path(root) / 'selected', Path(root) / 'retained'
@@ -137,6 +147,24 @@ class CleanupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'not retained'):
                 cleanup.tree_guard(str(slot), allow_git_pointer=str(root / 'other'))
             self.assertTrue(pointer.exists())
+
+    def test_workspace_lease_does_not_override_exact_cargo_cleanup_authority(self):
+        executor = cleanup.Cleanup.__new__(cleanup.Cleanup)
+        root = '/Volumes/kytos/leased-workspace'
+        artifact = root + '/target/debug/deps/old'
+        executor.primaries, executor.keep, executor.claims, executor.pending = [], [], {}, []
+        executor.lease_active, executor.lease_all = [root], [root]
+        executor.lease_sets = {True: {root}, False: {root}}
+        with patch.object(cleanup.os.path, 'realpath', side_effect=lambda p: p), \
+             patch.object(cleanup.os, 'lstat', return_value=Mock(st_mode=0o100644)), \
+             patch.object(cleanup.Path, 'exists', return_value=False):
+            executor.path_guard(artifact, 'example', cargo=True)
+            with self.assertRaisesRegex(ValueError, 'lease overlap'):
+                executor.path_guard(artifact, 'example', cargo=False)
+            executor.lease_active = [artifact]
+            executor.lease_sets[True] = {artifact}
+            with self.assertRaisesRegex(ValueError, 'lease overlap'):
+                executor.path_guard(artifact, 'example', cargo=True)
 
     def test_tree_guard_does_not_follow_symlinks(self):
         with tempfile.TemporaryDirectory() as root:
