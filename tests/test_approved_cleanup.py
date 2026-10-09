@@ -121,6 +121,23 @@ class CleanupTests(unittest.TestCase):
                 cleanup.tree_guard(p)
             self.assertTrue(p.exists())
 
+    def test_only_proven_retained_git_pointer_can_pass_quarantine_guard(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            slot, common = root / 'slot', root / 'retained.git'
+            slot.mkdir()
+            common.mkdir()
+            pointer = slot / '.git'
+            pointer.write_text('gitdir: ' + str(common / 'worktrees/retired'))
+            for p in (slot, pointer):
+                os.utime(p, (time.time() - 7200, time.time() - 7200))
+            with self.assertRaises(ValueError):
+                cleanup.tree_guard(str(slot))
+            cleanup.tree_guard(str(slot), allow_git_pointer=str(common))
+            with self.assertRaisesRegex(ValueError, 'not retained'):
+                cleanup.tree_guard(str(slot), allow_git_pointer=str(root / 'other'))
+            self.assertTrue(pointer.exists())
+
     def test_tree_guard_does_not_follow_symlinks(self):
         with tempfile.TemporaryDirectory() as root:
             outside, p = Path(root) / 'outside', Path(root) / 'data'

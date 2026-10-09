@@ -6,6 +6,7 @@ import collections
 import contextlib
 import datetime
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -218,7 +219,7 @@ def remove_path(path):
     shutil.rmtree(path)
 
 
-def tree_guard(path, minimum_age=600):
+def tree_guard(path, minimum_age=600, allow_git_pointer=None):
     root = os.lstat(path)
     newest = root.st_mtime
     todo = [path] if stat.S_ISDIR(root.st_mode) else []
@@ -229,6 +230,14 @@ def tree_guard(path, minimum_age=600):
                 s = entry.stat(follow_symlinks=False)
                 if s.st_dev != root.st_dev:
                     raise ValueError(f'nested mount: {entry.path}')
+                if entry.name == '.git' and allow_git_pointer and stat.S_ISREG(s.st_mode):
+                    text = Path(entry.path).read_text().strip()
+                    if not text.startswith('gitdir: '):
+                        raise ValueError(f'invalid Git pointer: {entry.path}')
+                    gitdir = os.path.normpath(os.path.join(directory, text[8:]))
+                    if not below(gitdir, allow_git_pointer):
+                        raise ValueError(f'Git metadata is not retained in the approved root: {entry.path}')
+                    continue
                 if entry.name in ('.reap-lease', '.reap-parent', '.reap', '.git'):
                     raise ValueError(f'protected marker: {entry.path}')
                 if not (stat.S_ISDIR(s.st_mode) or stat.S_ISREG(s.st_mode) or stat.S_ISLNK(s.st_mode)):
@@ -239,6 +248,66 @@ def tree_guard(path, minimum_age=600):
     if time.time() - newest < minimum_age:
         raise ValueError(f'not quiet for ten minutes: {path}')
     return metadata(path)
+
+
+def verify_quarantine_source(item):
+    recovery = item.get('recoverability', {})
+    if not isinstance(recovery, dict) or not recovery.get('preserve_this_ref_and_git_root'):
+        return None, None
+    common, revision, ref = (recovery[k] for k in ('git_common_root', 'git_revision', 'git_ref'))
+    if not os.path.isdir(common) or os.path.realpath(common) != common:
+        raise ValueError('retained Git object store is unavailable')
+    env = {**os.environ, 'GIT_OPTIONAL_LOCKS': '0'}
+    prefix = ['/usr/bin/git', '--git-dir', common]
+    def git(args):
+        result = subprocess.run(prefix + args, capture_output=True, timeout=15, env=env)
+        if result.returncode:
+            raise ValueError(f'retained source check failed: {result.stderr[:200]!r}')
+        return result.stdout
+    current = git(['rev-parse', '--verify', ref + '^{commit}']).decode().strip()
+    git(['merge-base', '--is-ancestor', revision, current])
+    data = git(['ls-tree', '-r', '-z', revision])
+    slot = Path(item['payload_path'])
+    candidates = [slot]
+    checkout = slot / 'checkout'
+    if checkout.is_dir():
+        candidates.insert(0, checkout)
+    files = []
+    for row in data.split(b'\0'):
+        if not row:
+            continue
+        header, name = row.split(b'\t', 1)
+        mode, kind, oid = header.decode().split()
+        if kind != 'blob':
+            raise ValueError('quarantine source includes an unsupported Git object')
+        files.append((mode, oid, os.fsdecode(name)))
+    root = next((r for r in candidates if files and os.path.lexists(r / files[0][2])), None)
+    if root is None:
+        raise ValueError('cannot locate the recorded source tree in the payload')
+    tracked = set()
+    for mode, oid, name in files:
+        path = root / name
+        s = path.lstat()
+        if mode == '120000' and stat.S_ISLNK(s.st_mode):
+            contents = os.fsencode(os.readlink(path))
+        elif mode in ('100644', '100755') and stat.S_ISREG(s.st_mode) and os.path.realpath(path.parent) == str(path.parent):
+            contents = path.read_bytes()
+        else:
+            raise ValueError(f'tracked source changed type: {path}')
+        blob = b'blob ' + str(len(contents)).encode() + b'\0' + contents
+        actual = hashlib.sha256(blob).hexdigest() if len(oid) == 64 else hashlib.sha1(blob).hexdigest()
+        if actual != oid:
+            raise ValueError(f'tracked source differs from retained commit: {path}')
+        tracked.add(str(path))
+    for directory, subdirs, names in os.walk(root, followlinks=False):
+        subdirs[:] = [d for d in subdirs if d not in ('node_modules', 'dist', '.git') and not os.path.islink(os.path.join(directory, d))]
+        for name in names:
+            path = os.path.join(directory, name)
+            if path in tracked or name in ('.git', '.DS_Store') or name.endswith('.tsbuildinfo') or os.path.islink(path):
+                continue
+            raise ValueError(f'non-generated extra file in quarantined source: {path}')
+    return common, {'retained_ref': ref, 'retained_revision': revision, 'tracked_files_verified': len(files),
+                    'git_common_root_preserved': common}
 
 
 def check_activity(path):
@@ -474,18 +543,23 @@ class Cleanup:
                 raise ValueError('quarantine index/payload mismatch')
             if any(overlap(entries[0]['original_path'], p) for p in PROTECTED):
                 raise ValueError('protected original path')
-            before = tree_guard(slot)
+            git_common, recovery_receipt = verify_quarantine_source(item)
+            before = tree_guard(slot, allow_git_pointer=git_common)
             check_activity(slot)
             diagnosis = subprocess.run([REAP, 'doctor', '--quarantine', '--id', entry_id], capture_output=True, text=True, timeout=40)
             if diagnosis.returncode or 'blocked' in diagnosis.stdout.lower() and not re.search(r'blocked 0', diagnosis.stdout):
                 raise ValueError(f'quarantine diagnosis failed: {diagnosis.stdout[:400]} {diagnosis.stderr[:200]}')
-            self.event(project, slot, 'purge', 'PLANNED', {'entry_id': entry_id, 'identity': before, 'native_diagnosis': diagnosis.stdout})
+            self.event(project, slot, 'purge', 'PLANNED', {'entry_id': entry_id, 'identity': before,
+                                                       'native_diagnosis': diagnosis.stdout, 'recoverability': recovery_receipt})
             check_identity(slot, before)
             if self.apply:
                 result = subprocess.run([REAP, 'purge', '--id', entry_id, '--apply'], capture_output=True, text=True, timeout=60)
                 if result.returncode or os.path.lexists(slot):
                     raise ValueError(f'native purge failed: {result.stdout[:250]} {result.stderr[:250]}')
             self.results[payload] = {'status': 'DELETED_VERIFIED' if self.apply else 'ELIGIBLE'}
+            source = item.get('source_approval_path')
+            if source and self.results.get(source, {}).get('reason', '').startswith('source moved to quarantine') and not os.path.lexists(source):
+                self.results[source] = {'status': self.results[payload]['status'], 'quarantine_entry_id': entry_id}
             self.event(project, slot, 'purge', self.results[payload]['status'], self.results[payload])
         except (OSError, ValueError, subprocess.TimeoutExpired) as e:
             self.results[payload] = {'status': 'BLOCKED', 'reason': str(e)}
