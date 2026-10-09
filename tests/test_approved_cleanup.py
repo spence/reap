@@ -76,6 +76,39 @@ class CleanupTests(unittest.TestCase):
                         self.fail('foreign lock was stolen')
                 self.assertEqual(cleanup.metadata(path)['inode'], identity['inode'])
 
+    def test_approved_stale_profile_options_and_source_context_are_preserved(self):
+        item = {'cargo_plan': {'command': [cleanup.REAP, 'plan', '/source', '--verbose', '--stale-debug', '30']}}
+        command = cleanup.native_command([item], Path('/source/target'))
+        self.assertEqual(command, [cleanup.REAP, 'plan', '/source', '--stale-debug', '30', '--quick', '--verbose'])
+        with self.assertRaises(ValueError):
+            cleanup.native_command([{'cargo_plan': {'command': [cleanup.REAP, 'clean', '/source']}}], Path('/source/target'))
+
+    def test_unselected_symlinked_profile_is_untouched(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = (Path(root) / 'target').resolve()
+            (target / 'debug/deps').mkdir(parents=True)
+            other = Path(root) / 'other'
+            other.mkdir()
+            (target / 'release').symlink_to(other, target_is_directory=True)
+            selected = str(target / 'debug/deps/old')
+            self.assertEqual(cleanup.cargo_profiles(target, [selected]), [target / 'debug'])
+            self.assertTrue((target / 'release').is_symlink())
+            with self.assertRaises(ValueError):
+                cleanup.cargo_profiles(target, [str(target / 'release/deps/old')])
+
+    def test_readonly_approved_tree_is_removed_without_following_links(self):
+        with tempfile.TemporaryDirectory() as root:
+            selected, retained = Path(root) / 'selected', Path(root) / 'retained'
+            (selected / 'nested').mkdir(parents=True)
+            retained.write_text('keep')
+            (selected / 'nested/data').write_text('old')
+            (selected / 'link').symlink_to(retained)
+            os.chmod(selected / 'nested', 0o555)
+            os.chmod(selected, 0o555)
+            cleanup.remove_path(str(selected))
+            self.assertFalse(selected.exists())
+            self.assertEqual(retained.read_text(), 'keep')
+
     def test_tree_guard_preserves_markers_and_fresh_data(self):
         with tempfile.TemporaryDirectory() as root:
             p = Path(root) / 'data'

@@ -113,7 +113,19 @@ def lock_file(path):
         os.close(fd)
 
 
-def cargo_profiles(target):
+def cargo_profiles(target, approved_paths=None):
+    if approved_paths is not None:
+        profiles = set()
+        for path in approved_paths:
+            relative = str(Path(path).relative_to(target))
+            match = re.search(r'^(.*?)(debug|release)/(deps|\.fingerprint|build|incremental)/', relative)
+            if not match:
+                raise ValueError(f'not a native Cargo artifact path: {path}')
+            profile = target / (match[1] + match[2])
+            if os.path.realpath(profile) != str(profile) or not stat.S_ISDIR(profile.lstat().st_mode) or profile.lstat().st_dev != target.lstat().st_dev:
+                raise ValueError(f'unsafe selected Cargo profile: {profile}')
+            profiles.add(profile)
+        return sorted(profiles)
     out = []
     for parent in [target] + [x for x in target.iterdir() if stat.S_ISDIR(x.lstat().st_mode)]:
         for name in ('debug', 'release'):
@@ -141,7 +153,69 @@ def cargo_target(item):
         marker = parent / 'CACHEDIR.TAG'
         if marker.is_file():
             return parent
+    manifest = start.parent / '.reap.json'
+    if manifest.is_file():
+        with manifest.open() as f:
+            declared = json.load(f)
+        if os.path.normpath(str(start.parent / declared.get('target', 'target'))) == str(start):
+            return start
     return None
+
+
+def native_command(items, target):
+    commands = {tuple(x.get('cargo_plan', {}).get('command', [])) for x in items}
+    commands.discard(())
+    if len(commands) > 1:
+        raise ValueError('inconsistent approved native planning contexts')
+    if commands:
+        command = list(commands.pop())
+        if len(command) < 3 or command[1] != 'plan':
+            raise ValueError('approved context is not a native dry-run plan')
+        source, options = command[2], command[3:]
+    else:
+        source = str(target) if (target / 'CACHEDIR.TAG').is_file() else str(target.parent)
+        options = []
+    result = [REAP, 'plan', source]
+    valued = {'--keep-recent', '--min-age-minutes', '--stale-debug', '--stale-release'}
+    flags = {'--no-incremental', '--no-build-scripts'}
+    i = 0
+    while i < len(options):
+        flag = options[i]
+        if flag in ('--verbose', '--quick'):
+            i += 1
+        elif flag in flags:
+            result.append(flag)
+            i += 1
+        elif flag in valued and i + 1 < len(options):
+            value = options[i + 1]
+            if float(value) < 0 or flag == '--min-age-minutes' and float(value) < 10:
+                raise ValueError('approved command relaxes the minimum safety floor')
+            result.extend([flag, value])
+            i += 2
+        else:
+            raise ValueError(f'unsupported approved planning option: {flag}')
+    return result + ['--quick', '--verbose']
+
+
+def remove_path(path):
+    if not stat.S_ISDIR(os.lstat(path).st_mode):
+        os.unlink(path)
+        return
+    stack = [path]
+    while stack:
+        directory = stack.pop()
+        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            s = os.fstat(fd)
+            if not s.st_mode & stat.S_IWUSR:
+                if s.st_uid != os.geteuid() or getattr(s, 'st_flags', 0):
+                    raise ValueError(f'cannot change foreign or flagged directory permissions: {directory}')
+                os.fchmod(fd, s.st_mode | stat.S_IWUSR)
+            with os.scandir(fd) as children:
+                stack.extend(os.path.join(directory, child.name) for child in children if child.is_dir(follow_symlinks=False))
+        finally:
+            os.close(fd)
+    shutil.rmtree(path)
 
 
 def tree_guard(path, minimum_age=600):
@@ -281,10 +355,7 @@ class Cleanup:
         tree_guard(path)
         if self.apply:
             check_identity(path, before)
-            if stat.S_ISDIR(before['mode']):
-                shutil.rmtree(path)
-            else:
-                os.unlink(path)
+            remove_path(path)
             if os.path.lexists(path):
                 raise ValueError(f'path survived deletion: {path}')
         self.results[path] = {'status': 'DELETED_VERIFIED' if self.apply else 'ELIGIBLE', 'identity': before}
@@ -308,19 +379,11 @@ class Cleanup:
                 if os.path.lexists(item['path']):
                     check_identity(item['path'], expected_identity(item), content=False)
             with contextlib.ExitStack() as stack:
-                for profile in cargo_profiles(target):
+                for profile in cargo_profiles(target, allowed):
                     stack.enter_context(lock_file(profile / '.cargo-lock'))
                 before = {p: metadata(p) for p in allowed if os.path.lexists(p)}
-                marker = target / 'CACHEDIR.TAG'
-                if marker.is_file():
-                    if '8a477f597d28d172789f06886806bc55' not in marker.read_text():
-                        raise ValueError('invalid Cargo cache marker')
-                    source = str(target)
-                else:
-                    source = str(target.parent)
-                    if not (target.parent / '.reap.json').is_file():
-                        raise ValueError('target lacks a native cache boundary')
-                result = subprocess.run([REAP, 'plan', source, '--quick', '--verbose'], capture_output=True, text=True, timeout=60)
+                command = native_command(items, target)
+                result = subprocess.run(command, capture_output=True, text=True, timeout=60)
                 if result.returncode or result.stderr:
                     raise ValueError(f'native plan failed: {result.stderr[:350]}')
                 eligible = parse_plan(result.stdout, target)
@@ -384,10 +447,7 @@ class Cleanup:
                     self.event(project, path, 'direct', 'PLANNED', {'identity': before})
                     check_identity(path, before)
                     if self.apply:
-                        if stat.S_ISDIR(before['mode']):
-                            shutil.rmtree(path)
-                        else:
-                            os.unlink(path)
+                        remove_path(path)
                         if os.path.lexists(path):
                             raise ValueError('path survived deletion')
                     self.results[path] = {'status': 'DELETED_VERIFIED' if self.apply else 'ELIGIBLE', 'identity': before}
@@ -447,6 +507,9 @@ class Cleanup:
                 item['execution_status'] = 'BLOCKED_NATIVE_GUARD'
                 item['execution_blockers'] = [{'path': p, 'reason': self.results[p].get('reason', 'guard blocked')} for p in pending]
                 if item not in quarantine:
+                    if item.get('cleanup_identity_records'):
+                        pending_set = set(pending)
+                        item['cleanup_identity_records'] = [identity for p, identity in zip(paths, item['cleanup_identity_records']) if p in pending_set]
                     item['cleanup_paths'] = pending
         self.c.execute('BEGIN IMMEDIATE')
         try:
