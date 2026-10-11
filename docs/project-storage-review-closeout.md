@@ -11,6 +11,9 @@ packet creation or project review. Its exact paths and all descendants are
 outside project audits; do not inspect, attribute, claim, add KEEP decisions
 for, or authorize cleanup of them. Similar names do not establish ownership.
 The list is committed, not stored in a dated audit directory or SQLite.
+Record exclusion compliance by citing `audit-exclusions.json`, not by copying
+its paths into `review_json`, including summaries or verification receipts.
+Excluded personal paths must not reappear as audit metadata.
 
 Central audit operators reconcile legacy imports with:
 

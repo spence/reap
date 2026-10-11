@@ -43,6 +43,15 @@ excluded root, a descendant and a containing directory without execution.
 Remaining source, quarantine and workspace-closeout exceptions were preserved;
 this scope correction does not claim full Micro execution closeout.
 
+A concurrent Micro review #99 correctly excluded the personal directories,
+but repeated their names as empty verification-summary dictionary keys. A
+second guarded transaction removed only that metadata from one saved review;
+it changed no inventory rows. Its post-change plan found zero pending
+inventory, packet, document or review references, `quick_check` passed, and
+approvals, claims, execution receipts and directory identities were preserved.
+The instructions now explicitly require the policy filename instead of
+personal-path literals when recording exclusion compliance.
+
 ## Automated verification
 
 ```sh
@@ -62,6 +71,11 @@ The policy, reconciliation helper, cleanup guard, dated importer and complete
 agent instructions were copied to the Mini and their SHA-256 values matched
 Catalyst. Repository changes are published through the normal committed Git
 workstream. The Mini instructions remain at the existing handoff path.
+
+Separate decision/specification asset registration in Burn refused with a
+duplicate work-asset-link error, in both preview and apply. The refusal is
+recorded as `ISS-COMMITTED-ASSET-REGISTRATION-REFUSES-FRE`; those documents
+remain committed and published while that tracker defect is unresolved.
 
 This is audit-scope enforcement, not a native Reap configuration field or a
 filesystem protection mechanism. Native Rust binary, CLI, skill, signing,
