@@ -4,6 +4,38 @@ These rules govern agent handoffs for a project-attributed disk audit. They
 do not grant execution authority or change Reap's CLI, guards, or schemas.
 The current SQLite review is the sole source of decisions and approvals.
 
+## Deliver a keep/delete ruling
+
+The project reviewer decides what its project needs. The Reap audit coordinator
+executes cleanup; reviewers do not need to find another cleanup owner. The
+deliverable is a self-contained ruling, not recommendations for the coordinator
+to investigate or decide again.
+
+- KEEP identifies the actual retained value. DELETE and PURGE_NOW express
+  explicit project permission: set `cleanup_authorized: true` and supply exact
+  `cleanup_paths` or the quarantine entry. A live DELETE with authorization
+  false is an unfinished ruling, not completed review. Completed deletion
+  receipts and verified absence retain their withdrawn authorizations.
+- Approval and executability are separate. A missing cache marker, unsupported
+  Reap operation, lease, hold, or activity refusal does not establish retained
+  value or erase otherwise established project permission. Record the technical
+  limitation separately; the coordinator must honor it, not bypass it.
+- Finish any preparation needed to give the ruling. Reviewers may copy or
+  package needed content into a project-owned retained location and verify its
+  contents and references before authorizing the obsolete source. Do not
+  overwrite existing work, remove the original, disturb active work or foreign
+  processes, or change leases, holds, markers, or retention declarations.
+  Check capacity first and follow Reap's rules for external locations. Save
+  exact retained paths and verification evidence in SQLite, not only a file.
+- A SPLIT parent must resolve its retained and disposable children. A proposal
+  to preserve something later is not a finished deletion ruling. Do not leave
+  recovery-package construction or selection of valuable bytes to the cleanup
+  coordinator as a condition of finishing the review.
+- If facts, human workspace closeout, or authority genuinely remain missing,
+  investigate first, then state the exact unresolved question. Do not call the
+  review complete or manufacture permission. An executor's fresh safety check
+  is not a missing project decision.
+
 ## Exclude owner-protected personal scope
 
 Load the repository's `audit-exclusions.json` before discovery, attribution,
@@ -55,10 +87,10 @@ Grounds: `docs/decisions/DEC-AUDIT-PERSONAL-EXCLUSIONS.md`. Contract and tests:
 
 ## Own unresolved branches
 
-Record the exact path/cohort, missing fact or authority, responsible owner,
-safe checks already tried, and executable next action in SQLite. Group related
-parent/child entries for investigation or an owner request, while retaining
-each exact item's disposition. Exhaust safe evidence gathering first.
+The project reviewer owns the investigation and necessary preservation that
+lets it rule. Record the exact unresolved path/cohort, missing fact or authority,
+and checks already tried in SQLite. Resolve related parent/child entries
+together; do not pass unfinished investigation to the cleanup coordinator.
 
 When a genuine owner decision remains, follow the project's owner workflow.
 In a Burn-operated project, load the escalation skill and qualify a typed
@@ -136,36 +168,33 @@ any separately authorized execution, perform this final read-only pass:
    check is unverified, not success based on an old count. Do not freeze
    foreign writers or stop services to make the review appear atomic.
 
-Review completion requires all known current project items to have resolved
-decisions and applied accounting, not merely zero SQLite coverage omissions.
-Authorized pending cleanup/restoration can remain for the assigned executor;
-name that role and exact scopes. Do not call that state full closeout.
+Review completion requires final keep/delete rulings and applied accounting for
+all known project items, not merely zero coverage omissions or disposable-content
+labels. Required preservation must be verified. Authorized cleanup/restoration
+can remain for the Reap audit coordinator; execution safety is checked there.
 
-## Report each completion boundary separately
+## Verify the handoff, not just coverage
 
-Persist and report these facts in the existing review summary:
+Read the current SQLite row as the cleanup coordinator would. Check every live
+DELETE/PURGE_NOW for explicit authorization and exact scope; check every SPLIT
+for final child decisions and completed required preservation. A generic
+"executor should qualify cleanup" or "preserve this later" is not permission.
+Do not reinterpret existing false authorizations or revive completed ones.
 
-1. Coverage: original/current/claimed items accounted for, and omissions.
-2. Decisions: final dispositions versus UNKNOWN, missing approval, index
-   review, conflicts, and unresolved split children; include counts, sizes
-   with their measurement basis, owners, and next actions.
-3. Accounting: applied corrections versus corrections awaiting central work.
-4. Execution: approved-but-pending operations versus completed operations,
-   with receipts, verified absence/restoration, and current guard blockers.
+Report retained data, explicitly approved cleanup, and any exact unresolved
+question, with separate non-overlapping sizes and measurement times. Distinguish
+project permission from a live execution guard. Say whether cleanup has run;
+neither coverage counts nor a projected storage budget prove a usable handoff.
 
-A saved row is **submitted**, not automatically **complete**. Report the
-review as **blocked** when decisions or required accounting corrections remain
-unresolved. Report **review complete; execution pending** only when the review
-is resolved and an authorized executor still has work. Full closeout requires
-the promised decisions/accounting resolved, authorized operations verified,
-and no remaining project quarantine payloads. Historical missing entries are
-explicitly absent, not new reclaim or implied purge authority. Record their
-verified absence separately from live unresolved items; do not invent a
-KEEP/DELETE approval for absent data or count it as pending live cleanup.
+The review is done when the coordinator can carry out the rulings from SQLite
+alone after fresh safety checks, without deciding retained value, constructing
+missing recovery packages, or returning for another project review. A genuinely
+missing authority or unsatisfied preservation requirement must be reported as
+unfinished, not hidden in a completion summary. Historical absence is not new
+reclaim or purge authority.
 
-Review-only agents never execute cleanup, repair leases, change holds or
-markers, or stop processes. An executor separately assigned by the owner
-uses current SQLite approvals and rechecks Reap's guards. Handoffs must name
-the next responsible role and exact scopes; "someone should clean this" is
-not a completed execution branch. Never invent KEEP, ownership, approval, or
-a stronger safety requirement merely to change a completion counter.
+Reviewers do not execute deletion, quarantine retirement/restoration, lease
+repair, or hold/marker changes. Verified non-destructive preservation is allowed
+as described above. The coordinator executes current approvals under Reap's
+guards. Never invent KEEP, ownership, permission, or an extra safety requirement
+merely to change a completion counter.
