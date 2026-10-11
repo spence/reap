@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -10,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 SPEC = importlib.util.spec_from_file_location('approved_cleanup', Path(__file__).resolve().parents[1] / 'tools/execute_approved_audit.py')
 cleanup = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cleanup)

@@ -32,3 +32,9 @@ them as Burn assets.
   verify natively with the same designated requirement. Execute and verify with:
   `python3 tests/install_signing.py`, `codesign --verify --strict ~/.cargo/bin/reap`, and
   `codesign -d -r- ~/.cargo/bin/reap` on each configured Mac.
+- **Audit exclusions stay outside project decisions** — Applies when: changing audit import,
+  reconciliation, or audit cleanup tools. Complete when: the committed exclusion list governs
+  imports and cleanup guards, excluded records are absent from the supported live audit, and
+  unrelated approvals and personal directories survive. Execute and verify with:
+  `python3 -m unittest discover -s tests -p 'test_audit_exclusions.py'` and
+  `python3 tools/audit_exclusions.py <audit.sqlite>` reporting zero pending exclusions.

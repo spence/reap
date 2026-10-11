@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "paths": [
+    {
+      "path": "/Users/spencer/.cache/micro",
+      "reason": "Owner-excluded user-level state; not part of the Micro project."
+    },
+    {
+      "path": "/Users/spencer/.config/micro",
+      "reason": "Owner-excluded user-level configuration; not part of the Micro project."
+    },
+    {
+      "path": "/Users/spencer/Documents/micro",
+      "reason": "Separate personal directory; owner requires it to be kept and ignored."
+    }
+  ]
+}

@@ -18,6 +18,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from audit_exclusions import Exclusions
+
 
 BASE = Path('/Users/spencer/src/reap/.reap-audits/2026-10-07-mini')
 STATE = Path('/Users/spencer/.local/state/reap')
@@ -36,6 +38,7 @@ IDENTITIES = (
 )
 ACTIVITY_FAILURE = None
 OWNED_PENDING_PROBES = []
+AUDIT_SCOPE = Exclusions()
 
 
 def now():
@@ -406,6 +409,8 @@ class Cleanup:
             self.c.commit()
 
     def path_guard(self, path, project, cargo=False):
+        if AUDIT_SCOPE.overlaps(path) or AUDIT_SCOPE.overlaps(os.path.realpath(path)):
+            raise ValueError(f'audit-excluded directory overlap: {path}')
         if not path.startswith(('/Volumes/kytos/', '/Users/spencer/', '/private/tmp/')) or str(Path(path)) != path:
             raise ValueError(f'out-of-scope path: {path}')
         if os.path.realpath(path) != path or stat.S_ISLNK(os.lstat(path).st_mode):

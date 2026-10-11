@@ -4,6 +4,34 @@ These rules govern agent handoffs for a project-attributed disk audit. They
 do not grant execution authority or change Reap's CLI, guards, or schemas.
 The current SQLite review is the sole source of decisions and approvals.
 
+## Exclude owner-protected personal scope
+
+Load the repository's `audit-exclusions.json` before discovery, attribution,
+packet creation or project review. Its exact paths and all descendants are
+outside project audits; do not inspect, attribute, claim, add KEEP decisions
+for, or authorize cleanup of them. Similar names do not establish ownership.
+The list is committed, not stored in a dated audit directory or SQLite.
+
+Central audit operators reconcile legacy imports with:
+
+```sh
+python3 tools/audit_exclusions.py /absolute/path/to/audit.sqlite
+python3 tools/audit_exclusions.py /absolute/path/to/audit.sqlite --apply
+```
+
+The default is a read-only plan. Apply changes only audit records and stale
+scope accounting, never directory contents or unrelated cleanup permissions.
+It removes excluded references from historical reviews as well as current
+inventory. This owner-authorized scope correction is a central operation,
+not permission for project reviewers to edit scanned inventory or history.
+Never overwrite a live audit to rebuild it. Future importers filter excluded
+records before publishing their new database; the Mini importer runs this
+reconciliation on its private staging database. The audit cleanup executor
+also refuses any scope overlapping an excluded directory.
+
+Grounds: `docs/decisions/DEC-AUDIT-PERSONAL-EXCLUSIONS.md`. Contract and tests:
+`docs/specs/audit-exclusions.md`.
+
 ## Resolve decisions, not just coverage
 
 - Account for every original assignment, current assignment, positively
