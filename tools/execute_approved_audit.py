@@ -801,6 +801,16 @@ class Cleanup:
             review['approved_cleanup_execution'] = {'run_id': self.run_ids[project], **receipt}
             summary = review.setdefault('summary', {})
             summary['approved_cleanup_execution'] = {'run_id': self.run_ids[project], **receipt}
+            withdrawn = []
+            for item in review.get('decisions', []) + review.get('quarantine_decisions', []):
+                if completed(item) and item.get('cleanup_authorized') is True:
+                    item['cleanup_authorized'] = False
+                    item['approval_withdrawal_basis'] = 'Completed execution does not authorize another generation.'
+                    withdrawn.append(item.get('path') or item.get('payload_path'))
+            if withdrawn:
+                summary['completed_authorization_withdrawals'] = {'checked_at_utc': now(), 'paths': withdrawn}
+            summary['review_only'] = False
+            summary['deletion_executed'] = any(completed(x) for x in review.get('decisions', []) + review.get('quarantine_decisions', []))
             remaining = sum(len(x.get('cleanup_paths', [])) for x in review.get('decisions', []) if authorized(x, 'DELETE'))
             remaining += sum(authorized(x, 'PURGE_NOW') for x in review.get('quarantine_decisions', []))
             summary['execution_status'] = 'PARTIAL_GUARD_BLOCKED' if counts['BLOCKED'] else 'PARTIAL_EXECUTION_PENDING' if remaining else 'COMPLETED_VERIFIED'

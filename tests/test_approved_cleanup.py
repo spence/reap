@@ -438,7 +438,9 @@ class CleanupTests(unittest.TestCase):
         done = {'path': '/done', 'decision': 'DELETE', 'cleanup_authorized': True,
                 'cleanup_paths': ['/done']}
         historical = {'path': '/keep', 'decision': 'KEEP', 'cleanup_authorized': False}
-        review = {'decisions': [item, done, historical], 'ownership_claims': [{'path': '/keep'}],
+        stale_done = {'path': '/old-completed', 'decision': 'DELETE', 'cleanup_authorized': True,
+                      'cleanup_completed': True, 'approved_cleanup_execution': {'run_id': 42}}
+        review = {'decisions': [item, done, historical, stale_done], 'ownership_claims': [{'path': '/keep'}],
                   'quarantine_decisions': [], 'execution_closeout': {'run_id': 42}, 'summary': {}}
         original = json.dumps(review)
         c.execute('INSERT INTO agent_reviews VALUES(1,?,?,?,?)', ('example', 'reviewer', 'session', original))
@@ -458,6 +460,10 @@ class CleanupTests(unittest.TestCase):
         self.assertFalse(current['decisions'][1]['cleanup_authorized'])
         self.assertTrue(current['decisions'][1]['cleanup_completed'])
         self.assertEqual(current['decisions'][2], historical)
+        self.assertFalse(current['decisions'][3]['cleanup_authorized'])
+        self.assertEqual(current['decisions'][3]['approved_cleanup_execution'], {'run_id': 42})
+        self.assertFalse(current['summary']['review_only'])
+        self.assertTrue(current['summary']['deletion_executed'])
         self.assertEqual(current['execution_closeout'], {'run_id': 42})
         self.assertEqual(c.execute('SELECT review_json FROM agent_reviews WHERE id=1').fetchone()[0], original)
         self.assertEqual(tuple(c.execute('SELECT * FROM attribution').fetchone()), ('/retained', 'original'))
