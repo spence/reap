@@ -198,7 +198,17 @@ def cargo_target(item):
     return None
 
 
-def native_command(items, target):
+def native_command(items, target, plans=None):
+    if plans:
+        resolved = []
+        for item in items:
+            numbers = item.get('native_plan_numbers', [])
+            if numbers:
+                if len(numbers) != 1 or not isinstance(numbers[0], int) or not 0 <= numbers[0] < len(plans):
+                    raise ValueError('ambiguous approved native plan reference')
+                item = {**item, 'cargo_plan': {'command': plans[numbers[0]]['command']}}
+            resolved.append(item)
+        items = resolved
     commands = {tuple(x.get('cargo_plan', {}).get('command', [])) for x in items}
     commands.discard(())
     if len(commands) > 1:
@@ -363,7 +373,7 @@ def verify_quarantine_source(item):
                     'git_common_root_preserved': common}
 
 
-def check_activity(path):
+def check_activity(path, recursive=True):
     global ACTIVITY_FAILURE
     if ACTIVITY_FAILURE:
         raise ValueError(ACTIVITY_FAILURE)
@@ -374,7 +384,8 @@ def check_activity(path):
         if len(fields) == 3 and 'U' in fields[0] and fields[2].endswith('/lsof'):
             raise ValueError('lsof is kernel-blocked; no new activity probe started')
     command = ['/usr/sbin/lsof', '-n', '-P', '-F0n']
-    command += ['+D', path] if os.path.isdir(path) else ['--', path]
+    if recursive:
+        command += ['+D', path] if os.path.isdir(path) else ['--', path]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = process.communicate(timeout=5)
@@ -389,7 +400,16 @@ def check_activity(path):
     if err or process.returncode not in (0, 1):
         ACTIVITY_FAILURE = f'activity probe failed: {path}: {err[:180]!r}'
         raise ValueError(ACTIVITY_FAILURE)
-    if process.returncode == 0 or out:
+    if not recursive:
+        if len(out) > 16 * 1024 * 1024:
+            raise ValueError('activity listing exceeds the bounded inspection limit')
+        names = [os.fsdecode(field[1:]) for part in out.split(b'\0')
+                 if (field := part.lstrip(b'\n')).startswith(b'n/')]
+        if process.returncode == 0 and not names:
+            raise ValueError('activity listing has no inspectable paths')
+        if any(below(name, path) and name != str(Path(path) / '.cargo-lock') for name in names):
+            raise ValueError(f'open handles: {path}')
+    elif process.returncode == 0 or out:
         raise ValueError(f'open handles: {path}')
 
 
@@ -440,12 +460,15 @@ class Cleanup:
                            (self.run_ids[project], path, action, status, json.dumps(facts)))
             self.c.commit()
 
-    def path_guard(self, path, project, cargo=False):
+    def path_guard(self, path, project, cargo=False, allow_link=False):
         if AUDIT_SCOPE.overlaps(path) or AUDIT_SCOPE.overlaps(os.path.realpath(path)):
             raise ValueError(f'audit-excluded directory overlap: {path}')
         if not path.startswith(('/Volumes/kytos/', '/Users/spencer/', '/private/tmp/')) or str(Path(path)) != path:
             raise ValueError(f'out-of-scope path: {path}')
-        if os.path.realpath(path) != path or stat.S_ISLNK(os.lstat(path).st_mode):
+        leaf_link = allow_link and stat.S_ISLNK(os.lstat(path).st_mode)
+        if os.path.realpath(os.path.dirname(path) if leaf_link else path) != (os.path.dirname(path) if leaf_link else path):
+            raise ValueError(f'symlinked path: {path}')
+        if stat.S_ISLNK(os.lstat(path).st_mode) and not leaf_link:
             raise ValueError(f'symlinked path: {path}')
         if any(overlap(path, p) for p in PROTECTED) or any(below(p, path) for p in self.primaries):
             raise ValueError(f'protected repository overlap: {path}')
@@ -468,7 +491,7 @@ class Cleanup:
         for parent in [path] + [str(x) for x in Path(path).parents]:
             if not cargo and parent in self.lease_sets[cargo]:
                 raise ValueError(f'lease overlap: {parent}')
-        for parent in [Path(path)] + list(Path(path).parents):
+        for parent in ([] if leaf_link else [Path(path)]) + list(Path(path).parents):
             decl = parent / '.reap'
             if decl.exists():
                 raise ValueError(f'lifetime declaration requires native review: {decl}')
@@ -505,8 +528,10 @@ class Cleanup:
             with contextlib.ExitStack() as stack:
                 for profile in cargo_profiles(target, allowed):
                     stack.enter_context(lock_file(profile / '.cargo-lock'))
+                    check_activity(str(profile), recursive=False)
                 before = {p: metadata(p) for p in allowed if os.path.lexists(p)}
-                command = native_command(items, target)
+                plans = self.reviews[project][1].get('content_audit_continuation', {}).get('current_native_reap_plans', {}).get('plans', [])
+                command = native_command(items, target, plans)
                 result = subprocess.run(command, capture_output=True, text=True, timeout=60)
                 if result.returncode or result.stderr:
                     raise ValueError(f'native plan failed: {result.stderr[:350]}')
@@ -544,6 +569,73 @@ class Cleanup:
                 self.results.setdefault(path, {'status': 'BLOCKED', 'reason': str(e)})
             self.event(project, str(target), 'cargo', 'BLOCKED', {'reason': str(e), 'count': len(allowed)})
 
+    def compiler(self, project, profile, items):
+        allowed = {}
+        for item in items:
+            paths = item['cleanup_paths']
+            identities = item.get('cleanup_identity_records', [])
+            columns = item.get('cleanup_identity_columns', [])
+            if len(identities) != len(paths) or not all(k in columns for k in ('device', 'inode', 'mode', 'size_bytes', 'mtime_ns')):
+                raise ValueError('exact compiler approvals require complete aligned identities')
+            for path, record in zip(paths, identities):
+                if not below(path, str(profile)) or path == str(profile):
+                    raise ValueError('compiler selector escapes its profile')
+                expected = dict(zip(columns, record))
+                if path in allowed and allowed[path] != expected:
+                    raise ValueError('conflicting compiler selector identities')
+                allowed[path] = expected
+        try:
+            self.current(project)
+            self.refresh_leases()
+            if os.path.realpath(profile) != str(profile) or not stat.S_ISDIR(profile.lstat().st_mode):
+                raise ValueError(f'unsafe compiler profile: {profile}')
+            profile_identity = metadata(profile)
+            for item in items:
+                check_identity(item['path'], expected_identity(item), content=False)
+            with lock_file(profile / '.cargo-lock'):
+                check_identity(profile, profile_identity, content=False)
+                check_activity(str(profile), recursive=False)
+                self.event(project, str(profile), 'compiler', 'PLANNED', {
+                    'approved_count': len(allowed), 'profile_lock_held': True,
+                    'scope': 'Exact project-approved characterized files only; no directory removal or policy inference.'})
+                progress_at = time.monotonic()
+                for ix, (path, expected) in enumerate(allowed.items()):
+                    if ix % 2048 == 0:
+                        self.current(project)
+                        self.refresh_leases()
+                    if time.monotonic() - progress_at > 20:
+                        emit('compiler_progress', project=project, profile=str(profile), checked=ix, selected=len(allowed))
+                        progress_at = time.monotonic()
+                    try:
+                        if not os.path.lexists(path):
+                            self.results[path] = {'status': 'ABSENT_BEFORE_EXECUTION'}
+                            continue
+                        self.path_guard(path, project, cargo=True, allow_link=True)
+                        before = check_identity(path, expected)
+                        if before['device'] != profile_identity['device']:
+                            raise ValueError('compiler artifact is on another volume')
+                        if before['mode'] != int(expected['mode']) or not (stat.S_ISREG(before['mode']) or stat.S_ISLNK(before['mode'])):
+                            raise ValueError('compiler approval is not an unchanged file or symlink')
+                        if any(part in ('.git', '.reap', '.reap-lease', '.reap-parent', '.cargo-lock', '.cargo-build-lock') for part in Path(path).relative_to(profile).parts):
+                            raise ValueError('protected compiler metadata')
+                        if time.time_ns() - before['mtime_ns'] < 600 * 1_000_000_000:
+                            raise ValueError('compiler artifact is not quiet for ten minutes')
+                        if self.apply:
+                            check_identity(path, before)
+                            os.unlink(path)
+                            if os.path.lexists(path):
+                                raise ValueError('compiler artifact survived removal')
+                        self.results[path] = {'status': 'DELETED_VERIFIED' if self.apply else 'ELIGIBLE', 'identity': before}
+                    except (OSError, ValueError) as e:
+                        self.results[path] = {'status': 'BLOCKED', 'reason': str(e)}
+                self.event(project, str(profile), 'compiler', 'VERIFIED', {
+                    'counts': dict(collections.Counter(self.results[p]['status'] for p in allowed)),
+                    'profile_lock_held': True})
+        except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+            for path in allowed:
+                self.results.setdefault(path, {'status': 'BLOCKED', 'reason': str(e)})
+            self.event(project, str(profile), 'compiler', 'BLOCKED', {'reason': str(e), 'count': len(allowed)})
+
     def direct(self, project, item):
         try:
             verify_preservation(item)
@@ -553,6 +645,12 @@ class Cleanup:
                 self.event(project, path, 'direct', 'BLOCKED', self.results[path])
             return
         for path in item['cleanup_paths']:
+            prior = self.results.get(path, {})
+            if prior.get('status') == 'DELETED_VERIFIED':
+                if os.path.lexists(path):
+                    self.results[path] = {'status': 'BLOCKED', 'reason': 'path recreated after verified deletion; old permission cannot be replayed'}
+                self.event(project, path, 'direct', self.results[path]['status'], self.results[path])
+                continue
             if not os.path.lexists(path):
                 with (QUARANTINE / 'index.json').open() as f:
                     moved = [x['id'] for x in json.load(f)['entries'] if x['original_path'] == path]
@@ -682,7 +780,7 @@ class Cleanup:
             self.c.rollback()
             raise
 
-    def run(self, project_filter=None, only='all'):
+    def run(self, project_filter=None, only='all', resume_run=None):
         order = sorted(self.reviews, key=lambda p: p != 'github.com/spence/micro')
         for project in order:
             if project_filter and project != project_filter:
@@ -702,13 +800,27 @@ class Cleanup:
                 continue
             if self.apply:
                 self.current(project)
-                row = self.c.execute('INSERT INTO cleanup_execution_runs(root_project,actor,session,source_review_id,receipt_json) VALUES(?,?,?,?,?)',
-                                     (project, ACTOR, 'UNKNOWN', source, json.dumps({'owner_instruction_verbatim': 'lets clean up whats been approved', 'started_at_utc': now()})))
-                self.run_ids[project] = row.lastrowid
+                if resume_run is not None:
+                    row = self.c.execute('SELECT root_project,actor,source_review_id,finished_at FROM cleanup_execution_runs WHERE id=?', (resume_run,)).fetchone()
+                    if row is None or tuple(row) != (project, ACTOR, source, None) or not project_filter or only != 'direct':
+                        raise ValueError('resume requires this exact unfinished direct run and current project approval')
+                    self.run_ids[project] = resume_run
+                    for event in self.c.execute("SELECT path,receipt_json FROM cleanup_execution_events WHERE run_id=? AND status='DELETED_VERIFIED'", (resume_run,)):
+                        self.results[event['path']] = json.loads(event['receipt_json'])
+                else:
+                    row = self.c.execute('INSERT INTO cleanup_execution_runs(root_project,actor,session,source_review_id,receipt_json) VALUES(?,?,?,?,?)',
+                                         (project, ACTOR, 'UNKNOWN', source, json.dumps({'owner_instruction_verbatim': 'clean it up then', 'started_at_utc': now(), 'only': only})))
+                    self.run_ids[project] = row.lastrowid
                 self.c.commit()
             jobs = collections.defaultdict(list)
+            compiler_jobs = collections.defaultdict(list)
             direct = []
             for item in items:
+                if 'LISTED_COMPILER_FILES' in item.get('cleanup_scope', ''):
+                    profile = next((p for p in [Path(item['path'])] + list(Path(item['path']).parents) if p.name in ('debug', 'release')), None)
+                    if profile is not None:
+                        compiler_jobs[profile].append(item)
+                        continue
                 target = cargo_target(item)
                 if target:
                     jobs[target].append(item)
@@ -720,6 +832,8 @@ class Cleanup:
             for target, subset in jobs.items():
                 for profile in profile_batches(target, subset):
                     self.cargo(project, target, profile)
+            for profile, subset in compiler_jobs.items():
+                self.compiler(project, profile, subset)
             for item in direct:
                 self.direct(project, item)
             for item in quarantine:
@@ -735,7 +849,8 @@ if __name__ == '__main__':
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--project', help='Execute only this canonical project; other reviews remain untouched.')
     parser.add_argument('--only', choices=('all', 'direct', 'cargo', 'purge'), default='all')
+    parser.add_argument('--resume-run', type=int, help='Resume an exact unfinished direct run after verifying its executor is no longer running.')
     args = parser.parse_args()
     if socket.gethostname() != HOST or not os.path.ismount('/Volumes/kytos'):
         raise SystemExit('This executor requires catalyst-mini.local with Kytos mounted.')
-    Cleanup(BASE / 'audit.sqlite', args.apply).run(args.project, args.only)
+    Cleanup(BASE / 'audit.sqlite', args.apply).run(args.project, args.only, args.resume_run)

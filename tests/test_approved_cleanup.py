@@ -19,6 +19,117 @@ SPEC.loader.exec_module(cleanup)
 
 
 class CleanupTests(unittest.TestCase):
+    def compiler_executor(self):
+        executor = cleanup.Cleanup.__new__(cleanup.Cleanup)
+        executor.apply, executor.results = True, {}
+        executor.current, executor.refresh_leases = Mock(), Mock()
+        executor.path_guard, executor.event = Mock(), Mock()
+        return executor
+
+    def compiler_approval(self, profile, paths):
+        columns = ['device', 'inode', 'mode', 'size_bytes', 'mtime_ns']
+        return {'path': str(profile), 'current_identity': cleanup.metadata(profile),
+                'cleanup_paths': [str(p) for p in paths], 'cleanup_identity_columns': columns,
+                'cleanup_identity_records': [[cleanup.metadata(p)[k] for k in columns] for p in paths]}
+
+    def test_exact_compiler_cleanup_preserves_unlisted_files_directories_and_link_targets(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = (Path(root) / 'target/release').resolve()
+            profile.mkdir(parents=True)
+            selected, retained = profile / 'old.o', profile / 'keep.o'
+            selected.write_bytes(b'obsolete')
+            retained.write_bytes(b'needed')
+            link = profile / 'obsolete-link'
+            link.symlink_to(retained)
+            for p in (selected, link):
+                os.utime(p, (time.time() - 7200, time.time() - 7200), follow_symlinks=False)
+            executor = self.compiler_executor()
+            with patch.object(cleanup, 'check_activity') as activity:
+                executor.compiler('example', profile, [self.compiler_approval(profile, [selected, link])])
+            activity.assert_called_once_with(str(profile), recursive=False)
+            self.assertFalse(selected.exists())
+            self.assertFalse(link.is_symlink())
+            self.assertEqual(retained.read_bytes(), b'needed')
+            self.assertTrue(profile.is_dir())
+            self.assertTrue((profile / '.cargo-lock').is_file())
+            self.assertEqual(executor.results[str(selected)]['status'], 'DELETED_VERIFIED')
+
+    def test_exact_compiler_cleanup_preserves_changed_recent_directory_and_lock_selectors(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = (Path(root) / 'release').resolve()
+            profile.mkdir()
+            changed, recent, lock, directory = [profile / n for n in ('changed.o', 'recent.o', '.cargo-lock', 'directory')]
+            for p in (changed, recent, lock):
+                p.write_text('original')
+            directory.mkdir()
+            for p in (changed, lock, directory):
+                os.utime(p, (time.time() - 7200, time.time() - 7200))
+            item = self.compiler_approval(profile, [changed, recent, lock, directory])
+            changed.write_text('new content')
+            executor = self.compiler_executor()
+            with patch.object(cleanup, 'check_activity'):
+                executor.compiler('example', profile, [item])
+            self.assertEqual(changed.read_text(), 'new content')
+            self.assertEqual(recent.read_text(), 'original')
+            self.assertTrue(lock.is_file())
+            self.assertTrue(directory.is_dir())
+            self.assertTrue(all(r['status'] == 'BLOCKED' for r in executor.results.values()))
+
+    def test_exact_compiler_cleanup_refuses_foreign_locks_activity_and_stale_reviews(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = (Path(root) / 'release').resolve()
+            profile.mkdir()
+            selected = profile / 'old.o'
+            selected.write_text('old')
+            os.utime(selected, (time.time() - 7200, time.time() - 7200))
+            item = self.compiler_approval(profile, [selected])
+            executor = self.compiler_executor()
+            with cleanup.lock_file(profile / '.cargo-lock'), patch.object(cleanup, 'check_activity') as activity:
+                executor.compiler('example', profile, [item])
+                activity.assert_not_called()
+            self.assertTrue(selected.exists())
+            executor = self.compiler_executor()
+            with patch.object(cleanup, 'check_activity', side_effect=ValueError('open handles')):
+                executor.compiler('example', profile, [item])
+            self.assertTrue(selected.exists())
+            executor = self.compiler_executor()
+            executor.current.side_effect = ValueError('approval superseded')
+            with patch.object(cleanup, 'check_activity') as activity:
+                executor.compiler('example', profile, [item])
+                activity.assert_not_called()
+            self.assertTrue(selected.exists())
+            self.assertEqual(executor.results[str(selected)]['status'], 'BLOCKED')
+
+    def test_exact_compiler_cleanup_refuses_symlinked_profiles(self):
+        with tempfile.TemporaryDirectory() as root:
+            outside = (Path(root) / 'outside').resolve()
+            outside.mkdir()
+            selected = outside / 'keep.o'
+            selected.write_text('needed')
+            profile = Path(root) / 'release'
+            profile.symlink_to(outside, target_is_directory=True)
+            executor = self.compiler_executor()
+            with patch.object(cleanup, 'check_activity') as activity:
+                executor.compiler('example', profile, [self.compiler_approval(profile, [profile / 'keep.o'])])
+                activity.assert_not_called()
+            self.assertEqual(selected.read_text(), 'needed')
+            self.assertEqual(executor.results[str(profile / 'keep.o')]['status'], 'BLOCKED')
+
+    def test_global_activity_probe_filters_paths_but_refuses_in_profile_handles(self):
+        profile = '/Volumes/kytos/cold/target/release'
+        process = Mock(returncode=0)
+        process.communicate.return_value = (b'p123\0\nn/outside/active\0\nn' + os.fsencode(profile + '/.cargo-lock') + b'\0', b'')
+        health = Mock(returncode=0, stdout='')
+        with patch.object(cleanup, 'ACTIVITY_FAILURE', None), \
+             patch.object(cleanup.subprocess, 'run', return_value=health), \
+             patch.object(cleanup.subprocess, 'Popen', return_value=process) as spawn:
+            cleanup.check_activity(profile, recursive=False)
+            self.assertEqual(spawn.call_args.args[0], ['/usr/sbin/lsof', '-n', '-P', '-F0n'])
+            process.communicate.return_value = (b'p123\0\nn' + os.fsencode(profile + '/deps/in-use') + b'\0', b'')
+            with self.assertRaisesRegex(ValueError, 'open handles'):
+                cleanup.check_activity(profile, recursive=False)
+            process.kill.assert_not_called()
+
     def test_preservation_requires_matching_live_identity_and_content(self):
         with tempfile.TemporaryDirectory() as root:
             archive = (Path(root) / 'capsule.tar').resolve()
@@ -35,6 +146,30 @@ class CleanupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'changed'):
                 cleanup.verify_preservation(item)
             self.assertEqual(archive.read_bytes(), b'different')
+
+    def test_completed_receipt_is_preserved_and_recreated_path_is_never_replayed(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = str(Path(root) / 'original')
+            item = {'cleanup_paths': [path]}
+            executor = cleanup.Cleanup.__new__(cleanup.Cleanup)
+            executor.results = {path: {'status': 'DELETED_VERIFIED', 'identity': {'inode': 123}}}
+            executor.event = Mock()
+            executor.direct('example', item)
+            self.assertEqual(executor.results[path]['status'], 'DELETED_VERIFIED')
+            Path(path).write_text('new work')
+            executor.direct('example', item)
+            self.assertEqual(executor.results[path]['status'], 'BLOCKED')
+            self.assertEqual(Path(path).read_text(), 'new work')
+
+    def test_indexed_current_native_options_are_used_without_changing_approvals(self):
+        target = Path('/source/target')
+        plans = [{'command': [cleanup.REAP, 'plan', '/source', '--quick', '--verbose', '--stale-debug', '14']}]
+        item = {'native_plan_numbers': [0], 'cleanup_paths': ['/source/target/debug/deps/old']}
+        self.assertEqual(cleanup.native_command([item], target, plans),
+                         [cleanup.REAP, 'plan', '/source', '--stale-debug', '14', '--quick', '--verbose'])
+        self.assertNotIn('cargo_plan', item)
+        with self.assertRaisesRegex(ValueError, 'ambiguous'):
+            cleanup.native_command([{**item, 'native_plan_numbers': [7]}], target, plans)
 
     def test_unguarded_compiler_paths_never_fall_back_to_direct_deletion(self):
         item = {'host': cleanup.HOST, 'path': '/compiler/group', 'decision': 'DELETE',
