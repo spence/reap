@@ -171,6 +171,16 @@ class CleanupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ambiguous'):
             cleanup.native_command([{**item, 'native_plan_numbers': [7]}], target, plans)
 
+    def test_saved_native_target_binding_does_not_need_a_manufactured_marker(self):
+        item = {'native_plan_numbers': [0], 'cleanup_paths': ['/source/target/debug/deps/old']}
+        plan = {'exit': 0, 'planning_only_no_apply': True,
+                'summary': ['reap DRY-RUN (nothing deleted)', '    target : /source/target']}
+        self.assertEqual(cleanup.cargo_target(item, [plan]), Path('/source/target'))
+        self.assertIsNone(cleanup.cargo_target(item, [{**plan, 'exit': 1}]))
+        self.assertIsNone(cleanup.cargo_target(item, [{**plan, 'summary': ['    target : /']}]))
+        self.assertIsNone(cleanup.cargo_target(item, [{**plan, 'planning_only_no_apply': False}]))
+        self.assertNotIn('cargo_plan', item)
+
     def test_unguarded_compiler_paths_never_fall_back_to_direct_deletion(self):
         item = {'host': cleanup.HOST, 'path': '/compiler/group', 'decision': 'DELETE',
                 'cleanup_authorized': True, 'cleanup_paths': ['/compiler/old.o'],

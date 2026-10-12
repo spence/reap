@@ -174,10 +174,18 @@ def cargo_profiles(target, approved_paths=None):
     return out
 
 
-def cargo_target(item):
+def cargo_target(item, plans=None):
     target = item.get('cargo_target') or item.get('cargo_plan', {}).get('target') or item.get('native_plan', {}).get('target')
     if target:
         return Path(target)
+    numbers = item.get('native_plan_numbers', [])
+    if plans and len(numbers) == 1 and isinstance(numbers[0], int) and 0 <= numbers[0] < len(plans):
+        plan = plans[numbers[0]]
+        targets = [line.strip()[9:] for line in plan.get('summary', []) if line.strip().startswith('target : ')]
+        if plan.get('exit') == 0 and plan.get('planning_only_no_apply') is True and len(targets) == 1:
+            target = Path(targets[0])
+            if target.is_absolute() and str(target) != '/':
+                return target
     paths = item.get('cleanup_paths', [])
     if not paths:
         return None
@@ -786,6 +794,7 @@ class Cleanup:
             if project_filter and project != project_filter:
                 continue
             source, review = self.reviews[project]
+            plans = review.get('content_audit_continuation', {}).get('current_native_reap_plans', {}).get('plans', [])
             items = [x for x in review.get('decisions', []) if authorized(x, 'DELETE') and x.get('host', review.get('host')) == HOST]
             quarantine = [x for x in review.get('quarantine_decisions', []) if authorized(x, 'PURGE_NOW') and x.get('host', review.get('host')) == HOST]
             if only == 'direct':
@@ -821,7 +830,7 @@ class Cleanup:
                     if profile is not None:
                         compiler_jobs[profile].append(item)
                         continue
-                target = cargo_target(item)
+                target = cargo_target(item, plans)
                 if target:
                     jobs[target].append(item)
                 elif compiler_item(item):
