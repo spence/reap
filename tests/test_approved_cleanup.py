@@ -342,6 +342,31 @@ class CleanupTests(unittest.TestCase):
                 cleanup.tree_guard(str(slot), allow_git_pointer=str(root / 'other'))
             self.assertTrue(pointer.exists())
 
+    def test_quarantine_git_exception_is_exact_and_does_not_relax_ordinary_markers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            slot = Path(temp) / 'slot'
+            git = slot / 'payload/.git'
+            git.mkdir(parents=True)
+            (git / 'config').write_text('historical clone metadata')
+            for p in (slot, git.parent, git, git / 'config'):
+                os.utime(p, (time.time() - 7200, time.time() - 7200))
+            with self.assertRaisesRegex(ValueError, 'protected marker'):
+                cleanup.tree_guard(str(slot))
+            cleanup.tree_guard(str(slot), quarantine_git_root=str(git))
+            with self.assertRaisesRegex(ValueError, 'protected marker'):
+                cleanup.tree_guard(str(slot), quarantine_git_root=str(slot / 'another/.git'))
+            (git.parent / '.reap-lease').write_text('new independent lease')
+            with self.assertRaisesRegex(ValueError, 'protected marker'):
+                cleanup.tree_guard(str(slot), quarantine_git_root=str(git))
+            self.assertTrue(git.exists())
+
+    def test_quarantine_historical_variant_waiver_is_required_when_variants_exist(self):
+        item = {'recoverability': {'retained_git_directory': '/retained/.git', 'proof_revision': 'example',
+                                  'qualified_interface_checkout': '/retained/interface',
+                                  'optional_historical_fragments': {'object_count': 1, 'discard_authorized_by_owner': False}}}
+        with self.assertRaisesRegex(ValueError, 'not authorized for discard'):
+            cleanup.verify_quarantine_source(item)
+
     def test_workspace_lease_does_not_override_exact_cargo_cleanup_authority(self):
         executor = cleanup.Cleanup.__new__(cleanup.Cleanup)
         root = '/Volumes/kytos/leased-workspace'

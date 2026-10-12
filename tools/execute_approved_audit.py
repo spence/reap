@@ -290,7 +290,7 @@ def remove_path(path):
     shutil.rmtree(path)
 
 
-def tree_guard(path, minimum_age=600, allow_git_pointer=None):
+def tree_guard(path, minimum_age=600, allow_git_pointer=None, quarantine_git_root=None):
     root = os.lstat(path)
     newest = root.st_mtime
     todo = [path] if stat.S_ISDIR(root.st_mode) else []
@@ -309,7 +309,8 @@ def tree_guard(path, minimum_age=600, allow_git_pointer=None):
                     if not below(gitdir, allow_git_pointer):
                         raise ValueError(f'Git metadata is not retained in the approved root: {entry.path}')
                     continue
-                if entry.name in ('.reap-lease', '.reap-parent', '.reap', '.git'):
+                quarantine_git = entry.name == '.git' and entry.path == quarantine_git_root and stat.S_ISDIR(s.st_mode)
+                if entry.name in ('.reap-lease', '.reap-parent', '.reap', '.git') and not quarantine_git:
                     raise ValueError(f'protected marker: {entry.path}')
                 if not (stat.S_ISDIR(s.st_mode) or stat.S_ISREG(s.st_mode) or stat.S_ISLNK(s.st_mode)):
                     raise ValueError(f'special file: {entry.path}')
@@ -323,6 +324,32 @@ def tree_guard(path, minimum_age=600, allow_git_pointer=None):
 
 def verify_quarantine_source(item):
     recovery = item.get('recoverability', {})
+    if isinstance(recovery, dict) and recovery.get('retained_git_directory'):
+        common = recovery['retained_git_directory']
+        revision = recovery['proof_revision']
+        interface = recovery['qualified_interface_checkout']
+        optional = recovery.get('optional_historical_fragments', {})
+        if optional.get('object_count', 0) and optional.get('discard_authorized_by_owner') is not True:
+            raise ValueError('historical Git variants are not authorized for discard')
+        if not os.path.isdir(common) or os.path.realpath(common) != common or not os.path.isdir(interface) or os.path.realpath(interface) != interface:
+            raise ValueError('retained canonical source is unavailable')
+        env = {**os.environ, 'GIT_OPTIONAL_LOCKS': '0'}
+        checks = [
+            ['/usr/bin/git', '--git-dir', common, 'cat-file', '-e', revision + '^{commit}'],
+            ['/usr/bin/git', '-C', interface, 'cat-file', '-e', recovery['qualified_interface_revision'] + '^{commit}'],
+        ]
+        head = subprocess.run(['/usr/bin/git', '-C', item['payload_path'], 'rev-parse', '--verify', 'HEAD^{commit}'],
+                              capture_output=True, text=True, timeout=15, env=env)
+        if head.returncode:
+            raise ValueError('quarantined source HEAD is unavailable')
+        checks.append(['/usr/bin/git', '--git-dir', common, 'merge-base', '--is-ancestor', head.stdout.strip(), 'refs/remotes/origin/main'])
+        for command in checks:
+            result = subprocess.run(command, capture_output=True, timeout=15, env=env)
+            if result.returncode:
+                raise ValueError(f'retained canonical source check failed: {result.stderr[:200]!r}')
+        return common, {'retained_revision': revision, 'retained_git_directory': common,
+                        'quarantine_head': head.stdout.strip(), 'head_in_retained_main': True,
+                        'optional_historical_variants_discard_authorized': optional.get('discard_authorized_by_owner') is True}
     if not isinstance(recovery, dict) or not recovery.get('preserve_this_ref_and_git_root'):
         return None, None
     common, revision, ref = (recovery[k] for k in ('git_common_root', 'git_revision', 'git_ref'))
@@ -701,7 +728,11 @@ class Cleanup:
         payload = item['payload_path']
         slot = str(QUARANTINE / 'entries' / entry_id)
         try:
+            if not authorized(item, 'PURGE_NOW'):
+                raise ValueError('permanent quarantine purge is not authorized')
             self.current(project)
+            self.refresh_leases()
+            self.path_guard(slot, project)
             with (QUARANTINE / 'index.json').open() as f:
                 index = json.load(f)
             if entry_id in index.get('held_ids', []):
@@ -714,8 +745,12 @@ class Cleanup:
                 raise ValueError('quarantine index/payload mismatch')
             if any(overlap(entries[0]['original_path'], p) for p in PROTECTED):
                 raise ValueError('protected original path')
+            for retained in item.get('retained_paths', []):
+                if below(retained, slot) or not os.path.lexists(retained):
+                    raise ValueError(f'retained quarantine recovery path unavailable or inside disposal: {retained}')
             git_common, recovery_receipt = verify_quarantine_source(item)
-            before = tree_guard(slot, allow_git_pointer=git_common)
+            git_root = str(Path(payload) / '.git') if git_common and recovery_receipt and recovery_receipt.get('head_in_retained_main') else None
+            before = tree_guard(slot, allow_git_pointer=git_common, quarantine_git_root=git_root)
             check_activity(slot)
             diagnosis = subprocess.run([REAP, 'doctor', '--quarantine', '--id', entry_id], capture_output=True, text=True, timeout=40)
             if diagnosis.returncode or 'blocked' in diagnosis.stdout.lower() and not re.search(r'blocked 0', diagnosis.stdout):
