@@ -65,6 +65,38 @@ def authorized(item, decision):
     return item.get('decision') == decision and item.get('cleanup_authorized') is True and not completed(item)
 
 
+def compiler_item(item):
+    scope = item.get('cleanup_scope', '')
+    return 'LISTED_COMPILER_FILES' in scope or 'category path is a grouping key' in scope or 'mirrored scoped parent permission' in scope
+
+
+def verify_preservation(item):
+    proof = item.get('preservation_verified')
+    if not proof:
+        return
+    if not isinstance(proof, dict) or proof.get('status') != 'PRESERVATION_COMPLETED_AND_INDEPENDENTLY_VERIFIED':
+        raise ValueError('required preservation is not verified')
+    destination = proof.get('destination')
+    if not destination:
+        raise ValueError('preservation destination is not an exact archive')
+    expected = proof.get('destination_identity', {})
+    if not all(k in expected for k in ('device', 'inode', 'size_bytes', 'mtime_ns')):
+        raise ValueError('preservation identity is incomplete')
+    if os.path.realpath(destination) != destination or not stat.S_ISREG(os.lstat(destination).st_mode):
+        raise ValueError('unsafe preservation archive')
+    before = check_identity(destination, expected)
+    digest = proof.get('capsule_sha256') or proof.get('archive_sha256')
+    if not digest or not re.fullmatch(r'[0-9a-f]{64}', digest):
+        raise ValueError('preservation content digest is missing')
+    with open(destination, 'rb') as source:
+        actual = hashlib.sha256()
+        for block in iter(lambda: source.read(4 * 1024 * 1024), b''):
+            actual.update(block)
+    if actual.hexdigest() != digest:
+        raise ValueError('preservation content digest changed')
+    check_identity(destination, before)
+
+
 def metadata(path):
     s = os.lstat(path)
     return dict(device=s.st_dev, inode=s.st_ino, mode=s.st_mode,
@@ -513,6 +545,13 @@ class Cleanup:
             self.event(project, str(target), 'cargo', 'BLOCKED', {'reason': str(e), 'count': len(allowed)})
 
     def direct(self, project, item):
+        try:
+            verify_preservation(item)
+        except (OSError, ValueError) as e:
+            for path in item['cleanup_paths']:
+                self.results[path] = {'status': 'BLOCKED', 'reason': str(e)}
+                self.event(project, path, 'direct', 'BLOCKED', self.results[path])
+            return
         for path in item['cleanup_paths']:
             if not os.path.lexists(path):
                 with (QUARANTINE / 'index.json').open() as f:
@@ -534,6 +573,9 @@ class Cleanup:
                     for retained in item.get('retained_paths', []):
                         if retained != path and not below(retained, path) and not os.path.lexists(retained):
                             raise ValueError(f'retained recovery path absent: {retained}')
+                    proof = item.get('preservation_verified')
+                    if proof:
+                        check_identity(proof['destination'], proof['destination_identity'])
                     before = tree_guard(path)
                     check_activity(path)
                     self.event(project, path, 'direct', 'PLANNED', {'identity': before})
@@ -618,7 +660,10 @@ class Cleanup:
             review['approved_cleanup_execution'] = {'run_id': self.run_ids[project], **receipt}
             summary = review.setdefault('summary', {})
             summary['approved_cleanup_execution'] = {'run_id': self.run_ids[project], **receipt}
-            summary['execution_status'] = 'PARTIAL_GUARD_BLOCKED' if counts['BLOCKED'] else 'COMPLETED_VERIFIED'
+            remaining = sum(len(x.get('cleanup_paths', [])) for x in review.get('decisions', []) if authorized(x, 'DELETE'))
+            remaining += sum(authorized(x, 'PURGE_NOW') for x in review.get('quarantine_decisions', []))
+            summary['execution_status'] = 'PARTIAL_GUARD_BLOCKED' if counts['BLOCKED'] else 'PARTIAL_EXECUTION_PENDING' if remaining else 'COMPLETED_VERIFIED'
+            summary['remaining_authorized_cleanup_selectors'] = remaining
             if 'current_approved_cleanup_paths' in summary:
                 summary['current_approved_cleanup_paths'] = sum(len(x.get('cleanup_paths', [])) for x in items if authorized(x, 'DELETE'))
             if 'current_approved_native_cargo_artifacts' in summary:
@@ -637,12 +682,22 @@ class Cleanup:
             self.c.rollback()
             raise
 
-    def run(self):
+    def run(self, project_filter=None, only='all'):
         order = sorted(self.reviews, key=lambda p: p != 'github.com/spence/micro')
         for project in order:
+            if project_filter and project != project_filter:
+                continue
             source, review = self.reviews[project]
             items = [x for x in review.get('decisions', []) if authorized(x, 'DELETE') and x.get('host', review.get('host')) == HOST]
             quarantine = [x for x in review.get('quarantine_decisions', []) if authorized(x, 'PURGE_NOW') and x.get('host', review.get('host')) == HOST]
+            if only == 'direct':
+                items = [x for x in items if not compiler_item(x) and not cargo_target(x) and '/reap-quarantine/' not in x['path']]
+                quarantine = []
+            elif only == 'cargo':
+                items = [x for x in items if compiler_item(x) or cargo_target(x)]
+                quarantine = []
+            elif only == 'purge':
+                items = [x for x in items if '/reap-quarantine/' in x['path']]
             if not items and not quarantine:
                 continue
             if self.apply:
@@ -657,6 +712,9 @@ class Cleanup:
                 target = cargo_target(item)
                 if target:
                     jobs[target].append(item)
+                elif compiler_item(item):
+                    for path in item['cleanup_paths']:
+                        self.results[path] = {'status': 'BLOCKED', 'reason': 'exact compiler cleanup requires a guarded profile executor'}
                 else:
                     direct.append(item)
             for target, subset in jobs.items():
@@ -675,7 +733,9 @@ class Cleanup:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--project', help='Execute only this canonical project; other reviews remain untouched.')
+    parser.add_argument('--only', choices=('all', 'direct', 'cargo', 'purge'), default='all')
     args = parser.parse_args()
     if socket.gethostname() != HOST or not os.path.ismount('/Volumes/kytos'):
         raise SystemExit('This executor requires catalyst-mini.local with Kytos mounted.')
-    Cleanup(BASE / 'audit.sqlite', args.apply).run()
+    Cleanup(BASE / 'audit.sqlite', args.apply).run(args.project, args.only)

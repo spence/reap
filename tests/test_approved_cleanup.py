@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import os
 import sqlite3
@@ -18,6 +19,52 @@ SPEC.loader.exec_module(cleanup)
 
 
 class CleanupTests(unittest.TestCase):
+    def test_preservation_requires_matching_live_identity_and_content(self):
+        with tempfile.TemporaryDirectory() as root:
+            archive = (Path(root) / 'capsule.tar').resolve()
+            archive.write_bytes(b'retained source and proof')
+            proof = {'status': 'PRESERVATION_COMPLETED_AND_INDEPENDENTLY_VERIFIED',
+                     'destination': str(archive), 'destination_identity': cleanup.metadata(archive),
+                     'capsule_sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}
+            item = {'preservation_verified': proof}
+            cleanup.verify_preservation(item)
+            proof['capsule_sha256'] = '0' * 64
+            with self.assertRaisesRegex(ValueError, 'digest changed'):
+                cleanup.verify_preservation(item)
+            archive.write_bytes(b'different')
+            with self.assertRaisesRegex(ValueError, 'changed'):
+                cleanup.verify_preservation(item)
+            self.assertEqual(archive.read_bytes(), b'different')
+
+    def test_unguarded_compiler_paths_never_fall_back_to_direct_deletion(self):
+        item = {'host': cleanup.HOST, 'path': '/compiler/group', 'decision': 'DELETE',
+                'cleanup_authorized': True, 'cleanup_paths': ['/compiler/old.o'],
+                'cleanup_scope': 'EXACT_EXISTING_LISTED_COMPILER_FILES_AND_SYMLINK_ENTRIES_ONLY'}
+        executor = cleanup.Cleanup.__new__(cleanup.Cleanup)
+        executor.apply, executor.results = False, {}
+        executor.reviews = {'example': (1, {'decisions': [item]})}
+        executor.direct = Mock()
+        with patch.object(cleanup, 'cargo_target', return_value=None), patch.object(cleanup, 'emit'):
+            executor.run()
+        executor.direct.assert_not_called()
+        self.assertEqual(executor.results['/compiler/old.o']['status'], 'BLOCKED')
+
+    def test_project_and_direct_phase_filter_preserve_other_approvals(self):
+        direct = {'host': cleanup.HOST, 'path': '/export', 'decision': 'DELETE',
+                  'cleanup_authorized': True, 'cleanup_paths': ['/export']}
+        compiler = {**direct, 'path': '/compiler', 'cleanup_scope': 'EXACT_EXISTING_LISTED_COMPILER_FILES_ONLY'}
+        other = {**direct, 'path': '/other'}
+        executor = cleanup.Cleanup.__new__(cleanup.Cleanup)
+        executor.apply, executor.results = False, {}
+        executor.reviews = {'example': (1, {'decisions': [direct, compiler]}),
+                            'other': (2, {'decisions': [other]})}
+        executor.direct = Mock()
+        with patch.object(cleanup, 'cargo_target', return_value=None), patch.object(cleanup, 'emit'):
+            executor.run('example', 'direct')
+        executor.direct.assert_called_once_with('example', direct)
+        self.assertTrue(compiler['cleanup_authorized'])
+        self.assertTrue(other['cleanup_authorized'])
+
     def test_only_current_explicit_uncompleted_approval_is_authority(self):
         item = {'decision': 'DELETE', 'cleanup_authorized': True}
         self.assertTrue(cleanup.authorized(item, 'DELETE'))
