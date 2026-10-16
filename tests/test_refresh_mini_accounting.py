@@ -222,6 +222,47 @@ class AccountingTests(unittest.TestCase):
         c, _ = self.capture()
         self.assertEqual(c.execute('SELECT project_id FROM items WHERE path=?',
                                   (str(repo),)).fetchone()[0], self.pid)
+        self.assertNotIn('github.com/other/source', self.evidence.projects)
+
+    def test_dated_project_assignment_survives_differing_code_origin(self):
+        repo = self.root / 'known-storage'
+        (repo / '.git').mkdir(parents=True)
+        (repo / '.git/config').write_text('[remote "origin"]\n url = git@github.com:other/fork.git\n')
+        self.add_rule(repo, priority=10)
+        c, _ = self.capture()
+        self.assertEqual(c.execute('SELECT project_id FROM items WHERE path=?',
+                                  (str(repo),)).fetchone()[0], self.pid)
+        self.assertNotIn('github.com/other/fork', self.evidence.projects)
+
+    def test_parent_project_association_survives_nested_git_fork(self):
+        repo = self.root / 'v8-source' / 'fork'
+        (repo / '.git').mkdir(parents=True)
+        (repo / '.git/config').write_text('[remote "origin"]\n url = git@github.com:other/fork.git\n')
+        self.add_rule(self.root, priority=70)
+        c, _ = self.capture()
+        self.assertEqual(c.execute('SELECT project_id FROM items WHERE path=?',
+                                  (str(repo),)).fetchone()[0], self.pid)
+
+    def test_git_config_indentation_does_not_create_multiline_project_id(self):
+        repo = self.root / 'config-case'
+        (repo / '.git').mkdir(parents=True)
+        (repo / '.git/config').write_text(
+            '[remote "origin"]\n url = git@github.com:other/project.git\n'
+            '\t\t fetch = +refs/heads/*:refs/remotes/origin/*\n')
+        self.assertEqual(audit.git_identity(str(repo), self.evidence), 'github.com/other/project')
+
+    def test_local_file_remote_resolves_to_existing_project(self):
+        repo = self.root / 'local-clone'
+        (repo / '.git').mkdir(parents=True)
+        (repo / '.git/config').write_text('[remote "origin"]\n url = ' + self.root.as_uri() + '\n')
+        self.add_rule(self.root)
+        self.assertEqual(audit.git_identity(str(repo), self.evidence), self.pid)
+        self.assertIsNone(audit.repository_key(self.root.as_uri()))
+
+    def test_github_case_reuses_canonical_existing_identifier(self):
+        canonical = 'github.com/Example/Project'
+        self.evidence.aliases[canonical] = canonical
+        self.assertEqual(self.evidence.project_for('github.com/example/project'), canonical)
 
     def test_fresh_git_identity_resolves_old_unknown(self):
         repo = self.root / 'new-project'

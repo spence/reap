@@ -2,7 +2,6 @@
 
 import argparse
 import collections
-import configparser
 import datetime
 import hashlib
 import json
@@ -14,7 +13,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from audit_exclusions import Exclusions
 
@@ -125,6 +124,10 @@ class Evidence:
     def project_for(self, value):
         if not isinstance(value, str):
             return None
+        if value.startswith('github.com/'):
+            for alias, pid in self.aliases.items():
+                if pid and alias.casefold() == value.casefold():
+                    return pid
         if value in self.projects:
             return value
         if self.aliases.get(value):
@@ -133,7 +136,7 @@ class Evidence:
             rule = self.at(value)
             return rule['project_id'] if rule else None
         key = repository_key(value)
-        return self.aliases.get(key, key if key in self.projects else None)
+        return self.project_for(key) if key and key != value else None
 
     def load(self, previous):
         c = readonly(previous)
@@ -337,10 +340,12 @@ class Accountant:
             git = git_identity(path, self.evidence)
             if git:
                 pid = git
-                if pid not in self.evidence.projects:
-                    self.evidence.projects[pid] = {'project_id': pid, 'primary_root': None,
-                                                   'identity_basis': 'Fresh local Git origin identity'}
-                if selected['priority'] < 100:
+                if selected['priority'] < 100 and selected['project_id'] is None:
+                    if pid not in self.evidence.projects:
+                        self.evidence.projects[pid] = {
+                            'project_id': pid, 'primary_root': None,
+                            'identity_basis': 'Fresh local Git origin identity',
+                        }
                     selected = owner(pid, pid, 'Fresh Git repository identity', 80)
                 git_scope = path
         if path.startswith('/Volumes/kytos/') and path.count('/') == 3 and os.path.basename(path).startswith(METADATA_NAMES):
@@ -370,7 +375,9 @@ class Accountant:
                           for p in self.evidence.projects.values())
             top = '/Volumes/kytos/' + path[len('/Volumes/kytos/'):].split('/')[0] if path.startswith('/Volumes/kytos/') else None
             row = [path, os.path.dirname(path), root, top, kind, 'PRESENT', selected['project_id'],
-                   selected['bucket'], selected['basis'], 'confirmed_prior' if selected['priority'] >= 100 else
+                   selected['bucket'], selected['basis'],
+                   'inherited_accounting' if selected['basis'].startswith('Inherited accounting:') else
+                   'confirmed_prior' if selected['priority'] >= 100 else
                    'live_git' if selected['priority'] == 80 else 'carried_forward' if selected['priority'] else 'unknown',
                    selected.get('review_id'), s.st_dev, s.st_ino, s.st_mtime_ns, link]
         else:
@@ -423,17 +430,23 @@ def repository_key(remote):
     if not isinstance(remote, str):
         return None
     remote = remote.strip()
+    if any(c.isspace() for c in remote):
+        return None
     if '://' in remote:
         url = urlsplit(remote)
-        key = (url.hostname or '') + '/' + url.path.lstrip('/')
+        if not url.hostname or url.scheme == 'file':
+            return None
+        host, path = url.hostname, url.path
     elif ':' in remote and not remote.startswith('/'):
         host, path = remote.split(':', 1)
-        host = host.rsplit('@', 1)[-1]
+        host = host.rsplit('@', 1)[-1].lower()
         if host.startswith('github-'):
             host = 'github.com'
-        key = host + '/' + path.lstrip('/')
     else:
         return None
+    if '.' not in host or not path.strip('/'):
+        return None
+    key = host + '/' + path.lstrip('/')
     return key.removesuffix('.git').rstrip('/') if '/' in key else None
 
 
@@ -465,15 +478,21 @@ def git_identity(path, evidence):
     if config.is_symlink():
         return None
     try:
-        parser = configparser.RawConfigParser(strict=False)
-        with config.open() as stream:
-            parser.read_string(stream.read(256 * 1024))
-        remote = parser.get('remote "origin"', 'url', fallback=None)
+        result = subprocess.run(
+            ['git', 'config', '--file', str(config), '--get', 'remote.origin.url'],
+            capture_output=True, text=True, timeout=10,
+            env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'},
+        )
+        if result.returncode:
+            return None
+        remote = result.stdout.strip()
         if remote and remote.startswith('/'):
             return evidence.project_for(remote)
+        if remote.startswith('file://'):
+            return evidence.project_for(unquote(urlsplit(remote).path))
         key = repository_key(remote)
-        return evidence.aliases.get(key, key)
-    except (OSError, UnicodeError, configparser.Error, ValueError):
+        return evidence.project_for(key) or key
+    except (OSError, UnicodeError, ValueError, subprocess.TimeoutExpired):
         return None
 
 
@@ -533,7 +552,8 @@ def capture(previous, output, roots, evidence):
                    'measurement': 'Allocated st_blocks bytes; hardlinks counted once in traversal order. '
                                   'APFS clone/shared extents are not deduplicated. Incomplete sizes are NULL, '
                                   'with measured lower bounds retained. Snapshot is live, not atomic.',
-                   'attribution': 'Fresh Git/provenance plus existing exact claims and dated assignments. '
+                   'attribution': 'Existing project association takes precedence over differing Git code origins. '
+                                  'Fresh Git/provenance resolves unowned paths. '
                                   'Inherited accounting never grants child ownership or cleanup authority.'}
         c.execute('INSERT INTO metadata VALUES (?,?)', ('summary', json.dumps(summary)))
         c.commit()
