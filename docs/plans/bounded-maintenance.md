@@ -1,4 +1,4 @@
-# Reap maintenance resource redesign
+# Reap maintenance efficiency redesign
 
 Status: proposal for owner review · 2026-10-17. No implementation or operational change is
 authorized by this document. The implementation milestones below are proposed, not accepted Burn
@@ -7,14 +7,19 @@ the Burn graph only after review.
 
 ## Recommendation
 
-Make scheduled maintenance a bounded consumer of known cleanup locations, with incremental
-discovery alongside it. Stop rediscovering the entire source tree separately for each stage.
-Preserve every existing deletion, retention, identity, activity, mount, lock and recovery check.
+Reduce the filesystem work maintenance performs: discover cleanup locations once per invocation,
+share those results between stages, and avoid recursive walks that cannot affect a cleanup
+decision. Preserve every existing deletion, retention, identity, activity, mount, lock and
+recovery check.
 
-Use one machine-local advisory catalog and a fair, resumable work queue. A catalog entry means
-"inspect here," never "this may be deleted." Keep the existing launchd jobs and standalone CLI
-workflows; do not introduce another daemon, mandatory project registration, a filesystem watcher,
-or the audit SQLite database into the cleanup path.
+Reap must run without checking available CPU, host load or its accumulated CPU consumption to
+decide whether it may proceed. There is no runtime CPU allowance, adaptive throttling or
+CPU-based deferral. CPU measurements belong to external development profiling and performance
+tests, not the cleanup algorithm. Existing lock and safety-probe timeouts remain independent.
+
+Keep the existing launchd jobs and standalone CLI workflows. Start without a persistent catalog
+or work queue; do not introduce another daemon, mandatory project registration, a filesystem
+watcher, or the audit SQLite database into the cleanup path.
 
 ## Current evidence
 
@@ -51,104 +56,91 @@ Repeated discovery and long no-reclaim stages are demonstrated. The latest CPU b
 discovery, sizing, retention planning and guards is not: the store process exited before the
 attempted stack sample. Host pressure is a confounding factor, not proof of a particular hot loop.
 
-## End state and proposed budgets
+## End state and acceptance
 
 Ordinary maintenance must preserve responsiveness while continuing to discover and clean
 authorized data. A faster no-op achieved by silently overlooking work does not satisfy the goal.
 
 Acceptance properties:
 
-- **P1 Resource cost:** unchanged steady-state maintenance is cheap; expensive discovery and
-  planning yield at bounded checkpoints instead of monopolizing a run.
-- **P2 Useful coverage:** known eligible units progress; new locations are discovered without
-  manual registration; interrupted discovery resumes fairly rather than restarting or starving.
-- **P3 Safety:** stale accounting or a resource deadline never supplies cleanup permission.
-- **P4 Visibility:** operators can see the active stage, work performed, budget used, deferred
-  work, discovery coverage/freshness and refusal reason while a run is in progress.
+- **P1 Work efficiency:** maintenance eliminates duplicate discovery and unnecessary sizing;
+  external benchmarks demonstrate lower CPU time and elapsed time for equivalent work.
+- **P2 Useful coverage:** maintenance discovers the same eligible locations without manual
+  registration and processes authorized work without CPU-based admission decisions.
+- **P3 Safety:** shared discovery and reduced accounting never supply cleanup permission or
+  bypass fresh executor checks.
+- **P4 Visibility:** operators can see the active stage, elapsed time, work performed, incomplete
+  coverage and refusal reason while a run is in progress.
 - **P5 Compatibility:** standalone commands retain their documented scopes, existing data/config
   remain valid, and the installed binary/skill/signing guarantees hold on both Macs.
 
-Proposed initial acceptance targets, subject to owner approval and M1 feasibility proof:
+Acceptance checks for the proposed change:
 
-| Workload | Target |
+| Concern | Required proof |
 | --- | --- |
-| Warm, unchanged maintenance with no eligible cleanup | At most 10 seconds wall time and 2 aggregate CPU-seconds per run |
-| Scheduled discovery and planning slice | At most 30 seconds wall time and 5 aggregate CPU-seconds before yielding |
-| Discovery behavior | No repeated root-wide walk for separate stages; no implicit unbounded rescan on a catalog miss |
-| Discovery coverage | A static tree is fully reconciled within 24 existing hourly invocations; direct additions under known managed locations are seen on the next successful invocation |
-| Resource accounting | Include child processes; record filesystem work and peak memory alongside CPU/wall time |
+| Discovery work | One shared root-discovery traversal per maintenance invocation, not one per stage |
+| Discovery coverage | On an unchanged readable tree, candidate sets match the independent reference traversal in the same invocation |
+| Reporting-only work | No recursive sizing of retained or unmatched content solely to refresh a displayed size when sizing is not required for a decision or guard |
+| Performance | Three paired read-only runs on equivalent Mini inputs show lower median total CPU time and elapsed time, including children, without reduced coverage |
+| Runtime independence | No host-load or CPU-consumption query controls whether maintenance runs, continues or handles a candidate |
 
-CPU-seconds are core time, not a sampled CPU percentage. The warm-run target excludes first
-bootstrap and actual deletion/move work, which must be reported separately. A changed or incomplete
-tree must not be relabeled as a warm no-op. Measure the Mini with representative live load; record
-contention rather than stopping foreign work to manufacture a pass.
-
-These are proposed product targets, not existing guarantees. Kernel-blocked filesystem calls and
-safe completion of an already-started mutation cannot be promised a hard wall deadline. Admit
-cleanup one bounded unit at a time; budget checks must not interrupt an unjournaled move or erase
-its recovery state. Units that cannot safely fit the background path remain protected and visibly
-require foreground handling; this must not quietly become the disposition of most real cleanup.
+Performance measurements are developer verification, not runtime thresholds or permission checks.
+Record cold and warm runs separately, hold the compared workload constant, and include child
+processes so cost is not merely moved elsewhere. A changed or incomplete tree must not be
+relabeled as an unchanged no-op. Record contention rather than stopping foreign work to manufacture
+a pass. There is no promise of a hard wall deadline for filesystem calls or safe mutations.
 
 ## Proposed design
 
-### One discovery source and an advisory catalog
+### One shared discovery pass
 
 Discover Cargo target markers and project manifests in one traversal, with existing exclusions,
 pruning, symlink and mount rules preserved. Feed the resulting candidate locations to both stages
-without another broad walk. Preserve standalone discovery as a live caller, not a hidden fallback
-inside scheduled maintenance.
+without another broad walk. Keep results scoped to the invocation; select the smallest interface
+that lets maintenance share them while standalone commands retain their full discovery scopes.
+Do not make cleanup depend on prior registration or a persisted inventory.
 
-Persist only the candidate locations, identity/config generation, coverage/freshness and unfinished
-discovery work needed across runs, using Reap's existing atomic state-write discipline. Do not
-persist executable approvals or turn this into a second project inventory. Resolve the exact
-cursor representation in M2: a changed directory listing must not create a false "scan complete."
+Discovery identifies places to inspect, not permission to delete. On read errors, root replacement
+or volume disappearance, report incomplete coverage or a guarded refusal. Do not follow a
+substituted path, create data on an unmounted volume's fallback directory, or silently block all
+unrelated healthy locations.
 
-On missing/corrupt state, root replacement, configuration changes or volume disappearance, mark
-coverage incomplete and reconcile within budget. Do not follow a substituted path, create data
-on an unmounted volume's fallback directory, or silently block all unrelated healthy locations.
-Refresh candidates from known locations and the existing creation/store workflows where useful;
-bounded reconciliation remains the backstop for editor-created and otherwise unregistered work.
+### Avoid unnecessary deep work
 
-### Bound work beyond discovery
+Prefer cheap decisive refusals before a deep walk where doing so preserves the existing decision.
+Stop walking retained/unmatched data merely to print a fresh size when an explicit unknown size
+suffices. Prove that sizing is not needed for candidate selection, retention or a safety guard
+before skipping it. Profile per-target planning, store-child evaluation and retirement assessment
+to find other repeated reads; optimize demonstrated waste rather than adding a resource governor.
 
-Apply budgets and fair scheduling to per-target planning, recursive sizing, store-child evaluation
-and retirement assessment, not just root discovery. Prefer cheap decisive refusals before a deep
-walk. Stop walking retained/unmatched data merely to print a fresh size when an explicit unknown
-or dated estimate suffices; verify where this optimization is safe before implementing it.
-
-Cache measurements only as advisory information. A directory's unchanged mtime does not prove
-its descendants are unchanged. Before removal, reread current markers/declarations/bindings,
-retention and series protections, identity, leases/holds, Git recoverability, mounts and activity
-as required by the existing executor. Defer a unit when the required proof is unavailable or too
-expensive; never substitute a cached guard result. Do not hold the lifecycle state lock across
-global discovery or queued, unrelated work.
-
-Checkpoint read-only work and yield between safe units. Preserve original priority/fairness so a
-large target or failing store does not consume every invocation. Keep lightweight stages useful
-even when another stage has deferred work. Low-space mode may prioritize useful candidates but
-does not remove the resource policy, waive guards or trigger overlapping full scans.
+A directory's unchanged mtime does not prove its descendants are unchanged. Before removal,
+reread current markers/declarations/bindings, retention and series protections, identity,
+leases/holds, Git recoverability, mounts and activity as required by the existing executor.
+Refuse a unit when required proof is unavailable; never
+substitute a cached guard result. Do not hold the lifecycle state lock across global discovery
+or unrelated work. Preserve existing mutation journaling, recovery and serialization; do not
+interrupt a move to meet a performance target or waive guards when disk space is low.
 
 ### Live progress and honest outcomes
 
-Expose a bounded current-run record separately from the last completed receipt. Update it at
-stage boundaries and throttled work checkpoints, not on every file. Include PID/start identity,
-stage/location, CPU/wall time, entries visited, pending work, coverage and refusal/defer reason.
-An interrupted process leaves a detectable interrupted record, not a permanently "running" claim.
+Expose a small current-run record separately from the last completed receipt. Update it at
+stage boundaries and coarse progress points, not on every file. Include PID/start identity,
+stage/location, elapsed time, work completed, coverage and refusal reason; no CPU telemetry is
+needed in this record. An interrupted process leaves a detectable interrupted record, not a
+permanently "running" claim.
 
-Report complete, partial/deferred and refused outcomes distinctly. A missing candidate in a
+Report complete, partial and refused outcomes distinctly. A missing candidate in a
 partial scan is not "nothing reclaimable." Preserve the existing config/binary consistency checks,
-maintenance serialization and truthful removed/planned counts. Run scheduled work at appropriate
-native background priority; priority is not a substitute for eliminating work or enforcing budgets.
+maintenance serialization and truthful removed/planned counts. Progress reporting must not add
+another discovery or sizing pass.
 
 ## Alternatives and boundaries
 
-- A single shared traversal is the first optimization to prove. If it meets the approved budgets
-  and coverage bar without persistent state, omit the catalog; otherwise demonstrate the smallest
-  resumable design that does. Do not build an index before measuring its necessity.
+- Prove shared traversal and reduced sizing before considering persistent state. If required
+  traversal remains the dominant cost, bring the measurements and a separately scoped incremental
+  discovery proposal for review. A catalog, resumable queue or watcher is not part of this design.
 - Lower priority alone still spends the same CPU and I/O. Running less often only hides cost and
-  delays cleanup. Neither is the primary fix; schedule changes require separate owner review.
-- A recursive watcher is not the first design: it adds lifecycle and event-loss recovery work.
-  Consider it only if measured reconciliation cannot meet the accepted coverage/resource bars.
+  delays cleanup. Neither is the primary fix; this design changes neither cadence nor priority.
 - Mandatory project registration would regress Cargo auto-discovery. Registration can accelerate
   discovery, not become a prerequisite or deletion authority.
 - No broader deletion authority, weaker activity checks, automated lease/index repair, audit
@@ -163,64 +155,67 @@ These milestones are proposals for a later accepted Burn change, not implementat
 
 | Milestone | Objective | Exit gate | Risk retired | Attention |
 | --- | --- | --- | --- | --- |
-| M1 Costs and budgets established | Identify actual cost and a feasible resource/coverage contract | Attributed native baseline, selected approach demonstrated, owner-approved budgets | Optimizing the wrong work or promising impossible limits | High |
-| M2 Discovery remains complete and safe | Reduce discovery cost without losing coverage or trusting stale paths | Differential coverage, mutation/restart and authority-negative tests pass | Fast but incomplete or unsafe discovery | High |
-| M3 Maintenance is bounded and useful | Meet budgets while processing real eligible work and reporting progress | Integrated cost, fairness, guard and progress gates pass | Moving cost elsewhere, starvation, or false success | Medium |
+| M1 Improvement is demonstrated | Identify actual cost and prove that less work improves maintenance | Comparable native baseline and candidate measurements meet the performance check | Optimizing the wrong work or adding unnecessary machinery | High |
+| M2 Discovery remains complete and safe | Reduce discovery cost without losing coverage or trusting stale paths | Same-invocation differential coverage and authority-negative tests pass | Fast but incomplete or unsafe discovery | High |
+| M3 Maintenance is efficient and useful | Process real eligible work with less traversal and clear progress | Integrated work-count, cleanup, guard and progress gates pass without CPU admission | Moving cost elsewhere or hiding work behind deferral | Medium |
 | M4 Fleet behavior is demonstrated | Deliver the same verified behavior to both Macs | Installed-runtime performance and survival/cleanup proofs pass | Source-only success or installation regression | Medium |
 
 ## Milestone details
 
-### M1 Costs and budgets established
+### M1 Improvement is demonstrated
 
-Measure discovery, per-target sizing/planning, guard execution, subprocess cost and lock wait
-separately, including child CPU time and entry counts. Compare a shared traversal first, then
-budgeted/resumable discovery only if needed. Use the real Mini corpus read-only and controlled
-unchanged/changed fixtures; do not run another cleanup pass just to benchmark it.
+Use external profiling to distinguish discovery, per-target sizing/planning, guards, subprocess
+cost and lock wait. Include child CPU time and filesystem entry counts. Compare a shared traversal
+and omitted reporting-only sizing first. Use the real Mini corpus read-only and controlled
+unchanged/changed fixtures; do not run another cleanup pass just to benchmark it. This retires the
+largest uncertainty before integrating an assumed optimization throughout maintenance.
 
-Gate: committed measurements account for at least 90% of Reap/child CPU time and identify the
-remaining unattributed cost; a selected candidate demonstrates the owner-approved resource and
-coverage targets. The existing full-rescan behavior is the negative control. Record the approved
-targets and selected design in a decision before creating a standing maintenance spec or
-implementing M2/M3. Rung 3 for the candidate, with real Mini inputs.
+Gate: committed baseline/candidate measurements meet the three-paired-run performance check above,
+show equivalent candidate coverage and identify the work eliminated. Repeated discovery and
+reporting-only sizing are negative controls: the work-count check must detect their reintroduction.
+Record the selected approach and remaining measured cost before M2/M3. Rung 3 for the candidate,
+with real Mini inputs. No production CPU monitor or admission mechanism is added.
 
-Fallback: investigate the measured dominant path or return the explicit budget/coverage tradeoff
-for review. Do not change the targets silently. Depends on owner review of this proposal; no new
-daemon, watcher, database, or mutation mechanism is justified at this gate by assumption alone.
+Fallback: investigate the measured dominant path and revise the proposed optimization, not the
+coverage or safety bar. If the simple changes are insufficient, return a measured scope proposal
+for review rather than building an index or scheduler by assumption. Depends on owner review of
+this proposal; implementation remains unauthorized until then.
 
 ### M2 Discovery remains complete and safe
 
-Prove candidate discovery against an independent exhaustive traversal of a static fixture and
-the Mini's real configured roots. A budgeted partial pass reports pending coverage; after the
-agreed reconciliation window it finds the same valid targets/manifests without duplicate root
-walks. Test newly nested repositories, worktrees, aliases, exclusions, changed listings, missing
-or corrupt catalog state, remounts, replaced inodes, symlinks and restart mid-scan.
+Prove candidate discovery against an independent reference traversal of a static fixture and
+the Mini's real configured roots. It finds the same valid targets/manifests in one invocation
+without duplicate root walks. Test newly nested repositories, worktrees, aliases, exclusions,
+changed listings, remounts, replaced inodes, symlinks, read failures and interruption. This makes
+coverage loss or shared-result staleness fail before the integrated executor depends on discovery.
 
-Gate: differential candidate sets agree at completed coverage; all resumptions finish within the
-approved window; new direct managed additions meet next-invocation discovery. Seeded omissions
-and repeated traversal fail the coverage/work counters. Stale candidates, invalid markers,
-unarmed stores and replaced roots never gain authority. Rung 3; M4 supplies installed-fleet proof.
+Gate: differential candidate sets agree on unchanged readable trees; newly added locations are
+found by the next successful invocation. Seeded omissions and repeated traversal fail the
+coverage/work counters. Errors and interruption never report complete coverage. Stale candidates,
+invalid markers, unarmed stores and replaced roots never gain authority. Rung 3; M4 supplies
+installed-fleet proof.
 
-Depends on M1. Fallback: retain the safe existing foreground path, report partial coverage and
+Depends on M1. Fallback: retain the safe existing discovery path, report partial coverage and
 rework discovery; do not declare success by dropping difficult roots or requiring registration.
 
-### M3 Maintenance is bounded and useful
+### M3 Maintenance is efficient and useful
 
-Integrate the selected discovery design with budgeted stage work, fair resumption, current-run
-progress and background priority. Cover large stores, many leases, changed nested files, nested
-KEEPs, failed probes, contention, read errors and an operation too large for background handling.
-Exercise low-space admission without performing unapproved cleanup on live projects.
+Integrate shared discovery, reduced reporting-only sizing and current-run progress. Cover large
+stores, many leases, changed nested files, nested KEEPs, failed probes, contention and read errors.
+Exercise existing low-space behavior without performing unapproved cleanup on live projects.
+This proves the composed maintenance path, rather than crediting isolated traversal improvements.
 
-Gate: three consecutive representative warm runs meet the approved wall/aggregate CPU budgets;
-changed-work runs obey checkpoints and advance their queues. Controlled eligible fixtures are
-actually cleaned while retained, active and unauthorized fixtures survive. A large deferred unit
-does not starve a smaller eligible unit. Progress distinguishes waiting, refused, incomplete and
-finished work; simulated interruption leaves an interrupted record and resumable work. False
-complete coverage, stale cached permission, an intentionally repeated deep walk and a missed
-budget checkpoint must fail the gate. Rung 3 for the composed system.
+Gate: integrated read-only comparisons meet the performance and coverage checks above. Work
+counters show no repeated root discovery or unnecessary reporting-only sizing. Controlled eligible
+fixtures are actually cleaned while retained, active and unauthorized fixtures survive. No CPU/load
+query controls execution or candidate handling, verified through source review of the complete
+maintenance call path. Progress distinguishes waiting, refused, incomplete and finished work;
+simulated interruption leaves an interrupted record. False complete coverage, stale permission
+and an intentionally repeated deep walk must fail the checks. Rung 3 for the composed system.
 
-Depends on M2. Fallback: identify the remaining cost or unsafe interruption boundary, preserve
-data and rework the affected stage. Do not move the expensive work into an unmeasured child,
-hide it by changing cadence, or count universal foreground deferral as useful maintenance.
+Depends on M2. Fallback: identify remaining cost, preserve data and rework the affected stage.
+Do not move expensive work into an unmeasured child, hide it by changing cadence, or avoid real
+cleanup by deferring it to a manual run.
 
 ### M4 Fleet behavior is demonstrated
 
@@ -229,40 +224,42 @@ and the Mini. On the Mini, compare real-data read-only plans/coverage and measur
 work under representative host load. Execute cleanup only on separately authorized owned fixtures,
 including negative cases that retain data. Keep foreign agents, editors, services and locks intact.
 
-Gate: P1–P5 hold at rung 4 on the installed runtimes, with recorded CPU/wall/work counts, discovery
-freshness, useful cleanup, preserved-path identities and interruption behavior. Run `cargo test`,
-compare CLI help with README and the Reap skill, perform the approved signing/install checks and
+Gate: P1–P5 hold at rung 4 on the installed runtimes, with externally recorded CPU/elapsed time
+and work counts, candidate-set parity, useful cleanup, preserved-path identities and interruption
+behavior. Run `cargo test`, compare CLI help with README and the Reap skill, perform the approved
+signing/install checks and
 verify native identity on both Macs. Protect the unrelated, held Skills drafts from deployment.
 
 Depends on M3. Fallback: no fleet rollout of the failing behavior; repair and re-prove it. Remove
-the obsolete scheduled full-rescan path and duplicate discovery wiring once the replacement
-passes; keep standalone full-scope commands because they remain real foreground callers.
+the duplicate scheduled discovery wiring once the replacement passes; keep standalone full-scope
+commands because they remain real foreground callers.
 
 ## Change surface and acceptance coverage
 
 Expected implementation surfaces: `src/discover.rs`, Cargo/store planning in `src/main.rs`,
 `src/plan.rs` and `src/stores.rs`, `src/maintenance.rs`, `src/status.rs`, relevant lifecycle walkers,
-tests, README and `skill/SKILL.md`. Touch launchd plists only for the approved background-priority
-behavior. A future accepted decision/spec must cover changed maintenance outcomes, freshness and
-progress output; do not silently change public schemas. Preserve
+tests, README and `skill/SKILL.md`. No launchd, host-resource policy or persistent inventory changes
+are proposed. A future accepted decision/spec must cover changed maintenance outcomes and progress
+output; do not silently change public schemas. Preserve
 `docs/specs/lifecycle-waits.md` and `docs/specs/reap-file.md` guarantees.
 
 | Acceptance property | Proof gates |
 | --- | --- |
-| P1 Resource cost | M1 feasibility; M3 integration; M4 installed runtimes |
-| P2 Useful coverage | M2 differential/resumption; M3 fairness/cleanup; M4 real corpus |
+| P1 Work efficiency | M1 measured improvement; M3 integration; M4 installed runtimes |
+| P2 Useful coverage | M2 same-invocation parity; M3 real cleanup/no CPU admission; M4 real corpus |
 | P3 Safety | M2 stale-authority negatives; M3 guarded execution; M4 survival proof |
 | P4 Visibility | M3 interruption/progress; M4 live operator readback |
 | P5 Compatibility | M2 existing discovery scope; M3 existing guards; M4 CLI/install/signing |
 
-Review requested: the bounded-maintenance direction, proposed budgets and coverage window, and
-the visible foreground fallback for genuinely oversized units. Approval would authorize the
-subsequent scoped design/implementation work; this proposal itself changes no running process,
+Review requested: shared discovery, reduced unnecessary sizing and lightweight progress reporting,
+with external performance verification and no runtime CPU decision-making. Approval would authorize
+the subsequent scoped design/implementation work; this proposal itself changes no running process,
 scheduler, cleanup policy, config or permission.
 
 ## Suggested /goal
 
 Make Reap keep disks healthy without disrupting active project work. Routine maintenance must
-spend little CPU and I/O, discover new eligible work without manual intervention, make useful
-cleanup progress and explain any deferred work. Demonstrate those outcomes in the real fleet
-while preserving every existing retention, authorization, recovery and process-safety guarantee.
+avoid redundant filesystem work, discover new eligible work without manual intervention, make
+useful cleanup progress and explain refusals or incomplete coverage without consulting CPU load
+or a CPU allowance. Demonstrate those outcomes in the real fleet while preserving every existing
+retention, authorization, recovery and process-safety guarantee.
