@@ -22,11 +22,13 @@ them as Burn assets.
 - **Docs and skill match the binary** — Applies when: changing the CLI surface, a safety claim,
   or a config/manifest schema. Complete when: `README.md` and `skill/SKILL.md` describe the
   shipped behavior and claim no more safety than the code enforces. Execute and verify with:
-  `cargo run -- --help` compared against both documents.
+  `cargo run -- --help` compared against both documents. For Git workspace lifecycle guidance,
+  also run `python3 tests/skill_workspaces.py` against the installed binary.
 - **Binary and skill ship together** — Applies when: any change lands that alters behavior or
-  the skill. Complete when: `install.sh` has been run on each machine that uses reap, so the
-  installed binary and homed skill copies match repo HEAD. Execute and verify with:
-  `./install.sh && reap --version`.
+  the bundled skill. Complete when: the bundled guide describes the shipped binary, and
+  `install.sh` installs that binary on each configured machine without replacing an existing
+  operator guide. The Skills repository owns updates to fleet operator guides. Execute and
+  verify with: `python3 tests/install_signing.py` and `./install.sh && reap --version`.
 - **macOS identity survives installs** — Applies when: changing the installer or signing setup.
   Complete when: installer failure/downgrade tests pass and certificate-signed fleet binaries
   verify natively with the same designated requirement. Execute and verify with:

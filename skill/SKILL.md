@@ -16,6 +16,9 @@ description: >-
 
 # reap — evidence-driven disk reclamation
 
+This is the bundled bootstrap guide. `install.sh` installs it only when an agent home has no
+Reap skill; existing operator guides are preserved. On this fleet, `~/src/skills` owns their updates.
+
 `reap` is a global Rust CLI (`~/.cargo/bin/reap`; source + this skill live in
 the repo `github.com/spence/reap`, checked out at `~/src/reap`). One rule
 governs everything it does:
@@ -35,6 +38,12 @@ without agreed retention stays protected: record its path and owner in the
 project, and show it with `reap coverage` for review. Do not infer disposable
 intent for an existing directory from its name, age, or location. Ordinary
 isolated test fixtures are not project-owned external locations.
+
+Use one lifecycle per target. A declaration-managed Git workspace needs a local Git exclude for
+its untracked `.reap` (not a tracked `.gitignore` edit). A lease-managed Git tree must not contain
+a second `.reap`: non-scratch retirement rejects both untracked and ignored local files other
+than its lease marker. Local exclusion works for `files`, not for `retire`; do not switch to
+scratch to evade that distinction.
 
 ## 1. Reclaim cargo build output (the common job)
 
@@ -151,9 +160,10 @@ handles does not supply that permission.
   handoff, and surface it when the session resumes or completed workspaces are
   reviewed. Silence is not consent. These are agent workflow states; Reap has
   no built-in human-closeout queue or acceptance flag.
-- **After explicit archive approval:** record the authorization and use an
-  ordinary, non-scratch lease followed by `retire`, or an honoured `.reap`
-  expiry with `disposition: "quarantine"`. Registering someone else's directory
+- **After explicit archive approval:** record the authorization and use the existing lifecycle:
+  an honoured `.reap` expiry with `disposition: "quarantine"`, or the target's ordinary non-scratch
+  lease followed by `retire`. Do not add an overlapping lease to a declaration-managed Git tree.
+  Registering someone else's directory
   or retiring early still requires owner authority. Re-check recoverability,
   activity, and retained evidence; approval does not bypass Reap's guards.
   Do not switch to `--scratch` merely to get past a refusal.
@@ -217,6 +227,8 @@ deleting it and refuses nested mounts or unreadable slots. Holds live in the
 quarantine index and appear in `quarantine list` and `status`. Explicit
 `purge --id`, `--owner`, or `--all` bypasses holds and marker/metadata checks,
 but not the path/mount guard; obtain owner authorization before using them.
+Purge does not verify ownership, inspect open handles, or rerun Git recoverability checks;
+settle current use and required preservation separately before permanent deletion.
 Do not unhold an owner-held entry without that owner's approval.
 `purge` dry-run traverses selected slots for mount safety; `status` remains
 metadata-only and its policy-eligible bytes are not an executable purge plan.
@@ -327,7 +339,8 @@ reap files            # dry-run; shows honoured, set-aside, and invalid declarat
 reap files --apply    # remove what declarations say, re-checking each path
 ```
 
-A new declaration takes effect after 24 hours; git-tracked ones are ignored; an
+A new declaration takes effect after the configured first-seen grace (24 hours by default);
+git-tracked ones are ignored; an
 invalid one protects its subtree. Removal re-checks quiet time, open handles,
 mounts, lease overlap, and symlinks, and quarantines by default. A git tree
 with uncommitted, stashed, or unpushed work survives unless the declaration
@@ -433,7 +446,9 @@ to bypass it. A busy result does not renew a lease or grant cleanup permission.
 ---
 
 Source in `~/src/reap`. Self-test after changes: `cargo test`; `install.sh`
-installs the binary and homes this skill.
+installs the binary and bootstraps this skill only where it is missing.
+For workspace-lifecycle guidance, `python3 tests/skill_workspaces.py` checks the installed binary
+using isolated Git workspaces and private Reap state.
 
 On macOS, use `install.sh` to update a permission-bearing installation. Its
 machine-local `.codesign.env` selects `REAP_CODESIGN_IDENTITY` (public cert hash

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install reap globally (~/.cargo/bin) and home its skill for Claude Code + Codex.
+# Install reap globally (~/.cargo/bin) and bootstrap missing Claude Code + Codex skills.
 # Idempotent; run once per machine. From a clone: `./install.sh`.
 set -euo pipefail
 
@@ -60,13 +60,18 @@ chmod 755 "$PUBLISH"
 mv -f "$PUBLISH" "$DEST"
 PUBLISH=""
 
-echo "==> homing the skill for any installed agent (Claude Code, Codex)"
+echo "==> bootstrapping missing agent skills (Claude Code, Codex)"
 homed=0
 for base in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
   if [ -d "$base" ]; then
-    mkdir -p "$base/reap"
-    cp "$SKILL_SRC" "$base/reap/SKILL.md"
-    echo "    $base/reap/SKILL.md"
+    skill_dest="$base/reap/SKILL.md"
+    if [ -e "$skill_dest" ] || [ -L "$skill_dest" ]; then
+      echo "    preserved $skill_dest (update through its owner)"
+    else
+      mkdir -p "$base/reap"
+      cp -n "$SKILL_SRC" "$skill_dest"
+      echo "    $skill_dest"
+    fi
     homed=$((homed + 1))
   fi
 done

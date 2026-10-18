@@ -2,13 +2,12 @@
 
 - Status: draft; native specification acceptance pending
 - Surface: `install.sh` and the installed macOS Reap executable.
-- Consumers: operators and macOS code-identity evaluators.
-- Grounds: `DEC-REAP-NATIVE-IDENTITY`.
+- Consumers: operators, agent-context owners, and macOS code-identity evaluators.
+- Grounds: `DEC-REAP-NATIVE-IDENTITY`; the Skills repository's canonical-context ownership
+  contract (`~/src/skills/AGENTS.md`).
 - Fixtures: `docs/specs/macos-install.fixtures.json`.
-- Conformance: installer fixtures pass on both Macs; the 121-test Cargo suite
-  passes on Catalyst. Installed signatures and the common designated
-  requirement verify on both Macs. Mini-local signing still requires native
-  Keychain authorization. See `docs/proof/REAP-NATIVE-IDENTITY.md`.
+- Conformance: C1–C3 fleet identity evidence is in `docs/proof/REAP-NATIVE-IDENTITY.md`.
+  The expanded installer fixtures pass on Catalyst; C4 has not been deployed.
 
 ## Contract
 
@@ -25,6 +24,11 @@
   is not replaced by ad-hoc code. A fresh install without signing credentials
   remains supported with an explicit ad-hoc signature.
   · Binding: `tests/install_signing.py` downgrade and fresh-install cases.
+- **C4** — The installer bootstraps a missing agent skill but never replaces an existing
+  `reap/SKILL.md`, including a symlink. Updating an existing operator guide belongs to its owner,
+  not binary installation. Build/sign/verification failures leave skills unchanged.
+  · Binding: `tests/install_signing.py` existing-skill, symlink, repeated-install and failure cases.
+  · Conformance: installer fixtures pass on Catalyst; not deployed.
 
 ## Non-goals
 

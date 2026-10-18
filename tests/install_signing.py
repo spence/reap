@@ -48,11 +48,27 @@ def check(case):
             path.write_text(HELPER)
             path.chmod(0o755)
         (home / '.cargo/bin').mkdir(parents=True)
+        (home / '.claude/skills').mkdir(parents=True)
         (home / '.codex/skills').mkdir(parents=True)
         installed = home / '.cargo/bin/reap'
         old = b'previous installed executable'
-        if case in ('build_failure', 'sign_failure', 'verify_failure', 'unsigned_downgrade'):
+        failed = case in ('build_failure', 'sign_failure', 'verify_failure', 'unsigned_downgrade')
+        if failed:
             installed.write_bytes(old)
+        preserved = {}
+        for agent in ('claude', 'codex'):
+            skill = home / ('.' + agent) / 'skills/reap/SKILL.md'
+            if failed or case in ('existing_skill', 'existing_skill_symlink', 'dangling_skill_symlink'):
+                skill.parent.mkdir()
+                content = agent + ' operator-owned skill'
+                if case in ('existing_skill_symlink', 'dangling_skill_symlink'):
+                    target = home / (agent + '-operator-skill.md')
+                    if case == 'existing_skill_symlink':
+                        target.write_text(content)
+                    skill.symlink_to(target)
+                else:
+                    skill.write_text(content)
+                preserved[skill] = content
         env = dict(os.environ, HOME=str(home), TRACE=str(base / 'trace'),
                    PATH=str(commands) + ':' + str(home / '.cargo/bin') + ':' + os.environ['PATH'])
         for key in ('CARGO_HOME', FIXTURE['environment'], 'FAIL_BUILD', 'FAIL_SIGN',
@@ -71,13 +87,28 @@ def check(case):
         result = subprocess.run(['/bin/bash', str(project / 'install.sh')], env=env,
                                 capture_output=True, text=True)
         trace = (base / 'trace').read_text()
-        failed = case in ('build_failure', 'sign_failure', 'verify_failure', 'unsigned_downgrade')
         assert (result.returncode != 0) == failed, (case, result.stdout, result.stderr)
         if failed:
             assert installed.read_bytes() == old, case
         else:
             assert subprocess.check_output([str(installed)], text=True).strip() == 'reap fixture'
-            assert (home / '.codex/skills/reap/SKILL.md').read_text() == 'fixture skill'
+        for agent in ('claude', 'codex'):
+            skill = home / ('.' + agent) / 'skills/reap/SKILL.md'
+            if case == 'dangling_skill_symlink':
+                assert skill.is_symlink() and not skill.exists(), case
+                assert not skill.readlink().exists(), case
+            elif skill in preserved:
+                assert skill.read_text() == preserved[skill], case
+                assert skill.is_symlink() == (case == 'existing_skill_symlink'), case
+            elif not failed:
+                assert skill.read_text() == 'fixture skill', case
+        if case == 'repeat_install':
+            (project / 'skill/SKILL.md').write_text('different bundled skill')
+            repeated = subprocess.run(['/bin/bash', str(project / 'install.sh')], env=env,
+                                      capture_output=True, text=True)
+            assert repeated.returncode == 0, (case, repeated.stdout, repeated.stderr)
+            for agent in ('claude', 'codex'):
+                assert (home / ('.' + agent) / 'skills/reap/SKILL.md').read_text() == 'fixture skill'
         if case in ('configured', 'environment_override'):
             identity = 'fixture-environment' if case == 'environment_override' else 'fixture-file'
             assert repr(FIXTURE['identifier']) in trace and repr(identity) in trace, trace

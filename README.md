@@ -200,8 +200,10 @@ The installer:
 
 * builds the binary in staging with Cargo, verifies its macOS signature, and
   atomically installs it into Cargo's binary directory;
-* copies `skill/SKILL.md` into `~/.claude/skills/reap` when that directory exists;
-* copies it into `~/.codex/skills/reap` when that directory exists.
+* bootstraps `skill/SKILL.md` in an existing `~/.claude/skills` or
+  `~/.codex/skills` home when no Reap skill is installed;
+* preserves existing skills and symlinks. Update an operator guide through its
+  owner; on this fleet, `~/src/skills` owns that guide.
 
 For stable macOS permission identity, copy `.codesign.env.example` to
 `.codesign.env` and set `REAP_CODESIGN_IDENTITY` to your Developer ID
