@@ -118,6 +118,50 @@ class WorkspaceLifecycle(unittest.TestCase):
         self.assertTrue(self.workspace.exists())
         self.assertEqual((self.workspace / 'source.txt').read_text(), CONTENT)
 
+    def test_normal_lease_quarantines_approved_cargo_output_and_preserves_ignored_notes(self):
+        (self.workspace / '.reap').unlink()
+        (self.workspace / 'Cargo.toml').write_text(
+            '[package]\nname = "workspace-fixture"\nversion = "0.1.0"\n')
+        (self.workspace / '.gitignore').write_text('target/\nlocal-notes/\n')
+        self.git(self.workspace, 'add', 'Cargo.toml', '.gitignore')
+        self.git(self.workspace, '-c', 'commit.gpgsign=false', 'commit', '-qm',
+                 'test: disposable Cargo fixture')
+        self.git(self.workspace, 'push', '-q', 'origin', 'HEAD:main')
+        target = self.workspace / 'target'
+        (target / 'debug').mkdir(parents=True)
+        (target / 'CACHEDIR.TAG').write_text('Signature: 8a477f597d28d172789f06886806bc55\n')
+        executable = target / 'debug/workspace-fixture'
+        executable.write_bytes(b'retained executable')
+        self.reap('lease', 'add', self.workspace, '--ttl', '0', '--owner', 'workspace-fixture',
+                  '--purpose', 'Cargo retirement fixture', '--project', self.source)
+        notes = self.workspace / 'local-notes/evidence.txt'
+        notes.parent.mkdir()
+        notes.write_bytes(b'required local evidence')
+        self.age()
+        command = ('retire', self.workspace, '--disposable-cargo-target', 'target')
+        blocked = self.reap(*command, '--apply', check=False)
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn('git-ignored', blocked.stdout)
+        self.assertEqual(notes.read_bytes(), b'required local evidence')
+        self.assertEqual(executable.read_bytes(), b'retained executable')
+        notes.unlink()
+        notes.parent.rmdir()
+        self.age()
+        plan = self.reap(*command)
+        self.assertIn(str(target), plan.stdout)
+        self.assertTrue(executable.exists())
+        self.assertFalse((self.state / 'quarantine/index.json').exists())
+        self.reap(*command, '--apply')
+        self.assertFalse(self.workspace.exists())
+        index = json.loads((self.state / 'quarantine/index.json').read_text())
+        self.assertEqual(len(index['entries']), 1)
+        entry = index['entries'][0]
+        self.assertFalse(entry['scratch'])
+        payload = self.state / 'quarantine/entries' / entry['id'] / entry['name']
+        self.assertEqual((payload / 'target/debug/workspace-fixture').read_bytes(),
+                         b'retained executable')
+        self.assertEqual((payload / 'source.txt').read_text(), CONTENT)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -41,8 +41,9 @@ isolated test fixtures are not project-owned external locations.
 
 Use one lifecycle per target. A declaration-managed Git workspace needs a local Git exclude for
 its untracked `.reap` (not a tracked `.gitignore` edit). A lease-managed Git tree must not contain
-a second `.reap`: non-scratch retirement rejects both untracked and ignored local files other
-than its lease marker. Local exclusion works for `files`, not for `retire`; do not switch to
+a second `.reap`: non-scratch retirement rejects untracked and unapproved ignored local files.
+Only its lease marker and explicitly approved Cargo targets are exceptions.
+Local exclusion works for `files`, not for `retire`; do not switch to
 scratch to evade that distinction.
 
 ## 1. Reclaim cargo build output (the common job)
@@ -124,7 +125,7 @@ Older records without them remain readable and list as `(unknown)`; do not
 infer an actor from an old free-form owner string.
 
 - `--scratch` = disposable even if dirty/unpushed. Without it, retirement
-  requires clean + fully pushed + no stashes + no ignored local data with
+  requires clean + fully pushed + no stashes + no unapproved ignored local data with
   unproved recoverability. A non-Git directory is refused. `.gitignore` is not
   deletion authority.
 - `--owner` (or `$REAP_OWNER` with `lease add`): name the creating agent/session. When you copy
@@ -184,6 +185,18 @@ reap retire                     # dry-run: what would move, and why/why not
 reap retire --apply             # move expired leased dirs into the quarantine
 reap retire <dir> --now --apply # finished early with a specific one
 ```
+
+For a normal leased worktree with disposable Cargo output, first complete required
+preservation. Then use `reap retire <dir> --now --disposable-cargo-target target`.
+Repeat the option for each exact relative target, such as `build-executable/target`.
+Inspect the dry-run before adding `--apply`. This authorizes quarantine of **all
+contents** of those targets for that command only; the lease stays non-scratch.
+Reap requires real contained directories, Cargo cache signatures, and a local Cargo
+project. It refuses symlinks, lifecycle metadata inside targets, invalid manifests,
+and data protected by `.reap.json` `keep.paths`, `keep.names`, or `keep.binaries`.
+Other ignored files and dirty/unpushed source still block retirement. The complete
+worktree moves to quarantine without prior cache deletion. `clean` and `sweep`
+retain their existing generation policy. A cache marker alone is not permission.
 
 Retire re-validates everything first: identity marker, expiry, a 10-minute
 quiet brake, no nested mounts, cwd outside the tree, no remaining nested

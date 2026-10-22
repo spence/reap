@@ -718,10 +718,41 @@ A lease records the canonical path, filesystem identity (device and inode), an
 opaque token mirrored in a `.reap-lease` marker inside the directory, an
 owner, a purpose, and the TTL. `--scratch` marks the checkout disposable even
 if dirty; without it, retirement requires the checkout to be clean, fully
-pushed, stash-free, and free of ignored local data whose recoverability Git
-cannot prove. If a temporary checkout will contain disposable ignored output,
-opt into `--scratch` when leasing it; Git ignore rules alone are not deletion
-authority. A non-scratch directory without real Git metadata is refused.
+pushed, stash-free, and free of unapproved ignored local data whose recoverability
+Git cannot prove. Git ignore rules alone are not deletion authority. A non-scratch
+directory without real Git metadata is refused.
+
+### Disposable Cargo output at retirement
+
+After required preservation, authorize exact disposable Cargo targets for one
+normal leased worktree:
+
+```bash
+reap retire ../bench-wt --now --disposable-cargo-target target
+reap retire ../bench-wt --now --disposable-cargo-target target --apply
+```
+
+Repeat `--disposable-cargo-target <relative-path>` for additional targets, such
+as `build-executable/target`. Each option authorizes quarantine of **all contents**
+of that target. It does not authorize disposal of other ignored files or dirty
+source. It requires one explicit leased path and applies only to that command.
+The lease stays non-scratch; no lease-state schema changes occur.
+
+Each target must be inside the worktree, with no symlink components, a real Cargo
+cache-signature file, and a local ancestor Cargo project. Absolute paths, parent
+traversal, symlinks, and lifecycle declarations inside the target are refused.
+Applicable `.reap.json` `keep.paths`, `keep.names`, and `keep.binaries` remain
+protection conditions. Invalid or unreadable manifests also cause refusal.
+Profile-generation retention does not apply to an explicitly disposable target.
+
+The dry-run lists the exact approved targets. All existing Git recoverability,
+lease, activity, and mount guards remain in force. Reap moves the complete
+worktree, including its approved caches, into quarantine; it does not clear the
+caches first. `sweep` and `clean` retain their existing policy. Same-volume
+retirement frees no space until an authorized purge.
+
+Regression coverage: `normal_worktree_retires_approved_cargo_output_without_cleaning_it`
+and the `disposable_cargo_` tests in `tests/lifecycle_state.rs`.
 
 `reap doctor` checks the lease index without changing it by default. It reports
 valid, gone, remounted, and blocked records, with at most 20 non-valid details

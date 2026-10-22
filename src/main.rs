@@ -205,6 +205,9 @@ enum Cmd {
     /// Refuse if anything inside was modified within this many minutes [default 10]
     #[arg(long)]
     min_age_minutes: Option<f64>,
+    /// Authorize quarantine of this disposable Cargo target, relative to PATH (repeatable)
+    #[arg(long, value_name = "RELATIVE_PATH", requires = "path")]
+    disposable_cargo_target: Vec<PathBuf>,
   },
   /// Inspect lease state or quarantine slots; --apply repairs proved index records
   Doctor {
@@ -377,7 +380,8 @@ fn main() {
       apply,
       now,
       min_age_minutes,
-    }) => cmd_retire(path, apply, now, min_age_minutes),
+      disposable_cargo_target,
+    }) => cmd_retire(path, apply, now, min_age_minutes, disposable_cargo_target),
     Some(Cmd::Doctor {
       apply,
       id,
@@ -1592,7 +1596,13 @@ fn cmd_doctor_quarantine(apply: bool, id: Option<String>, verbose: bool) -> i32 
   }
 }
 
-fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option<f64>) -> i32 {
+fn cmd_retire(
+  path: Option<String>,
+  apply: bool,
+  now_flag: bool,
+  min_age: Option<f64>,
+  disposable_cargo_targets: Vec<PathBuf>,
+) -> i32 {
   if now_flag && path.is_none() {
     eprintln!("error: --now requires a specific leased dir");
     return 1;
@@ -1670,6 +1680,7 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
   let opts = RetireOpts {
     require_expired: !now_flag,
     min_age_minutes: min_age.unwrap_or(10.0),
+    disposable_cargo_targets,
   };
   let machine = hostname();
   let mut idx = if apply {
@@ -1690,6 +1701,12 @@ fn cmd_retire(path: Option<String>, apply: bool, now_flag: bool, min_age: Option
   let mut eligible_moves: Vec<(PathBuf, u64, u64)> = vec![];
   for l in &selected {
     let source = Path::new(&l.path);
+    for target in &opts.disposable_cargo_targets {
+      println!(
+        "    disposable Cargo target: {}",
+        source.join(target).display()
+      );
+    }
     if lf.overlaps_creation(source) {
       println!("  {}  REFUSED: overlaps a pending creation intent", l.path);
       failed_paths.push(source.to_path_buf());

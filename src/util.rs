@@ -531,6 +531,11 @@ pub fn new_token(seed: &str) -> String {
 }
 
 pub fn git_capture(dir: &Path, args: &[&str]) -> Result<String, GitError> {
+  git_capture_bytes(dir, args).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Capture raw Git output so path records retain their original bytes.
+pub fn git_capture_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, GitError> {
   let out = Command::new("git")
     .arg("-C")
     .arg(dir)
@@ -538,7 +543,7 @@ pub fn git_capture(dir: &Path, args: &[&str]) -> Result<String, GitError> {
     .output()
     .map_err(|_| GitError::Missing)?;
   if out.status.success() {
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.stdout)
   } else {
     Err(GitError::Failed(
       String::from_utf8_lossy(&out.stderr).trim().to_string(),

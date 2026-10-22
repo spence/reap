@@ -185,10 +185,15 @@ fn make_tree_quiet(root: &Path) {
   while let Some(dir) = stack.pop() {
     for entry in fs::read_dir(&dir).unwrap() {
       let entry = entry.unwrap();
-      if entry.file_type().unwrap().is_dir() {
+      let kind = entry.file_type().unwrap();
+      if kind.is_dir() {
         stack.push(entry.path());
       }
-      set_file_mtime(entry.path(), old).unwrap();
+      if kind.is_symlink() {
+        set_symlink_file_times(entry.path(), old, old).unwrap();
+      } else {
+        set_file_mtime(entry.path(), old).unwrap();
+      }
     }
     set_file_mtime(dir, old).unwrap();
   }
@@ -2124,6 +2129,340 @@ fn active_cargo_build_keeps_an_old_cleanup_candidate() {
   assert!(old.join("artifact").is_file());
   success(root.run(args(&["clean", "{path}"], &project)));
   assert!(!old.exists());
+}
+
+#[test]
+fn normal_worktree_retires_approved_cargo_output_without_cleaning_it() {
+  let root = TestRoot::new();
+  let checkout = cargo_worktree(&root);
+  let artifact = checkout.join("target/debug/deps/libfixture-aaaaaaaaaaaaaaaa.rlib");
+  let executable = checkout.join("target/debug/fixture");
+  let plain = root.run(args(&["retire", "{path}", "--apply"], &checkout));
+  assert!(!plain.status.success());
+  assert!(String::from_utf8_lossy(&plain.stdout).contains("git-ignored"));
+  success(root.run(args(
+    &["clean", "{path}", "--min-age-minutes", "0"],
+    &checkout,
+  )));
+  assert!(artifact.is_file());
+  assert!(executable.is_file());
+  make_tree_quiet(&checkout);
+
+  let mut command = args(
+    &["retire", "{path}", "--disposable-cargo-target", "target"],
+    &checkout,
+  );
+  let dry = root.run(command.clone());
+  success(dry);
+  assert!(artifact.is_file());
+  assert!(!root.quarantine().join("index.json").exists());
+  command.push("--apply".into());
+  success(root.run(command));
+  assert!(!checkout.exists());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  assert_eq!(entries.len(), 1);
+  assert_eq!(entries[0]["scratch"], false);
+  let payload = root
+    .quarantine()
+    .join("entries")
+    .join(entries[0]["id"].as_str().unwrap())
+    .join(entries[0]["name"].as_str().unwrap());
+  assert_eq!(
+    fs::read(payload.join("src/lib.rs")).unwrap(),
+    b"pub fn fixture() {}\n"
+  );
+  assert_eq!(
+    fs::read(payload.join("target/debug/fixture")).unwrap(),
+    b"executable"
+  );
+  assert_eq!(
+    fs::read(payload.join("target/debug/deps/libfixture-aaaaaaaaaaaaaaaa.rlib")).unwrap(),
+    b"newest build"
+  );
+  assert!(!payload.join(".reap-lease").exists());
+  assert!(array(&root.state().join("leases.json"), "leases").is_empty());
+}
+
+/// Create a pushed normal worktree with ignored Cargo output and an expired lease.
+fn cargo_worktree(root: &TestRoot) -> PathBuf {
+  let source = root.project("cargo-source");
+  fs::create_dir(source.join("src")).unwrap();
+  fs::write(source.join("src/lib.rs"), b"pub fn fixture() {}\n").unwrap();
+  fs::write(
+    source.join("Cargo.toml"),
+    b"[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+  )
+  .unwrap();
+  fs::write(source.join(".gitignore"), b"target*/\nlocal-notes/\n").unwrap();
+  git(&source, &["init", "-q"]);
+  git(&source, &["add", "."]);
+  git(&source, &["commit", "-qm", "fixture"]);
+  let origin = root.root.join("cargo-origin.git");
+  git(
+    &root.root,
+    &["init", "-q", "--bare", origin.to_str().unwrap()],
+  );
+  git(
+    &source,
+    &["remote", "add", "origin", origin.to_str().unwrap()],
+  );
+  git(&source, &["push", "-q", "-u", "origin", "HEAD"]);
+  let checkout = root.root.join("cargo-worktree");
+  success(root.run(vec![
+    "create".into(),
+    "worktree".into(),
+    source.to_string_lossy().into_owned(),
+    checkout.to_string_lossy().into_owned(),
+    "--ttl".into(),
+    "0".into(),
+    "--owner".into(),
+    "cargo-fixture".into(),
+    "--purpose".into(),
+    "retirement regression".into(),
+  ]));
+  fs::create_dir_all(checkout.join("target/debug/deps")).unwrap();
+  fs::write(
+    checkout.join("target/CACHEDIR.TAG"),
+    b"Signature: 8a477f597d28d172789f06886806bc55\n",
+  )
+  .unwrap();
+  fs::write(
+    checkout.join("target/debug/deps/libfixture-aaaaaaaaaaaaaaaa.rlib"),
+    b"newest build",
+  )
+  .unwrap();
+  fs::write(checkout.join("target/debug/fixture"), b"executable").unwrap();
+  make_tree_quiet(&checkout);
+  checkout
+}
+
+/// Require a refusal and unchanged source, cache, and lease payload.
+fn cargo_refusal(root: &TestRoot, checkout: &Path, targets: &[&str], reason: &str) {
+  let mut command = args(&["retire", "{path}", "--apply"], checkout);
+  for target in targets {
+    command.extend(["--disposable-cargo-target".into(), (*target).into()]);
+  }
+  let output = root.run(command);
+  assert!(!output.status.success());
+  assert!(
+    String::from_utf8_lossy(&output.stdout).contains(reason),
+    "stdout: {}\nstderr: {}",
+    String::from_utf8_lossy(&output.stdout),
+    String::from_utf8_lossy(&output.stderr)
+  );
+  assert!(checkout.join("src/lib.rs").is_file());
+  assert!(checkout.join("target/debug/fixture").is_file());
+  assert_eq!(array(&root.state().join("leases.json"), "leases").len(), 1);
+  assert!(!root.quarantine().join("index.json").exists());
+}
+
+#[test]
+fn disposable_cargo_permission_preserves_other_ignored_and_dirty_data() {
+  let root = TestRoot::new();
+  let checkout = cargo_worktree(&root);
+  fs::create_dir(checkout.join("local-notes")).unwrap();
+  let note = checkout.join("local-notes/evidence.txt");
+  fs::write(&note, b"required evidence").unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "git-ignored");
+  assert_eq!(fs::read(&note).unwrap(), b"required evidence");
+  fs::remove_file(&note).unwrap();
+  fs::remove_dir(checkout.join("local-notes")).unwrap();
+
+  let tracked = checkout.join("target/source.rs");
+  fs::write(&tracked, b"tracked source").unwrap();
+  git(&checkout, &["add", "-f", "target/source.rs"]);
+  git(&checkout, &["commit", "-qm", "fixture source"]);
+  git(
+    &checkout,
+    &["push", "-q", "origin", "HEAD:refs/heads/cache-fixture"],
+  );
+  fs::write(&tracked, b"local changes").unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "git-clean");
+  assert_eq!(fs::read(&tracked).unwrap(), b"local changes");
+  git(&checkout, &["add", "-f", "target/source.rs"]);
+  git(&checkout, &["commit", "-qm", "local fixture"]);
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "git-head");
+}
+
+#[test]
+fn disposable_cargo_permission_honors_protections_and_invalid_manifests() {
+  let root = TestRoot::new();
+  let checkout = cargo_worktree(&root);
+  for keep in [
+    json!({"paths": ["debug"]}),
+    json!({"names": ["fixture"]}),
+    json!({"binaries": ["fixture"]}),
+  ] {
+    fs::write(
+      checkout.join(".reap.json"),
+      serde_json::to_vec(&json!({"keep": keep})).unwrap(),
+    )
+    .unwrap();
+    make_tree_quiet(&checkout);
+    cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+  }
+  fs::write(checkout.join(".reap.json"), b"{invalid}").unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+  fs::remove_file(checkout.join(".reap.json")).unwrap();
+
+  for metadata in [".reap", ".reap.json", ".reap-lease"] {
+    let path = checkout.join("target").join(metadata);
+    fs::write(&path, b"required preservation").unwrap();
+    make_tree_quiet(&checkout);
+    cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+    assert_eq!(fs::read(&path).unwrap(), b"required preservation");
+    fs::remove_file(path).unwrap();
+  }
+}
+
+#[test]
+fn disposable_cargo_permission_rejects_unsafe_paths_and_false_cache_markers() {
+  let root = TestRoot::new();
+  let checkout = cargo_worktree(&root);
+  let target = checkout.join("target");
+  for path in [
+    ".",
+    "../cargo-worktree/target",
+    ".git",
+    "target/../target",
+    target.to_str().unwrap(),
+  ] {
+    cargo_refusal(&root, &checkout, &[path], "cargo-target");
+  }
+  failure(root.run(args(
+    &[
+      "retire",
+      "{path}",
+      "--disposable-cargo-target",
+      "",
+      "--apply",
+    ],
+    &checkout,
+  )));
+  fs::write(target.join("CACHEDIR.TAG"), b"not a Cargo signature").unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+
+  fs::remove_file(target.join("CACHEDIR.TAG")).unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+  let outside = root.root.join("outside-marker");
+  fs::write(&outside, b"Signature: 8a477f597d28d172789f06886806bc55\n").unwrap();
+  std::os::unix::fs::symlink(&outside, target.join("CACHEDIR.TAG")).unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+  fs::remove_file(target.join("CACHEDIR.TAG")).unwrap();
+  fs::write(target.join("CACHEDIR.TAG"), fs::read(&outside).unwrap()).unwrap();
+  std::os::unix::fs::symlink(&outside, target.join("foreign-link")).unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+  assert!(outside.is_file());
+  fs::remove_file(target.join("foreign-link")).unwrap();
+  let moved = root.root.join("outside-target");
+  fs::rename(&target, &moved).unwrap();
+  std::os::unix::fs::symlink(&moved, &target).unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+  assert!(moved.join("debug/fixture").is_file());
+  fs::remove_file(&target).unwrap();
+  fs::rename(&moved, &target).unwrap();
+  let cargo_manifest = checkout.join("Cargo.toml");
+  fs::remove_file(&cargo_manifest).unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+}
+
+#[test]
+fn disposable_cargo_permission_handles_nested_and_quoted_git_paths() {
+  for relative in ["nested/target", "target cache", "target\ncache", "target-é"] {
+    let root = TestRoot::new();
+    let checkout = cargo_worktree(&root);
+    let target = checkout.join(relative);
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::rename(checkout.join("target"), &target).unwrap();
+    make_tree_quiet(&checkout);
+    let mut command = args(&["retire", "{path}", "--apply"], &checkout);
+    command.extend(["--disposable-cargo-target".into(), relative.into()]);
+    success(root.run(command));
+    assert!(!checkout.exists());
+    let entries = array(&root.quarantine().join("index.json"), "entries");
+    let payload = root
+      .quarantine()
+      .join("entries")
+      .join(entries[0]["id"].as_str().unwrap())
+      .join(entries[0]["name"].as_str().unwrap());
+    assert_eq!(
+      fs::read(payload.join(relative).join("debug/fixture")).unwrap(),
+      b"executable"
+    );
+  }
+}
+
+#[test]
+fn disposable_cargo_permission_requires_each_target_to_be_approved() {
+  let root = TestRoot::new();
+  let checkout = cargo_worktree(&root);
+  let nested = checkout.join("build-executable/target/w7/debug");
+  fs::create_dir_all(&nested).unwrap();
+  fs::copy(
+    checkout.join("target/CACHEDIR.TAG"),
+    checkout.join("build-executable/target/CACHEDIR.TAG"),
+  )
+  .unwrap();
+  fs::write(nested.join("build-executable"), b"W7 executable").unwrap();
+  make_tree_quiet(&checkout);
+  cargo_refusal(&root, &checkout, &["target"], "git-ignored");
+  success(root.run(args(
+    &[
+      "retire",
+      "{path}",
+      "--apply",
+      "--disposable-cargo-target",
+      "target",
+      "--disposable-cargo-target",
+      "build-executable/target",
+    ],
+    &checkout,
+  )));
+  assert!(!checkout.exists());
+  let entries = array(&root.quarantine().join("index.json"), "entries");
+  let payload = root
+    .quarantine()
+    .join("entries")
+    .join(entries[0]["id"].as_str().unwrap())
+    .join(entries[0]["name"].as_str().unwrap());
+  assert_eq!(
+    fs::read(payload.join("build-executable/target/w7/debug/build-executable")).unwrap(),
+    b"W7 executable"
+  );
+  assert!(payload.join("target/debug/fixture").is_file());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn disposable_cargo_permission_preserves_a_cache_with_an_open_file() {
+  let root = TestRoot::new();
+  let checkout = cargo_worktree(&root);
+  let _open = fs::File::open(checkout.join("target/debug/fixture")).unwrap();
+  cargo_refusal(&root, &checkout, &["target"], "open-files");
+}
+
+#[test]
+fn disposable_cargo_permission_requires_one_explicit_lease() {
+  let root = TestRoot::new();
+  let checkout = cargo_worktree(&root);
+  failure(root.run(vec![
+    "retire".into(),
+    "--disposable-cargo-target".into(),
+    "target".into(),
+    "--apply".into(),
+  ]));
+  assert!(checkout.join("target/debug/fixture").is_file());
+  assert!(!root.quarantine().join("index.json").exists());
 }
 
 #[test]

@@ -7,21 +7,25 @@
 //! actor or local user.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 #[cfg(target_os = "macos")]
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command, sync::OnceLock, time::Duration};
+use std::{process::Command, sync::OnceLock, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
+use crate::discover::is_cargo_target_dir;
 use crate::lease::{read_marker, Lease, LEASE_MARKER};
+use crate::manifest::{load_manifest, MANIFEST_NAME};
+use crate::plan::Guards;
 use crate::provenance::Provenance;
 use crate::util::{
-  default_owner, fmt_rel, git_capture, move_dir, move_unit, new_id, tree_stats_ignoring_dir_mtimes,
-  write_json_atomic, GitError, Moved,
+  default_owner, fmt_rel, git_capture, git_capture_bytes, move_dir, move_unit, new_id,
+  tree_stats_ignoring_dir_mtimes, write_json_atomic, GitError, Moved,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +130,7 @@ impl Assessment {
 pub struct RetireOpts {
   pub require_expired: bool,
   pub min_age_minutes: f64,
+  pub disposable_cargo_targets: Vec<PathBuf>,
 }
 
 pub struct Retired {
@@ -489,8 +494,118 @@ pub fn assess_retire_ignoring_dir_mtimes(
       .unwrap_or_default(),
   );
 
-  git_checks(&mut a, &dir, lease.scratch);
+  if !a.ok() {
+    return a;
+  }
+
+  match validate_disposable_cargo_targets(&dir, &opts.disposable_cargo_targets) {
+    Ok(targets) => git_checks(&mut a, &dir, lease.scratch, &targets),
+    Err(error) => push(&mut a.checks, "cargo-target", false, error),
+  }
   a
+}
+
+/// Validate exact per-command cache permission without changing lease authority.
+/// Manifest protections and local lifecycle declarations cause refusal.
+fn validate_disposable_cargo_targets(
+  dir: &Path,
+  requested: &[PathBuf],
+) -> Result<Vec<PathBuf>, String> {
+  let mut approved = Vec::new();
+  for relative in requested {
+    if relative.as_os_str().is_empty()
+      || relative
+        .components()
+        .any(|part| !matches!(part, Component::Normal(_)))
+      || relative.components().any(|part| part.as_os_str() == ".git")
+    {
+      return Err(format!(
+        "{}: use an exact relative Cargo target path",
+        relative.display()
+      ));
+    }
+    let target = dir.join(relative);
+    if fs::canonicalize(&target).ok().as_ref() != Some(&target)
+      || !fs::symlink_metadata(&target).is_ok_and(|meta| meta.is_dir())
+      || !fs::symlink_metadata(target.join("CACHEDIR.TAG")).is_ok_and(|meta| meta.is_file())
+      || !is_cargo_target_dir(&target)
+    {
+      return Err(format!(
+        "{}: not a real, contained Cargo target",
+        relative.display()
+      ));
+    }
+
+    let mut guards = Vec::new();
+    let mut cargo_project = false;
+    for ancestor in target
+      .parent()
+      .unwrap()
+      .ancestors()
+      .take_while(|path| path.starts_with(dir))
+    {
+      cargo_project |=
+        fs::symlink_metadata(ancestor.join("Cargo.toml")).is_ok_and(|meta| meta.is_file());
+      let path = ancestor.join(MANIFEST_NAME);
+      match fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_file() => {
+          let mut keep = load_manifest(ancestor)
+            .map_err(|error| error.to_string())?
+            .keep;
+          keep.names.extend(keep.binaries.iter().cloned());
+          guards.push(Guards::new(&keep));
+        }
+        Ok(_) => {
+          return Err(format!(
+            "{}: manifest is not a regular file",
+            path.display()
+          ))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+      }
+    }
+    if !cargo_project {
+      return Err(format!(
+        "{}: no local ancestor Cargo project",
+        relative.display()
+      ));
+    }
+
+    let mut pending = vec![target.clone()];
+    while let Some(path) = pending.pop() {
+      let meta =
+        fs::symlink_metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+      let rel = path.strip_prefix(&target).unwrap().to_string_lossy();
+      let name = path.file_name().unwrap().to_string_lossy();
+      if meta.file_type().is_symlink()
+        || matches!(
+          name.as_ref(),
+          ".reap" | ".reap.json" | ".reap-lease" | ".git"
+        )
+        || guards
+          .iter()
+          .any(|guard| guard.is_protected(&rel) || guard.is_protected(&name))
+      {
+        return Err(format!(
+          "{}: protected data, lifecycle metadata, or symlink",
+          path.display()
+        ));
+      }
+      if meta.is_dir() {
+        for entry in fs::read_dir(&path).map_err(|error| format!("{}: {error}", path.display()))? {
+          pending.push(entry.map_err(|error| error.to_string())?.path());
+        }
+      } else if !meta.is_file() {
+        return Err(format!(
+          "{}: not a regular file or directory",
+          path.display()
+        ));
+      }
+    }
+    approved.push(relative.clone());
+  }
+  Ok(approved)
 }
 
 #[cfg(target_os = "macos")]
@@ -1142,7 +1257,7 @@ fn push(checks: &mut Vec<RetireCheck>, label: &'static str, ok: bool, fail_detai
   });
 }
 
-fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool) {
+fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool, cargo_targets: &[PathBuf]) {
   let dot = dir.join(".git");
   let gm = match fs::symlink_metadata(&dot) {
     Ok(m) => m,
@@ -1188,11 +1303,12 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool) {
     return;
   }
   // Non-scratch: everything must be recoverable elsewhere.
-  match git_capture(
+  match git_capture_bytes(
     dir,
     &[
       "status",
       "--porcelain=v1",
+      "-z",
       "--ignored=matching",
       "--untracked-files=normal",
     ],
@@ -1213,12 +1329,26 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool) {
     Ok(out) => {
       let marker_untracked = format!("?? {LEASE_MARKER}");
       let marker_ignored = format!("!! {LEASE_MARKER}");
-      let paths: Vec<&str> = out
-        .lines()
-        .filter(|line| *line != marker_untracked && *line != marker_ignored)
+      let paths: Vec<&[u8]> = out
+        .split(|byte| *byte == 0)
+        .filter(|line| {
+          !line.is_empty()
+            && *line != marker_untracked.as_bytes()
+            && *line != marker_ignored.as_bytes()
+        })
         .collect();
-      let dirty = paths.iter().filter(|line| !line.starts_with("!! ")).count();
-      let ignored = paths.len() - dirty;
+      let dirty = paths
+        .iter()
+        .filter(|line| !line.starts_with(b"!! "))
+        .count();
+      let ignored = paths
+        .iter()
+        .filter_map(|line| line.strip_prefix(b"!! "))
+        .filter(|name| {
+          let path = Path::new(OsStr::from_bytes(name));
+          !cargo_targets.iter().any(|target| path.starts_with(target))
+        })
+        .count();
       push(
         &mut a.checks,
         "git-clean",
@@ -1324,6 +1454,7 @@ mod tests {
     RetireOpts {
       require_expired: true,
       min_age_minutes: 0.0,
+      disposable_cargo_targets: vec![],
     }
   }
 
@@ -1598,6 +1729,7 @@ mod tests {
     let waived = RetireOpts {
       require_expired: false,
       min_age_minutes: 0.0,
+      disposable_cargo_targets: vec![],
     };
     let a = assess_retire(&live, now_secs(), &waived, &elsewhere, &qdir, &lf.leases);
     assert!(
@@ -1614,6 +1746,7 @@ mod tests {
     let brake = RetireOpts {
       require_expired: false,
       min_age_minutes: 10.0,
+      disposable_cargo_targets: vec![],
     };
     let a = assess_retire(&live, now_secs(), &brake, &elsewhere, &qdir, &lf.leases);
     assert!(
@@ -1661,6 +1794,7 @@ mod tests {
     let waived = RetireOpts {
       require_expired: false,
       min_age_minutes: 0.0,
+      disposable_cargo_targets: vec![],
     };
 
     // Clean but no remote -> commits exist nowhere else -> refused.
