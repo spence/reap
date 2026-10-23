@@ -1,0 +1,1116 @@
+{
+  "captured_utc": "2026-10-23T23:27:22.226740+00:00",
+  "hostname": "catalyst-mini.local",
+  "blocking_fixtures": {
+    "binary": "/Users/spencer/.cargo/bin/reap",
+    "binary_sha256": "1d38f206c23c6c2325c32999ffbf351a312019ef7cfe63937c87ac63ccadc166",
+    "hostname": "catalyst-mini.local",
+    "results": {
+      "healthy_files": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects"
+        ],
+        "pid": 35863,
+        "pgid": 35863,
+        "deadline_seconds": 5,
+        "deadline_reached": false,
+        "elapsed_seconds": 0.017800833999999995,
+        "exit_code": 0,
+        "stdout": "reap files /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 1 found, 1 honoured\n  nothing to remove\n",
+        "stderr": ""
+      },
+      "stalled_git": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects"
+        ],
+        "pid": 35875,
+        "pgid": 35875,
+        "deadline_seconds": 0.75,
+        "deadline_reached": true,
+        "elapsed_seconds": 0.753555,
+        "exit_code": -15,
+        "stdout": "",
+        "stderr": ""
+      },
+      "duplicate_scans": {
+        "pgids": [
+          36410,
+          36416
+        ],
+        "simultaneously_alive": 2,
+        "elapsed_seconds": 0.7609836249999999,
+        "exit_code": [
+          -15,
+          -15
+        ],
+        "deadline_reached": true
+      },
+      "stalled_seen_read": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects"
+        ],
+        "pid": 36787,
+        "pgid": 36787,
+        "deadline_seconds": 0.75,
+        "deadline_reached": true,
+        "elapsed_seconds": 0.7543370420000002,
+        "exit_code": -15,
+        "stdout": "",
+        "stderr": ""
+      },
+      "stalled_status_read": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "status"
+        ],
+        "pid": 36870,
+        "pgid": 36870,
+        "deadline_seconds": 0.75,
+        "deadline_reached": true,
+        "elapsed_seconds": 0.756021541,
+        "exit_code": -15,
+        "stdout": "reap status -- read-only; no recursive sizing or deletion\n\nvolume BLOCKED: /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/stalled-status-state/state/reap/quarantine: No such file or directory (os error 2); check mount and configured path\nvolume capacity: unknown (no configured path is available)\n\nreclaimable now (bytes):\n  Cargo: unknown \u2014 run `reap sweep` for an exact plan\n  stores: unknown \u2014 run `reap stores` for an exact plan\n  leased trees: unknown \u2014 run `reap retire` for an exact plan\nleases: 0 active, 0 expired; 0 valid, 0 repair candidates, 0 pending creations\nmanaged parents: 0 (use `reap parents list` for children)\n  quarantine auto-purge policy-eligible: 0 B recorded (0 entries; execution rechecks)\nquarantine: 0 indexed entries, 0 B recorded bytes\nquarantine holds: 0 indexed entries, 0 B recorded bytes\nprotected/unknown outside indexed quarantine: unknown \u2014 no tree sizing performed\n",
+        "stderr": ""
+      },
+      "locked_lease_list": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "lease",
+          "list"
+        ],
+        "pid": 36961,
+        "pgid": 36961,
+        "deadline_seconds": 33,
+        "deadline_reached": false,
+        "elapsed_seconds": 30.021657124999997,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "error: locking state: Reap state is busy; another lifecycle command holds the lock. Retry after inspecting that command; do not remove state.lock.\n"
+      },
+      "unreadable_keep": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects"
+        ],
+        "pid": 55500,
+        "pgid": 55500,
+        "deadline_seconds": 12,
+        "deadline_reached": false,
+        "elapsed_seconds": 0.28762733399999973,
+        "exit_code": 0,
+        "stdout": "reap files /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 2 found, 2 honoured\n  would quarantine /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects/unreadable-example/expired  49 B  (expired 2020-01-01T00:00:00Z; declared by /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects/unreadable-example/expired)\n  would remove 49 B; re-run with --apply\n",
+        "stderr": "",
+        "hidden_keep_preserved": true
+      },
+      "failed_tracked_probe": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects"
+        ],
+        "pid": 55563,
+        "pgid": 55563,
+        "deadline_seconds": 12,
+        "deadline_reached": false,
+        "elapsed_seconds": 0.38329683299999573,
+        "exit_code": 0,
+        "stdout": "reap files /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 4 found, 4 honoured\n  would quarantine /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects/git-failure/workspace  25.92 KiB  (expired 2020-01-01T00:00:00Z; declared by /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects/git-failure/workspace)\n  would remove 25.92 KiB; re-run with --apply\n",
+        "stderr": "",
+        "tracked_control_stdout": "reap files /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 4 found, 3 honoured\n  set aside  /Volumes/kytos/projects/reap/responsiveness-investigation/blocking-fixtures-complete/projects/git-failure/workspace  (tracked by git)\n  nothing to remove\n",
+        "tracked_workspace_preserved": true
+      }
+    },
+    "preserved": true,
+    "remaining_processes_in_owned_groups": [],
+    "scope": "Synthetic blocking controls, not a simulation of the Mini filesystem or proof of a new execution design.",
+    "verified_remaining_processes": []
+  },
+  "uptime": "16:27  up 15 days, 21:41, 21 users, load averages: 10.15 9.51 9.98",
+  "swap": "vm.swapusage: total = 8192.00M  used = 6992.44M  free = 1199.56M  (encrypted)",
+  "space": "Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on\n/dev/disk3s1s1   460Gi    12Gi    17Gi    42%    459k  173M    0%   /\n/dev/disk7s1     3.6Ti   1.7Ti   2.0Ti    46%     24M   21G    0%   /Volumes/kytos",
+  "owned_profile_groups": [
+    80706,
+    60432,
+    97018,
+    9476
+  ],
+  "remaining_profile_processes": [],
+  "installed_binary_sha256": "1d38f206c23c6c2325c32999ffbf351a312019ef7cfe63937c87ac63ccadc166",
+  "source_receipts": {
+    "source-receipt.json": {
+      "source_revision": "d2486db83777bd6f2f16b3b7567795183677b812",
+      "source_sha256": {
+        "Cargo.toml": "f9e18bb77450199aa65ee7e4d34c3b7a607b3c0e9cbc461f91ae27218c42da46",
+        "Cargo.lock": "a9830ac3ab20ecaa50df78ae6de4bbd208390f336c4bc4c104c2e8793ccb9c70",
+        "src/config.rs": "59ade04147208fa51d198f58606180170d9d2c26489f97af134094d0168e8a25",
+        "src/coverage.rs": "f8d324f0b3b67a166fb9aa6a5632a550a30492d6df9b41f8c5e325a30cd788bd",
+        "src/create.rs": "61e63c255f0776b66e9dbc20f625cc400a3c140f452cb635a41aa4fced6025f3",
+        "src/discover.rs": "49eaae2a1a9c7fafb2969e0679c0e25c9506c7a14a07b727f2aea676e0ed858c",
+        "src/doctor.rs": "c86bbaf76f0c3d8fb9a6d02dc07924f66b8bace2913fb59e7ea1d9202a284334",
+        "src/files.rs": "33eda52d3577687107ed4a0c7ba43261171d2ef69e7996ae47091d81cdba2f1c",
+        "src/inventory.rs": "0d6f3555951f17f44b97d8da2eeeb7a49570dfb6909bfc36c9a3c11ee7bb6d70",
+        "src/lease.rs": "926d17fb26efc6bb0a125d1a31d4b7c7dc678b5c8abc8e63baa378905241a4b2",
+        "src/main.rs": "8e8e84c55833586f87743532ac3898c2fc36a3502d9aae000d324e8b3a289a45",
+        "src/maintenance.rs": "57e2223d8bbe0c482e0952e0b73ade0cdcd66b4a90f8fdee3d24829d6fe83630",
+        "src/manifest.rs": "ec36c3892fddbce5e93318d685ea8a9dfd64c522d4894f1a8f0903644be87424",
+        "src/parents.rs": "03872233db1e9f580fa9cc1084a86630f4ee300e13545cd0f11aac1e8662f601",
+        "src/plan.rs": "508975d40d9a9eba465b35eadcfcb765462b8380c25c238034ee7fd4a41af5e1",
+        "src/provenance.rs": "679f30f2d67c25ef56e5afa4aa5278bba74ee0639b50f64a4213130f83e1c61d",
+        "src/quarantine.rs": "f23550fd0e9f1e583f5e55280164d3a4cdb1f3955663713488c6837f3544b2ae",
+        "src/reapfile.rs": "5bc79566da6468affe387e91e598281cb884e88c309412579a73d5e083c78a4a",
+        "src/status.rs": "797a6f18caf4bc734a96e60e0758eaa4b5a7fe82440efdbf94513dc41e282987",
+        "src/store_bindings.rs": "f5a1ec6dac80fcde65278984f52d29ae73a174fe9ce30554f0085989ac9b669a",
+        "src/stores.rs": "aa2d3bbeb22189669322c99bfd9136974a1c9042e8b7005fa761c079b800162a",
+        "src/util.rs": "2d9891a16cd8f786bb4423347ae82aa15c60bc81b57adb8ba9a242797b0c1f82"
+      },
+      "instrumenter_sha256": "b95340d485736ad8c7ccc88a6a4e4ed6d784c627ff3c7620b6ca213056ca013f",
+      "note": "Nested span times overlap. Counts and timing include diagnostic overhead. No deletion-policy changes."
+    },
+    "source-receipt-v2.json": {
+      "source_revision": "d2486db83777bd6f2f16b3b7567795183677b812",
+      "source_sha256": {
+        "Cargo.toml": "f9e18bb77450199aa65ee7e4d34c3b7a607b3c0e9cbc461f91ae27218c42da46",
+        "Cargo.lock": "a9830ac3ab20ecaa50df78ae6de4bbd208390f336c4bc4c104c2e8793ccb9c70",
+        "src/config.rs": "59ade04147208fa51d198f58606180170d9d2c26489f97af134094d0168e8a25",
+        "src/coverage.rs": "f8d324f0b3b67a166fb9aa6a5632a550a30492d6df9b41f8c5e325a30cd788bd",
+        "src/create.rs": "61e63c255f0776b66e9dbc20f625cc400a3c140f452cb635a41aa4fced6025f3",
+        "src/discover.rs": "49eaae2a1a9c7fafb2969e0679c0e25c9506c7a14a07b727f2aea676e0ed858c",
+        "src/doctor.rs": "c86bbaf76f0c3d8fb9a6d02dc07924f66b8bace2913fb59e7ea1d9202a284334",
+        "src/files.rs": "33eda52d3577687107ed4a0c7ba43261171d2ef69e7996ae47091d81cdba2f1c",
+        "src/inventory.rs": "0d6f3555951f17f44b97d8da2eeeb7a49570dfb6909bfc36c9a3c11ee7bb6d70",
+        "src/lease.rs": "926d17fb26efc6bb0a125d1a31d4b7c7dc678b5c8abc8e63baa378905241a4b2",
+        "src/main.rs": "8e8e84c55833586f87743532ac3898c2fc36a3502d9aae000d324e8b3a289a45",
+        "src/maintenance.rs": "57e2223d8bbe0c482e0952e0b73ade0cdcd66b4a90f8fdee3d24829d6fe83630",
+        "src/manifest.rs": "ec36c3892fddbce5e93318d685ea8a9dfd64c522d4894f1a8f0903644be87424",
+        "src/parents.rs": "03872233db1e9f580fa9cc1084a86630f4ee300e13545cd0f11aac1e8662f601",
+        "src/plan.rs": "508975d40d9a9eba465b35eadcfcb765462b8380c25c238034ee7fd4a41af5e1",
+        "src/provenance.rs": "679f30f2d67c25ef56e5afa4aa5278bba74ee0639b50f64a4213130f83e1c61d",
+        "src/quarantine.rs": "f23550fd0e9f1e583f5e55280164d3a4cdb1f3955663713488c6837f3544b2ae",
+        "src/reapfile.rs": "5bc79566da6468affe387e91e598281cb884e88c309412579a73d5e083c78a4a",
+        "src/status.rs": "797a6f18caf4bc734a96e60e0758eaa4b5a7fe82440efdbf94513dc41e282987",
+        "src/store_bindings.rs": "f5a1ec6dac80fcde65278984f52d29ae73a174fe9ce30554f0085989ac9b669a",
+        "src/stores.rs": "aa2d3bbeb22189669322c99bfd9136974a1c9042e8b7005fa761c079b800162a",
+        "src/util.rs": "2d9891a16cd8f786bb4423347ae82aa15c60bc81b57adb8ba9a242797b0c1f82"
+      },
+      "instrumenter_sha256": "dc8c9023a70075e11401150b1bebe109d510136c80e97f24d01b6fa456ba3f52",
+      "note": "Nested span times overlap. Counts and timing include diagnostic overhead. No deletion-policy changes."
+    }
+  },
+  "runs": {
+    "files-live": {
+      "receipt": {
+        "started_utc": "2026-10-23T23:14:32.267447+00:00",
+        "command": [
+          "/Users/spencer/projects/reap/responsiveness-investigation/reap",
+          "files",
+          "/Users/spencer/projects"
+        ],
+        "deadline_seconds": 900,
+        "binary_sha256": "f529e9d537a5bb3023d1aad23578893394cb00e2ed5d22bc532c8fc4d997f2bc",
+        "config": {
+          "roots": [
+            "~/src",
+            "/Volumes/kytos/projects/micro-control-plane/micro-control-plane",
+            "/Volumes/kytos/projects/honk/honk"
+          ],
+          "governed_roots": [
+            "~/projects"
+          ],
+          "coverage_roots": [
+            "/Volumes/kytos",
+            "/Volumes/kytos/src",
+            "/Volumes/kytos/micro-control-plane-qualification",
+            "/Volumes/kytos/micro-foundation-density",
+            "/Volumes/kytos/projects/micro-control-plane",
+            "/Volumes/kytos/projects/honk"
+          ],
+          "exclude": [],
+          "quarantine": {
+            "dir": "/Volumes/kytos/reap-quarantine",
+            "auto_purge": true,
+            "purge_after_days": 30
+          }
+        },
+        "diagnostic": true,
+        "live_state_untouched": true,
+        "pid": 80706,
+        "pgid": 80706,
+        "exit_code": 0,
+        "elapsed_seconds": 120.081694542,
+        "stdout_bytes": 15527,
+        "profile_bytes": 1221153,
+        "finished_utc": "2026-10-23T23:16:32.351369+00:00"
+      },
+      "stdout_sha256": "0a34763e4a4c74fe35523d295cc618ddcfe27a607c35d855f7f27df889a5a1fc",
+      "profile": {
+        "kind": "finished",
+        "elapsed": 112.315194667,
+        "counts": {
+          "files.discovery.entries": 8995362,
+          "tree.entries": 310
+        },
+        "self_cpu": {
+          "system": 64.718707,
+          "user": 6.048347
+        },
+        "children_cpu": {
+          "system": 1.00623,
+          "user": 0.910205
+        },
+        "active": {},
+        "phase_totals": {
+          "files.blocked": {
+            "calls": 1,
+            "inclusive_seconds": 6.4917e-05
+          },
+          "files.discovery.directory": {
+            "calls": 2160928,
+            "inclusive_seconds": 110.27774027599997
+          },
+          "files.evaluate": {
+            "calls": 1,
+            "inclusive_seconds": 0.191867917
+          },
+          "files.git_tracked": {
+            "calls": 286,
+            "inclusive_seconds": 3.055044006
+          },
+          "files.scan": {
+            "calls": 1,
+            "inclusive_seconds": 112.113934291
+          },
+          "files.unit_stats": {
+            "calls": 2,
+            "inclusive_seconds": 0.005380332999999999
+          },
+          "tree.directory": {
+            "calls": 140,
+            "inclusive_seconds": 0.004939918000000002
+          },
+          "tree_stats": {
+            "calls": 2,
+            "inclusive_seconds": 0.005047124
+          }
+        },
+        "largest_rows": [
+          {
+            "calls": 1,
+            "label": "files.scan",
+            "path": "/Users/spencer/projects",
+            "seconds": 112.113934291
+          },
+          {
+            "calls": 282460,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/evidence-core-m2",
+            "seconds": 11.026315518000002
+          },
+          {
+            "calls": 203976,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/core-m2-frame-bound-integration-20260923-impl01",
+            "seconds": 8.058934379999801
+          },
+          {
+            "calls": 111091,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/core-m2-packet-capture-certificate-v2-20260918-impl01",
+            "seconds": 4.466532194000017
+          },
+          {
+            "calls": 98170,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/mcp-durability-m2-v4-2c17186f",
+            "seconds": 4.256574482000055
+          },
+          {
+            "calls": 103675,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/mcp-burndown-cutover-rehearsal-20260915",
+            "seconds": 4.108543303999961
+          },
+          {
+            "calls": 48330,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/evidence-standalone-ga-m5",
+            "seconds": 3.963463223000007
+          },
+          {
+            "calls": 36948,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-db/r15-runner",
+            "seconds": 3.5660663970000175
+          },
+          {
+            "calls": 34776,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/evidence-standalone-ga-m1",
+            "seconds": 3.409820046999999
+          },
+          {
+            "calls": 79308,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/evidence-standalone-ga-m4",
+            "seconds": 3.3390698140000223
+          },
+          {
+            "calls": 72636,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/core-m2-frame-bounds-v2-20260919-impl01",
+            "seconds": 2.954799755999974
+          },
+          {
+            "calls": 29790,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-db/r15-session",
+            "seconds": 2.7811754340000068
+          },
+          {
+            "calls": 42582,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/micro-control-plane",
+            "seconds": 2.4900839879999936
+          },
+          {
+            "calls": 47951,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/core-m2-backpressure-certificate-exact-20260918-impl01",
+            "seconds": 2.1376420920000165
+          },
+          {
+            "calls": 21882,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/evidence-standalone-ga-conformance",
+            "seconds": 2.0415538950000034
+          },
+          {
+            "calls": 43821,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/core-m2-sbom-source-certificate-v1-20260916-impl01",
+            "seconds": 1.8904987710000385
+          },
+          {
+            "calls": 18254,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro/t3-v8-fork",
+            "seconds": 1.6791516120000045
+          },
+          {
+            "calls": 29274,
+            "label": "files.discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-db/p3h-regional-fold",
+            "seconds": 1.6715839170000146
+          }
+        ],
+        "project_directory_totals": {
+          "/Volumes/kytos/projects": {
+            "directories": 1,
+            "inclusive_seconds": 9.6459e-05
+          },
+          "aimeter": {
+            "directories": 4,
+            "inclusive_seconds": 0.014232042
+          },
+          "burndown": {
+            "directories": 16,
+            "inclusive_seconds": 0.038469043
+          },
+          "honk": {
+            "directories": 10850,
+            "inclusive_seconds": 1.1848250499999982
+          },
+          "micro": {
+            "directories": 145059,
+            "inclusive_seconds": 12.066106009000023
+          },
+          "micro-bundler": {
+            "directories": 13150,
+            "inclusive_seconds": 1.711705934000002
+          },
+          "micro-control-plane": {
+            "directories": 1815607,
+            "inclusive_seconds": 80.66197278499995
+          },
+          "micro-db": {
+            "directories": 136403,
+            "inclusive_seconds": 10.947921616000038
+          },
+          "micro-ref": {
+            "directories": 10440,
+            "inclusive_seconds": 0.8365534790000032
+          },
+          "modaf": {
+            "directories": 20,
+            "inclusive_seconds": 0.005431417
+          },
+          "modkit": {
+            "directories": 3,
+            "inclusive_seconds": 0.01186125
+          },
+          "protobuf-runtime": {
+            "directories": 29361,
+            "inclusive_seconds": 2.763225941000001
+          },
+          "reap": {
+            "directories": 12,
+            "inclusive_seconds": 0.029860334000000002
+          },
+          "repo-relocation": {
+            "directories": 2,
+            "inclusive_seconds": 0.005478917
+          }
+        }
+      },
+      "stdout_first_lines": [
+        "reap files /Volumes/kytos/projects -- DRY-RUN (nothing moved)",
+        "  declarations: 286 found, 251 honoured",
+        "  set aside  /Volumes/kytos/projects/burndown/closed-gateway-worker-20261022  (new; takes effect in 6h)"
+      ],
+      "stdout_last_lines": [
+        "  UNDECLARED /Volumes/kytos/projects/micro-db/micro-db  (project micro-db; add a .reap)",
+        "  UNDECLARED /Volumes/kytos/projects/protobuf-runtime/agents-disk-approval-600gb  (project protobuf-runtime; add a .reap)",
+        "  blocked    /Volumes/kytos/projects/micro-bundler/scratch/tmp-crate-repro  (overlaps lease 8a4595c3 at /Volumes/kytos/projects/micro-bundler/scratch/tmp-crate-repro)",
+        "  would remove 0 B; re-run with --apply"
+      ]
+    },
+    "cargo-live": {
+      "receipt": {
+        "started_utc": "2026-10-23T23:19:28.124726+00:00",
+        "command": [
+          "/Users/spencer/projects/reap/responsiveness-investigation/reap-v2",
+          "sweep"
+        ],
+        "deadline_seconds": 600,
+        "binary_sha256": "7cb3ff2e319eb7f396f5fbf5e41470722383c253f09d3e3e2dd9513f90e73658",
+        "config": {
+          "roots": [
+            "~/src",
+            "/Volumes/kytos/projects/micro-control-plane/micro-control-plane",
+            "/Volumes/kytos/projects/honk/honk"
+          ],
+          "governed_roots": [
+            "~/projects"
+          ],
+          "coverage_roots": [
+            "/Volumes/kytos",
+            "/Volumes/kytos/src",
+            "/Volumes/kytos/micro-control-plane-qualification",
+            "/Volumes/kytos/micro-foundation-density",
+            "/Volumes/kytos/projects/micro-control-plane",
+            "/Volumes/kytos/projects/honk"
+          ],
+          "exclude": [],
+          "quarantine": {
+            "dir": "/Volumes/kytos/reap-quarantine",
+            "auto_purge": true,
+            "purge_after_days": 30
+          }
+        },
+        "diagnostic": true,
+        "live_state_untouched": true,
+        "pid": 60432,
+        "pgid": 60432,
+        "exit_code": 0,
+        "manager_elapsed_seconds": 105.0379725,
+        "stdout_bytes": 13088,
+        "profile_bytes": 529662,
+        "finished_utc": "2026-10-23T23:21:13.164344+00:00"
+      },
+      "stdout_sha256": "2c66b796dc9d74e77b18623872463fa93f9d7407c3e7ba4aa5167ead149ab15f",
+      "profile": {
+        "kind": "finished",
+        "elapsed": 95.6360855,
+        "counts": {
+          "discovery.entries": 10591642
+        },
+        "self_cpu": {
+          "system": 34.148719,
+          "user": 3.682144
+        },
+        "children_cpu": {
+          "system": 0.0,
+          "user": 0.0
+        },
+        "active": {},
+        "phase_totals": {
+          "cargo.plan_project": {
+            "calls": 74,
+            "inclusive_seconds": 14.748221585
+          },
+          "discover.targets": {
+            "calls": 1,
+            "inclusive_seconds": 80.858570917
+          },
+          "discovery.directory": {
+            "calls": 637711,
+            "inclusive_seconds": 80.37846494599974
+          }
+        },
+        "largest_rows": [
+          {
+            "calls": 1,
+            "label": "discover.targets",
+            "path": "all-roots",
+            "seconds": 80.858570917
+          },
+          {
+            "calls": 88528,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-db",
+            "seconds": 33.07457253600008
+          },
+          {
+            "calls": 247932,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/held-orch",
+            "seconds": 22.888167944999754
+          },
+          {
+            "calls": 121962,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro",
+            "seconds": 10.731591696999896
+          },
+          {
+            "calls": 42535,
+            "label": "discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/micro-control-plane",
+            "seconds": 2.0448801970000168
+          },
+          {
+            "calls": 17457,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/modkit/.build",
+            "seconds": 1.653214483999997
+          },
+          {
+            "calls": 1,
+            "label": "cargo.plan_project",
+            "path": "/Volumes/kytos/src/worktrees/protobuf-runtime-codec-t3/tests/embedding/host/target",
+            "seconds": 1.193008958
+          },
+          {
+            "calls": 1,
+            "label": "cargo.plan_project",
+            "path": "/Volumes/kytos/src/worktrees/protobuf-runtime-codec-t3/tests/embedding/full-core/target",
+            "seconds": 1.130689667
+          },
+          {
+            "calls": 10315,
+            "label": "discovery.directory",
+            "path": "/Volumes/kytos/projects/honk/honk",
+            "seconds": 1.1071656619999952
+          },
+          {
+            "calls": 9661,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-foundation-ref-slice",
+            "seconds": 0.9073414669999991
+          },
+          {
+            "calls": 9611,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-foundation-codec-t3",
+            "seconds": 0.9053489070000019
+          },
+          {
+            "calls": 1,
+            "label": "cargo.plan_project",
+            "path": "/Volumes/kytos/src/protobuf-runtime/target",
+            "seconds": 0.878719292
+          },
+          {
+            "calls": 9537,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-foundation-cp-spec",
+            "seconds": 0.862120104999999
+          },
+          {
+            "calls": 9306,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/foundation-fresh",
+            "seconds": 0.7718377220000026
+          },
+          {
+            "calls": 1,
+            "label": "cargo.plan_project",
+            "path": "/Volumes/kytos/src/worktrees/protobuf-runtime-codec-t3/tests/embedding/grpc-only/target",
+            "seconds": 0.768393333
+          },
+          {
+            "calls": 1,
+            "label": "cargo.plan_project",
+            "path": "/Volumes/kytos/src/worktrees/held-orch/fs2-artifacts/repo/target",
+            "seconds": 0.752497291
+          },
+          {
+            "calls": 9306,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/foundation-official",
+            "seconds": 0.7349071280000006
+          },
+          {
+            "calls": 8945,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/micro-density-extension-memory/docs",
+            "seconds": 0.7339117940000011
+          }
+        ]
+      },
+      "stdout_first_lines": [
+        "reap sweep -- DRY-RUN (nothing deleted) -- 74 target dir(s) under /Users/spencer/src, /Volumes/kytos/projects/micro-control-plane/micro-control-plane, /Volumes/kytos/projects/honk/honk [80858 ms]",
+        "",
+        "  micro-control-plane"
+      ],
+      "stdout_last_lines": [
+        "",
+        "==============================================================",
+        " GRAND TOTAL reclaimable across 74 target dir(s): 0 B",
+        "=============================================================="
+      ]
+    },
+    "stores-live": {
+      "receipt": {
+        "started_utc": "2026-10-23T23:21:13.178606+00:00",
+        "command": [
+          "/Users/spencer/projects/reap/responsiveness-investigation/reap-v2",
+          "stores"
+        ],
+        "deadline_seconds": 360,
+        "binary_sha256": "7cb3ff2e319eb7f396f5fbf5e41470722383c253f09d3e3e2dd9513f90e73658",
+        "config": {
+          "roots": [
+            "~/src",
+            "/Volumes/kytos/projects/micro-control-plane/micro-control-plane",
+            "/Volumes/kytos/projects/honk/honk"
+          ],
+          "governed_roots": [
+            "~/projects"
+          ],
+          "coverage_roots": [
+            "/Volumes/kytos",
+            "/Volumes/kytos/src",
+            "/Volumes/kytos/micro-control-plane-qualification",
+            "/Volumes/kytos/micro-foundation-density",
+            "/Volumes/kytos/projects/micro-control-plane",
+            "/Volumes/kytos/projects/honk"
+          ],
+          "exclude": [],
+          "quarantine": {
+            "dir": "/Volumes/kytos/reap-quarantine",
+            "auto_purge": true,
+            "purge_after_days": 30
+          }
+        },
+        "diagnostic": true,
+        "live_state_untouched": true,
+        "pid": 97018,
+        "pgid": 97018,
+        "exit_code": 0,
+        "manager_elapsed_seconds": 90.0338565,
+        "stdout_bytes": 2019,
+        "profile_bytes": 355462,
+        "finished_utc": "2026-10-23T23:22:43.217030+00:00"
+      },
+      "stdout_sha256": "59073638c7a6353bdcfba6012da8622fe62699b7cbc98ef3c057d5672b20f0c3",
+      "profile": {
+        "kind": "finished",
+        "elapsed": 82.688086708,
+        "counts": {
+          "discovery.entries": 10591657
+        },
+        "self_cpu": {
+          "system": 30.245191,
+          "user": 3.645473
+        },
+        "children_cpu": {
+          "system": 0.0,
+          "user": 0.0
+        },
+        "active": {},
+        "phase_totals": {
+          "discover.manifests": {
+            "calls": 1,
+            "inclusive_seconds": 79.574869584
+          },
+          "discovery.directory": {
+            "calls": 637712,
+            "inclusive_seconds": 79.09995701400051
+          },
+          "stores.plan_one": {
+            "calls": 8,
+            "inclusive_seconds": 2.8532287920000003
+          },
+          "stores.tree_stats": {
+            "calls": 21,
+            "inclusive_seconds": 2.830486957
+          }
+        },
+        "largest_rows": [
+          {
+            "calls": 1,
+            "label": "discover.manifests",
+            "path": "all-roots",
+            "seconds": 79.574869584
+          },
+          {
+            "calls": 88528,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-db",
+            "seconds": 31.609299071999658
+          },
+          {
+            "calls": 247933,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/held-orch",
+            "seconds": 22.190458301000827
+          },
+          {
+            "calls": 121962,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro",
+            "seconds": 11.296068086000028
+          },
+          {
+            "calls": 42535,
+            "label": "discovery.directory",
+            "path": "/Volumes/kytos/projects/micro-control-plane/micro-control-plane",
+            "seconds": 2.1155230340000073
+          },
+          {
+            "calls": 17457,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/modkit/.build",
+            "seconds": 1.5990930220000001
+          },
+          {
+            "calls": 1,
+            "label": "stores.plan_one",
+            "path": "/Volumes/kytos/src/worktrees/micro-db/ordinary-context-proof.Kfmv3y/t9-physical-feasibility-overlay/owned-submission-output",
+            "seconds": 1.496961792
+          },
+          {
+            "calls": 1,
+            "label": "stores.tree_stats",
+            "path": "/Volumes/kytos/src/worktrees/micro-db/ordinary-context-proof.Kfmv3y/t9-physical-feasibility-overlay/owned-submission-output/test-media",
+            "seconds": 1.477467917
+          },
+          {
+            "calls": 10315,
+            "label": "discovery.directory",
+            "path": "/Volumes/kytos/projects/honk/honk",
+            "seconds": 1.129533647000004
+          },
+          {
+            "calls": 1,
+            "label": "stores.plan_one",
+            "path": "/Volumes/kytos/projects/honk/honk/.build",
+            "seconds": 1.013554083
+          },
+          {
+            "calls": 9661,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-foundation-ref-slice",
+            "seconds": 0.8758611830000027
+          },
+          {
+            "calls": 9611,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-foundation-codec-t3",
+            "seconds": 0.859314756999995
+          },
+          {
+            "calls": 9298,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/foundation-audit",
+            "seconds": 0.8389552000000041
+          },
+          {
+            "calls": 9298,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/foundation-r9a",
+            "seconds": 0.8387638950000018
+          },
+          {
+            "calls": 9306,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/foundation-official",
+            "seconds": 0.7877187110000007
+          },
+          {
+            "calls": 9537,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/micro-foundation-cp-spec",
+            "seconds": 0.7724233209999991
+          },
+          {
+            "calls": 9306,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/worktrees/foundation-fresh",
+            "seconds": 0.7465731759999988
+          },
+          {
+            "calls": 8945,
+            "label": "discovery.directory",
+            "path": "/Users/spencer/src/micro-density-extension-memory/docs",
+            "seconds": 0.7457168239999957
+          }
+        ]
+      },
+      "stdout_first_lines": [
+        "reap stores -- DRY-RUN (nothing evicted)",
+        "",
+        "  /Volumes/kytos/projects/honk/honk"
+      ],
+      "stdout_last_lines": [
+        "    .build/UnsignedDeviceDerivedData (missing -- nothing to do)",
+        "    .build/xcode-generic         (missing -- nothing to do)",
+        "",
+        " TOTAL eligible (armed stores): 0 B"
+      ]
+    },
+    "installed-files": {
+      "receipt": {
+        "started_utc": "2026-10-23T23:24:12.751345+00:00",
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Users/spencer/projects"
+        ],
+        "deadline_seconds": 300,
+        "binary_sha256": "1d38f206c23c6c2325c32999ffbf351a312019ef7cfe63937c87ac63ccadc166",
+        "diagnostic": false,
+        "live_state_untouched": true,
+        "pid": 9476,
+        "pgid": 9476,
+        "first_stdout_seconds": 106.96593479100001,
+        "elapsed_seconds": 106.973835875,
+        "exit_code": 0,
+        "child_user_cpu_seconds": 4.409206,
+        "child_system_cpu_seconds": 61.25773,
+        "stdout_bytes": 16245,
+        "stderr_bytes": 0,
+        "finished_utc": "2026-10-23T23:25:59.727001+00:00"
+      },
+      "stdout_sha256": "a43fb58821098126c700fb5f733da7f028a8a5a661c0acba836f26f952256c21",
+      "stdout_first_lines": [
+        "reap files /Volumes/kytos/projects -- DRY-RUN (nothing moved)",
+        "  declarations: 291 found, 251 honoured",
+        "  set aside  /Volumes/kytos/projects/aimeter/sonnet-daily-20261023  (new; takes effect in 24h)"
+      ],
+      "stdout_last_lines": [
+        "  UNDECLARED /Volumes/kytos/projects/micro-db/micro-db  (project micro-db; add a .reap)",
+        "  UNDECLARED /Volumes/kytos/projects/protobuf-runtime/agents-disk-approval-600gb  (project protobuf-runtime; add a .reap)",
+        "  blocked    /Volumes/kytos/projects/micro-bundler/scratch/tmp-crate-repro  (overlaps lease 8a4595c3 at /Volumes/kytos/projects/micro-bundler/scratch/tmp-crate-repro)",
+        "  would remove 0 B; re-run with --apply"
+      ]
+    }
+  },
+  "laptop_blocking_fixtures": {
+    "binary": "/Users/spencer/.cargo/bin/reap",
+    "binary_sha256": "1d38f206c23c6c2325c32999ffbf351a312019ef7cfe63937c87ac63ccadc166",
+    "hostname": "catalyst.local",
+    "results": {
+      "healthy_files": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects"
+        ],
+        "pid": 99656,
+        "pgid": 99656,
+        "deadline_seconds": 5,
+        "deadline_reached": false,
+        "elapsed_seconds": 0.012173125054687262,
+        "exit_code": 0,
+        "stdout": "reap files /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 1 found, 1 honoured\n  nothing to remove\n",
+        "stderr": ""
+      },
+      "stalled_git": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects"
+        ],
+        "pid": 99661,
+        "pgid": 99661,
+        "deadline_seconds": 0.75,
+        "deadline_reached": true,
+        "elapsed_seconds": 0.7536437918897718,
+        "exit_code": -15,
+        "stdout": "",
+        "stderr": ""
+      },
+      "duplicate_scans": {
+        "pgids": [
+          99664,
+          99665
+        ],
+        "simultaneously_alive": 2,
+        "elapsed_seconds": 0.7589845829643309,
+        "exit_code": [
+          -15,
+          -15
+        ],
+        "deadline_reached": true
+      },
+      "stalled_seen_read": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects"
+        ],
+        "pid": 99669,
+        "pgid": 99669,
+        "deadline_seconds": 0.75,
+        "deadline_reached": true,
+        "elapsed_seconds": 0.7533886251039803,
+        "exit_code": -15,
+        "stdout": "",
+        "stderr": ""
+      },
+      "stalled_status_read": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "status"
+        ],
+        "pid": 99674,
+        "pgid": 99674,
+        "deadline_seconds": 0.75,
+        "deadline_reached": true,
+        "elapsed_seconds": 0.7537066659424454,
+        "exit_code": -15,
+        "stdout": "reap status -- read-only; no recursive sizing or deletion\n\nvolume BLOCKED: /Users/spencer/src/reap/target/responsiveness-reproduction-complete/stalled-status-state/state/reap/quarantine: No such file or directory (os error 2); check mount and configured path\nvolume capacity: unknown (no configured path is available)\n\nreclaimable now (bytes):\n  Cargo: unknown \u2014 run `reap sweep` for an exact plan\n  stores: unknown \u2014 run `reap stores` for an exact plan\n  leased trees: unknown \u2014 run `reap retire` for an exact plan\nleases: 0 active, 0 expired; 0 valid, 0 repair candidates, 0 pending creations\nmanaged parents: 0 (use `reap parents list` for children)\n  quarantine auto-purge policy-eligible: 0 B recorded (0 entries; execution rechecks)\nquarantine: 0 indexed entries, 0 B recorded bytes\nquarantine holds: 0 indexed entries, 0 B recorded bytes\nprotected/unknown outside indexed quarantine: unknown \u2014 no tree sizing performed\n",
+        "stderr": ""
+      },
+      "locked_lease_list": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "lease",
+          "list"
+        ],
+        "pid": 99676,
+        "pgid": 99676,
+        "deadline_seconds": 33,
+        "deadline_reached": false,
+        "elapsed_seconds": 30.01641762489453,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "error: locking state: Reap state is busy; another lifecycle command holds the lock. Retry after inspecting that command; do not remove state.lock.\n"
+      },
+      "unreadable_keep": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects"
+        ],
+        "pid": 99787,
+        "pgid": 99787,
+        "deadline_seconds": 12,
+        "deadline_reached": false,
+        "elapsed_seconds": 0.6385452921967953,
+        "exit_code": 0,
+        "stdout": "reap files /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 2 found, 2 honoured\n  would quarantine /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects/unreadable-example/expired  49 B  (expired 2020-01-01T00:00:00Z; declared by /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects/unreadable-example/expired)\n  would remove 49 B; re-run with --apply\n",
+        "stderr": "",
+        "hidden_keep_preserved": true
+      },
+      "failed_tracked_probe": {
+        "command": [
+          "/Users/spencer/.cargo/bin/reap",
+          "files",
+          "/Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects"
+        ],
+        "pid": 99818,
+        "pgid": 99818,
+        "deadline_seconds": 12,
+        "deadline_reached": false,
+        "elapsed_seconds": 0.7801585411652923,
+        "exit_code": 0,
+        "stdout": "reap files /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 4 found, 4 honoured\n  would quarantine /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects/git-failure/workspace  26.86 KiB  (expired 2020-01-01T00:00:00Z; declared by /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects/git-failure/workspace)\n  would remove 26.86 KiB; re-run with --apply\n",
+        "stderr": "",
+        "tracked_control_stdout": "reap files /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects -- DRY-RUN (nothing moved)\n  declarations: 4 found, 3 honoured\n  set aside  /Users/spencer/src/reap/target/responsiveness-reproduction-complete/projects/git-failure/workspace  (tracked by git)\n  nothing to remove\n",
+        "tracked_workspace_preserved": true
+      }
+    },
+    "preserved": true,
+    "remaining_processes_in_owned_groups": [],
+    "scope": "Synthetic blocking controls, not a simulation of the Mini filesystem or proof of a new execution design."
+  },
+  "instrumentation_calibration": {
+    "stdout_equal": true,
+    "preserved": true,
+    "profile": {
+      "active": {},
+      "children_cpu": {
+        "system": 0.002967,
+        "user": 0.003621
+      },
+      "counts": {
+        "files.discovery.entries": 5
+      },
+      "elapsed": 0.010178458,
+      "kind": "finished",
+      "last_directory": "/Users/spencer/src/reap/target/responsiveness-calibration/projects/example/keep/build",
+      "rows": [
+        {
+          "calls": 1,
+          "label": "files.discovery.directory",
+          "path": "/Users/spencer/src/reap/target/responsiveness-calibration/projects",
+          "seconds": 4.9334e-05
+        },
+        {
+          "calls": 1,
+          "label": "files.discovery.directory",
+          "path": "/Users/spencer/src/reap/target/responsiveness-calibration/projects/example",
+          "seconds": 5.0583e-05
+        },
+        {
+          "calls": 2,
+          "label": "files.discovery.directory",
+          "path": "/Users/spencer/src/reap/target/responsiveness-calibration/projects/example/keep",
+          "seconds": 0.008548
+        },
+        {
+          "calls": 1,
+          "label": "files.evaluate",
+          "path": "/Users/spencer/src/reap/target/responsiveness-calibration/projects",
+          "seconds": 7.4583e-05
+        },
+        {
+          "calls": 1,
+          "label": "files.git_tracked",
+          "path": "/Users/spencer/src/reap/target/responsiveness-calibration/projects/example/keep/.reap",
+          "seconds": 0.008374834
+        },
+        {
+          "calls": 1,
+          "label": "files.scan",
+          "path": "/Users/spencer/src/reap/target/responsiveness-calibration/projects",
+          "seconds": 0.009169125
+        }
+      ],
+      "self_cpu": {
+        "system": 0.003997,
+        "user": 0.001676
+      }
+    }
+  },
+  "limitations": [
+    "Instrumented spans are inclusive and overlap; do not sum parent and child span times.",
+    "Diagnostic overhead and concurrent writers prevent a before/after performance claim.",
+    "Cargo and stores saw 15 different entries and one different directory; these are not parity benchmarks.",
+    "FIFO controls model stalled user-space I/O, not an uninterruptible kernel fault.",
+    "No apply, production binary replacement, scheduler change, or foreign-process termination occurred."
+  ],
+  "safety_issues": [
+    "ISS-UNREADABLE-DECLARATION-SUBTREE-HIDES-KEE",
+    "ISS-FAILED-GIT-TRACKING-PROBE-HONORS-A-TRACK"
+  ]
+}

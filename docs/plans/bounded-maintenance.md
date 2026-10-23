@@ -5,6 +5,12 @@ authorized by this document. The implementation milestones below are proposed, n
 work. Register this proposal as an asset of `OBJ-REAP-LIFETIME`; promote the selected design into
 the Burn graph only after review.
 
+Follow-up, 2026-10-23: the owner requested a full responsiveness investigation.
+[Native evidence and the execution-design recommendation](../proof/RESPONSIVENESS-INVESTIGATION.md)
+identify discovery as the dominant current cost. They also explain why an independent job-control
+path is required for prompt replies. The newer recommendation replaces this proposal's preference
+against another service. Neither document claims an implemented or deployed performance correction.
+
 ## Recommendation
 
 Reduce the filesystem work maintenance performs: discover cleanup locations once per invocation,

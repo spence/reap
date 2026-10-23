@@ -8,7 +8,7 @@
 - Grounds: `DEC-LIFETIME-AUTHORITY`, `DEC-LIFETIME-FORMAT` (both proposed)
 - Fixtures: `docs/specs/reap-file.fixtures.json`, read by `src/reapfile.rs::tests::spec_fixtures`
   (C4–C13); on-disk honour rules in `tests/reap_files.rs` (C1–C3)
-- Conformance: 14 of 14 clauses met · 2026-10-08
+- Conformance: C2 and C11 not met; other clauses retain their recorded proof · 2026-10-23
 
 ## Surface
 
@@ -33,7 +33,8 @@ reap's existing behavior and are governed by its own documentation, not by this 
   · Binding: `tests/reap_files.rs::default_governed_root_removes_only_declared_projects`,
     `tests/reap_files.rs::copies_outside_the_root_and_symlinks_inside_are_never_touched` · Conformance: `met`
 - **C2** — A `.reap` file tracked by git is ignored.
-  · Binding: `tests/reap_files.rs::git_tracked_declaration_is_set_aside` · Conformance: `met`
+  · Binding: `tests/reap_files.rs::git_tracked_declaration_is_set_aside`
+  · Conformance: `not met` when the Git probe fails; see the native failure evidence below.
 - **C3** — A declaration takes effect only once its file identity has been seen for the grace
   period (default 24 hours); renames and moves within a volume keep identity.
   · Binding: `tests/reap_files.rs::new_declaration_waits_out_the_grace_period`; rename and move cases in `prototypes/lifetime-authority/scenarios.py` · Conformance: `met`
@@ -76,7 +77,7 @@ reap's existing behavior and are governed by its own documentation, not by this 
 - **C11** — When a declaration's `expires` has passed, its directory is removed, except subtrees
   protected by their own unexpired, kept, or invalid declaration, which remain in place.
   · Binding: `fixture:expired-scratch-keeps-declared-evidence`, `fixture:worktree-scratch-expired`
-  · Conformance: `met`
+  · Conformance: `not met` for an unreadable protected subtree; see the native failure evidence below.
 - **C12** — `disposition` is `quarantine` (default, recoverable until purge) or `delete`; any
   other value is invalid.
   · Binding: `fixture:invalid-bad-disposition` · Conformance: `met`
@@ -91,9 +92,26 @@ reap's existing behavior and are governed by its own documentation, not by this 
 
 | Clauses | Check | State |
 |---|---|---|
-| C1–C3, C14 | `cargo test --test reap_files` | met |
-| C4–C13 | `cargo test reapfile::tests::spec_fixtures` (reads the fixture path) | met |
+| C1, C3, C14 | `cargo test --test reap_files` | recorded passing proof |
+| C2 | Normal-Git fixture above; failed-Git native reproduction below | not met |
+| C4–C10, C12–C13 | `cargo test reapfile::tests::spec_fixtures` (reads the fixture path) | recorded passing model proof |
+| C11 | Model fixtures above; unreadable-subtree native reproduction below | not met |
 | C1–C13 (reference) | `python3 prototypes/lifetime-authority/scenarios.py`, `python3 prototypes/lifetime-format/evaluate.py` | pass |
+
+### Native failure evidence
+
+The [2026-10-23 investigation](../proof/RESPONSIVENESS-INVESTIGATION.md) reproduces both failures
+against the installed binary on both Macs. Its [receipts](../proof/RESPONSIVENESS-2026-10-23.json)
+retain the dry-run output. No destructive execution occurred.
+
+- `ISS-FAILED-GIT-TRACKING-PROBE-HONORS-A-TRACK`: a fatal Git exit is treated as an untracked
+  declaration. The tracked declaration then supplies a removal candidate.
+- `ISS-UNREADABLE-DECLARATION-SUBTREE-HIDES-KEE`: a skipped directory hides its KEEP declaration.
+  The expired ancestor then becomes a removal candidate without an incomplete-coverage result.
+
+Run `python3 tools/reproduce_responsiveness.py --destination target/reap-native-failure-evidence`
+with a new destination. This diagnostic harness demonstrates the defects; it is not proof of
+conformance. Correction requires fail-closed regressions and native preservation proof.
 
 ### Accepted gaps
 
