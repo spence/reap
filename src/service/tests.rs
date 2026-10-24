@@ -463,6 +463,65 @@ mod native {
     println!("native client: cumulative Prepare -> Admit -> resolver -> bulk check -> durable terminal; exact replay and writer restart");
   }
 
+  #[test]
+  #[ignore = "requires the native full-sync fault library through verify_control_macos.py"]
+  fn native_client_waits_for_cold_writer_within_original_admission_budget() {
+    use crate::client::{Client, State};
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let fixture = Fixture::with_fault(Some("directory"));
+    fixture.install(Role::ContextResolver);
+    let project = fixture.root.join("project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(project.join("valuable"), b"cold writer survivor").unwrap();
+    let mut input = intent(&fixture);
+    input.argv = vec!["check".into(), project.to_str().unwrap().into()];
+    fs::write(fixture.root.join("gate/armed"), b"1").unwrap();
+    let gate = fixture.root.join("gate");
+    let release = thread::spawn(move || {
+      let deadline = Instant::now() + Duration::from_secs(3);
+      while !gate.join("entered").exists() {
+        assert!(
+          Instant::now() < deadline,
+          "cold writer did not enter its owned gate"
+        );
+        thread::sleep(Duration::from_millis(5));
+      }
+      thread::sleep(Duration::from_millis(100));
+      fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(gate.join("fifo"))
+        .unwrap()
+        .write_all(b"1")
+        .unwrap();
+    });
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    let started = Instant::now();
+    let receipt = client.submit(input, None);
+    let elapsed = started.elapsed();
+    release.join().unwrap();
+    assert_eq!(receipt.state, State::Pending, "{receipt:?}");
+    assert!(elapsed < RESPONSE_BUDGET);
+    let completed = client.wait(receipt.key.unwrap(), Duration::from_secs(10));
+    assert_eq!(completed.state, State::Completed, "{completed:?}");
+    assert_eq!(completed.job.unwrap().result.unwrap().effects, 0);
+    assert_eq!(
+      fs::read(project.join("valuable")).unwrap(),
+      b"cold writer survivor"
+    );
+    assert_eq!(
+      fs::read_dir(fixture.root.join("state/reap/admission"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with('j'))
+        .count(),
+      1
+    );
+  }
+
   fn assert_pending(client: &crate::client::Client, key: Key) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {

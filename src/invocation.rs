@@ -32,6 +32,37 @@ pub struct Intent {
   pub provenance: serde_json::Value,
 }
 
+/// Requested operation metadata, not resolved target identity or cleanup permission.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Summary {
+  pub operation: String,
+  pub mode: String,
+  pub requested_scope: String,
+}
+
+impl Summary {
+  /// Validate supported presentation metadata without treating it as execution permission.
+  pub fn valid(&self) -> bool {
+    self.operation == "check"
+      && self.mode == "read"
+      && self.requested_scope.len() <= 8192
+      && !self.requested_scope.contains('\0')
+  }
+}
+
+/// Summarize the supported read-only request without filesystem access.
+pub fn summary(input: &Intent) -> Option<Summary> {
+  if !valid_intent(input) || input.argv.first()?.as_str() != "check" || input.argv.len() > 2 {
+    return None;
+  }
+  Some(Summary {
+    operation: "check".into(),
+    mode: "read".into(),
+    requested_scope: input.argv.get(1).cloned().unwrap_or_else(|| ".".into()),
+  })
+}
+
 /// A resolver receipt is valid for new admission only while its original ticket is retained.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

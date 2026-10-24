@@ -15,6 +15,7 @@ fn view(result: Option<Terminal>) -> View {
     created_at: 1,
     completed_at: result.as_ref().map(|_| 2),
     result,
+    invocation: None,
   }
 }
 
@@ -67,14 +68,21 @@ fn malformed_or_other_key_terminal_evidence_cannot_return_success() {
     effects: 0,
     detail: "complete".into(),
   });
-  for changed in 0..5 {
+  for changed in 0..6 {
     let mut job = view(terminal.clone());
     match changed {
       0 => job.key.epoch += 1,
       1 => job.completed_at = None,
       2 => job.completed_at = Some(0),
       3 => job.result.as_mut().unwrap().exit_code = 75,
-      _ => job.result.as_mut().unwrap().detail = "x".repeat(4097),
+      4 => job.result.as_mut().unwrap().detail = "x".repeat(4097),
+      _ => {
+        job.invocation = Some(invocation::Summary {
+          operation: "check".into(),
+          mode: "apply".into(),
+          requested_scope: ".".into(),
+        })
+      }
     }
     let receipt = observe(key(), Decision::Present { job });
     assert_eq!(receipt.state, State::Unknown);

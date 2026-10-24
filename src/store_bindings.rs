@@ -62,10 +62,18 @@ fn load_bindings(state: &Path) -> Result<BindingFile, String> {
     Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(BindingFile::default()),
     Err(e) => return Err(format!("{}: {e}", path.display())),
   };
-  let file: BindingFile =
-    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+  parse_binding_file(text.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Parse the local registry supplied by a bounded reader.
+pub(crate) fn parse_bindings(bytes: &[u8]) -> Result<Vec<StoreBinding>, String> {
+  Ok(parse_binding_file(bytes)?.bindings)
+}
+
+fn parse_binding_file(bytes: &[u8]) -> Result<BindingFile, String> {
+  let file: BindingFile = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
   if file.version != 1 {
-    return Err(format!("{}: unsupported version", path.display()));
+    return Err("unsupported version".into());
   }
   Ok(file)
 }
@@ -229,13 +237,14 @@ fn marker_matches(binding: &StoreBinding) -> Result<(), String> {
     return Err(format!("{} is not a regular marker", path.display()));
   }
   let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-  let marker: ExternalMarker =
-    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+  parse_marker(text.as_bytes(), binding).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Validate complete marker bytes against the exact local registry entry.
+pub(crate) fn parse_marker(bytes: &[u8], binding: &StoreBinding) -> Result<(), String> {
+  let marker: ExternalMarker = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
   if marker.signature != MARKER_SIGNATURE || marker.binding != *binding {
-    return Err(format!(
-      "{} does not match its local binding",
-      path.display()
-    ));
+    return Err("marker does not match its local binding".into());
   }
   Ok(())
 }

@@ -8,7 +8,8 @@
 - Fixtures: `docs/specs/macos-install.fixtures.json`.
 - Conformance: C1–C5 have fixture and native proof in
   [LIFETIME-SAFETY-T8](../proof/LIFETIME-SAFETY-T8.md). Earlier C1–C3 evidence remains in
-  `docs/proof/REAP-NATIVE-IDENTITY.md`.
+  `docs/proof/REAP-NATIVE-IDENTITY.md`. Later service installation, refresh, and consumer proof
+  is in [PUBLIC-CHECK-T13](../proof/PUBLIC-CHECK-T13.md).
 
 ## Contract
 
@@ -40,6 +41,22 @@
     checksum, and installed-consumer proof on both Macs.
   · Conformance: 17 installer fixtures pass, native negative controls preserve old binaries,
     and both Macs install the same verified artifact with matching designated requirements.
+- **C6** — A macOS install performs service ownership preflight before executable publication.
+  It then registers one on-demand `user/<uid>` cohort of the fixed control, context-resolver,
+  and state-writer roles. Ordinary commands do not install services or create fallback brokers.
+  The roles use the host user's HOME and default state namespace, not the caller's namespace.
+  · Binding: `tests/test_service_installation.py`, installer failure cases, and installed public CLI proof.
+- **C7** — Registration requires durable exact creation intent before bootstrap. Managed refresh
+  requires matching registration, arguments, endpoints, agentless profile, and native process evidence.
+  Unknown ownership refuses; timeout is not absence. `AbandonProcessGroup=true` preserves target
+  worker groups. No foreign service, agent, provider host, or maintenance job is stopped or adopted.
+  · Binding: ownership, refresh, worker-survival, and ambiguous-bootstrap cases in
+    `tests/test_service_installation.py`; native ownership and refresh receipts.
+- **C8** — Interrupted service setup retains recovery evidence in the host user's
+  `.local/state/reap/service-installation/ownership.json`. The same intent is reconciled on retry.
+  Failure after executable publication reports incomplete installation, not full success.
+  · Binding: interrupted setup cases in `tests/test_service_installation.py` and
+    `service_apply_failure` in `tests/install_signing.py`.
 
 ## Non-goals
 

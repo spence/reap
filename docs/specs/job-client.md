@@ -1,6 +1,6 @@
-# SPEC-JOB-CLIENT — bounded job observations
+# SPEC-JOB-CLIENT — bounded submission and job observations
 
-- Status: client and read-only job views; ordinary filesystem-command migration remains open.
+- Status: public `check` and read-only job views; other command migration remains open.
 - Consumers: Reap CLI adapters and native integration fixtures.
 - Grounds: `DEC-LIFETIME-AUTHORITY`, sections 7 and 8.
 - Bindings: `src/client.rs`, the named tests below, and native service fixtures.
@@ -11,6 +11,8 @@
   native preparation, and admission. A normal job lookup has the same budget.
   The client uses bounded host-local IPC. It does not open config, state, locks, or caller paths,
   resolve directories, spawn a helper, or use a synchronous filesystem fallback.
+  Readiness observations can repeat within that original deadline before key creation.
+  They do not submit work, restart a worker, or extend the admission budget.
 - **C2** — Exit zero requires an authoritative retained terminal success for the requested key.
   Admission, pending work, unknown history, capacity refusal, and unavailable observations cannot
   become completed success. A malformed terminal record or different key cannot establish completion.
@@ -28,6 +30,15 @@
   Invalid identifiers do not produce executable command suggestions.
 - **C7** — A successful writer observation includes its supplied observation time when available.
   Missing freshness is explicit; the client does not invent a filesystem observation time.
+- **C8** — `check [PATH]` uses native preparation and durable admission, not a foreground
+  filesystem route. Its ordinary response budget starts at application entry and is one second.
+  `check [PATH] --wait [SECONDS]` permits a longer observation deadline; an omitted value means
+  30 seconds. Preparation and admission retain their one-second budget. Waiting observes the same
+  key without cancellation or resubmission. All forms emit protocol 2 JSON receipts.
+- **C9** — A valid public `check` invocation supplies operation `check`, mode `read`, and the requested
+  scope in its receipt. New executable jobs retain this summary with their immutable input. Restart, lookup,
+  and exact replay preserve it. A mismatched summary cannot establish success. The requested
+  scope is presentation metadata, not native target identity or cleanup permission.
 
 ## Executable bindings
 
@@ -44,13 +55,16 @@ These are named code bindings, not an automated specification-fixture registrati
 | C7 | `native_observation_time_is_preserved_without_inventing_freshness` |
 | C1, C4 | `expired_submission_budget_does_not_capture_context_or_replace_the_key` |
 | C4 | `native_client_prepare_admit_executes_check_and_returns_durable_terminal`; `tools/verify_ingress_macos.py` |
+| C1, C2, C8 | `tests/test_public_check.py`, through the actual installed broker |
+| C1, C8 | `native_client_waits_for_cold_writer_within_original_admission_budget` |
+| C9 | `native_invocation_summary_survives_restart_and_exact_replay`; `test_actual_cwd_and_requested_scope_survive_public_lookup`; malformed-summary client cases |
 
 The native integration must use the real resolver, writer, and worker protocol. Pure state mapping
 does not prove cumulative timing, context capture, process ownership, or actual job execution.
 
 ## Delivery boundary
 
-`job show ID` and `job wait ID` use this client and emit JSON receipts.
-Existing filesystem commands retain their current route. This client does not register platform services, grant cleanup
-permission, migrate lifetimes, or release conversation sources. Native Linux conformance remains open.
+`check`, `job show ID`, and `job wait ID` use this client and emit JSON receipts.
+Other filesystem commands retain their current route. The client does not register platform services,
+grant cleanup permission, migrate lifetimes, or release conversation sources. Native Linux conformance remains open.
 The full CLI and operator migration must preserve terminal-versus-pending semantics before activation.

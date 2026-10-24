@@ -3,15 +3,18 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import pathlib
 import platform
 import plistlib
+import pwd
 import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -30,6 +33,83 @@ def sha256(path):
         for chunk in iter(lambda: source.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def service_installer():
+    """Import the installer for its read-only ownership and native observation methods."""
+    source = pathlib.Path(__file__).with_name("install_services_macos.py")
+    spec = importlib.util.spec_from_file_location("reap_service_installer", source)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def managed_snapshot(installer, roles, probe=False):
+    """Require the complete installed cohort without adoption or installer metadata writes."""
+    plan = installer.preflight()
+    state = plan["state"]
+    assert set(state["roles"]) == set(roles), "the complete managed cohort is required"
+    assert sha256(installer.binary) == installer.sha256, "installed binary changed during ownership observation"
+    assert installer.json_command(installer.binary, "__service-profile") == installer.profile, "installed profile changed"
+    observed = installer.inspect(state)
+    for argument in roles:
+        entry = state["roles"][argument]
+        assert entry["phase"] == "installed" and "replacement" not in entry, "managed role installation is incomplete"
+        assert entry["binary_sha256"] == installer.sha256, "managed role has a different installed binary"
+        assert entry["profile"] == installer.profile, "managed role has a different installed profile"
+        assert observed[argument] is not None, "managed role is not registered"
+        assert observed[argument]["intent"] == entry["intent"], "managed registration has a different creation intent"
+    if probe:
+        for argument in roles:
+            installer.probe(argument)
+        return managed_snapshot(installer, roles)
+    assert all(observed[argument]["identity"] is not None for argument in roles), "managed role process is absent"
+    # only exact role evidence leaves this function; the production ownership record is not copied.
+    return {"domain": installer.domain, "profile": installer.profile, "installed_sha256": installer.sha256,
+            "roles": [{**installer.role(argument), "intent": state["roles"][argument]["intent"],
+                       "identity": observed[argument]["identity"]} for argument in roles],
+            "ownership_state_sha256": hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()}
+
+
+def job_filename(key):
+    """Match journal.rs job_name after validation of the complete wire key."""
+    assert isinstance(key, dict) and set(key) == {"generation", "epoch", "nonce"}, "invalid fixture journal key"
+    assert all(isinstance(key[name], str) and re.fullmatch(r"[0-9a-f]{32}", key[name])
+               for name in ("generation", "nonce")), "invalid fixture journal token"
+    assert type(key["epoch"]) is int and 0 < key["epoch"] <= 0xffffffffffffffff, "invalid fixture journal epoch"
+    return f"j{key['epoch']:016x}-{key['nonce']}.json"
+
+
+def execution_record(root, evidence, managed=False):
+    """Read one bounded fixture record; only isolated mode enumerates its private journal."""
+    if managed:
+        name = job_filename(evidence["key"])
+    else:
+        records = list(root.glob("j*.json"))
+        assert len(records) == 1, "only one exact durable intent may exist"
+        name = records[0].name
+    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        parent = os.fstat(directory)
+        assert parent.st_uid == os.geteuid() and not parent.st_mode & 0o022, "unsafe fixture journal directory"
+        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        with os.fdopen(descriptor, "rb") as source:
+            before = os.fstat(source.fileno())
+            assert stat.S_ISREG(before.st_mode) and before.st_uid == os.geteuid() \
+                and before.st_nlink == 1 and not before.st_mode & 0o022, "unsafe fixture journal record"
+            data = source.read(128 * 1024 + 1)
+            after = os.fstat(source.fileno())
+            assert len(data) <= 128 * 1024 and len(data) == before.st_size, "fixture journal record exceeds its bound"
+            assert (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) == (
+                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns), "fixture journal record changed"
+            return data, name
+    finally:
+        os.close(directory)
 
 
 def bootstrap_owned(owned, receipt, output, domain, target, arguments, plist):
@@ -119,10 +199,13 @@ def main():
     parser.add_argument("unit_executable", type=pathlib.Path)
     parser.add_argument("--cwd", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
+    parser.add_argument("--managed-services", action="store_true",
+                        help="use the exact installed owned cohort without registration or shutdown")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
-    installed = pathlib.Path.home() / ".cargo/bin/reap"
+    host_home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir) if args.managed_services else pathlib.Path.home()
+    installed = host_home / ".cargo/bin/reap"
     unit = args.unit_executable.resolve(strict=True)
     cwd = args.cwd.resolve(strict=True)
     output = args.output.absolute()
@@ -137,18 +220,36 @@ def main():
         "control": f"dev.micro.reap.control.v1.{uid}",
     }
     owned = []
+    helper = None
+    managed_before = None
     receipt = {"host": platform.node(), "runtime": str(runtime), "cwd": str(cwd),
-               "labels_absent": [], "installed_binary": str(installed), "native_exit": None}
+               "installed_binary": str(installed), "native_exit": None,
+               "service_mode": "managed" if args.managed_services else "isolated"}
+    if args.managed_services:
+        receipt.update({"managed_services_preserved": False, "service_cleanup": "none_managed",
+                        "production_services_stopped": False})
+    else:
+        receipt["labels_absent"] = []
+        receipt["service_cleanup"] = "isolated_owned_attempts"
     result = 1
     try:
-        assert launchctl("print", domain).returncode == 0
-        namespace = launchctl("print", domain).stdout
-        assert not any(name in namespace for name in endpoints.values()), "a fixed endpoint already exists; preserve foreign ownership"
+        if args.managed_services:
+            assert os.getuid() == uid, "managed verification requires the ordinary host user"
+            helper = service_installer()
+            managed_before = managed_snapshot(helper.Installer(host_home, uid, installed, installed),
+                                              helper.ROLES, probe=True)
+            receipt["managed_services"] = managed_before
+        else:
+            assert launchctl("print", domain).returncode == 0
+            namespace = launchctl("print", domain).stdout
+            assert not any(name in namespace for name in endpoints.values()), "a fixed endpoint already exists; preserve foreign ownership"
         assert command("/usr/bin/codesign", "--verify", "--strict", str(installed)).returncode == 0
         requirement = command("/usr/bin/codesign", "-d", "-r-", str(installed))
         assert requirement.returncode == 0
         receipt["designated_requirement"] = requirement.stdout + requirement.stderr
         receipt["installed_sha256"] = sha256(installed)
+        if args.managed_services:
+            assert receipt["installed_sha256"] == managed_before["installed_sha256"], "installed binary changed before fixture"
         client = runtime / "reap-ingress-client"
         shutil.copyfile(unit, client)
         client.chmod(0o700)
@@ -157,24 +258,27 @@ def main():
         (home / ".config/reap").mkdir(parents=True)
         config = b'{"roots":["~/caller-only"],"governed_roots":[]}'
         (home / ".config/reap/config.json").write_bytes(config)
-        service_home = runtime / "service-home"
-        (service_home / ".config/reap").mkdir(parents=True)
-        os.mkfifo(service_home / ".config/reap/config.json", 0o600)
-        for role, endpoint in endpoints.items():
-            label = stem + "." + role
-            target = domain + "/" + label
-            assert launchctl("print", target).returncode == 113
-            arguments = [str(installed), "__service", role]
-            spec = {"Label": label, "LimitLoadToSessionType": "Background",
-                    "ProgramArguments": arguments, "MachServices": {endpoint: True},
-                    "EnvironmentVariables": {"HOME": str(service_home),
-                                             "XDG_STATE_HOME": str(runtime / "writer-state")},
-                    "StandardOutPath": str(runtime / (role + ".log")),
-                    "StandardErrorPath": str(runtime / (role + ".log"))}
-            plist = runtime / (role + ".plist")
-            plist.write_bytes(plistlib.dumps(spec))
-            bootstrap_owned(owned, receipt, output, domain, target, arguments, plist)
+        if not args.managed_services:
+            service_home = runtime / "service-home"
+            (service_home / ".config/reap").mkdir(parents=True)
+            os.mkfifo(service_home / ".config/reap/config.json", 0o600)
+            for role, endpoint in endpoints.items():
+                label = stem + "." + role
+                target = domain + "/" + label
+                assert launchctl("print", target).returncode == 113
+                arguments = [str(installed), "__service", role]
+                spec = {"Label": label, "LimitLoadToSessionType": "Background",
+                        "ProgramArguments": arguments, "MachServices": {endpoint: True},
+                        "EnvironmentVariables": {"HOME": str(service_home),
+                                                 "XDG_STATE_HOME": str(runtime / "writer-state")},
+                        "StandardOutPath": str(runtime / (role + ".log")),
+                        "StandardErrorPath": str(runtime / (role + ".log"))}
+                plist = runtime / (role + ".plist")
+                plist.write_bytes(plistlib.dumps(spec))
+                bootstrap_owned(owned, receipt, output, domain, target, arguments, plist)
         environment = dict(os.environ)
+        if args.managed_services:
+            environment.update(HOME=str(host_home), XDG_STATE_HOME=str(host_home / ".local/state"))
         for name in ("DYLD_INSERT_LIBRARIES", "REAP_INTERNAL_CONFIG_SNAPSHOT",
                      "REAP_NATIVE_CONTROL_SERVICE", "REAP_NATIVE_CONTROL_PROBE"):
             environment.pop(name, None)
@@ -190,7 +294,7 @@ def main():
             run = subprocess.run([str(client), "--exact", "service::tests::native::server_process", "--nocapture"],
                                  env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=20)
         receipt["native_exit"] = run.returncode
-        if run.returncode != 0:
+        if run.returncode != 0 and not args.managed_services:
             # inspect only this verifier's still-registered, agentless resolver before cleanup.
             target, expected = next(item for item in owned if item[1][-1] == "context-resolver")
             current = launchctl("print", target)
@@ -202,12 +306,20 @@ def main():
                 receipt["resolver_sample_exit"] = sample.returncode
         assert run.returncode == 0, "installed ingress client failed"
         evidence = json.loads((runtime / "client-receipt.json").read_text())
-        records = list((runtime / "writer-state/reap/admission").glob("j*.json"))
-        assert len(records) == 1, "only one exact durable intent may exist"
-        terminal = validate_execution(evidence, records[0].read_bytes(),
+        journal = (host_home / ".local/state/reap/admission" if args.managed_services
+                   else runtime / "writer-state/reap/admission")
+        frame, record_name = execution_record(journal, evidence, managed=args.managed_services)
+        if args.managed_services:
+            receipt.update({"journal_scope": "exact_fixture_key", "journal_key": evidence["key"],
+                            "journal_record": record_name, "journal_record_sha256": hashlib.sha256(frame).hexdigest()})
+        terminal = validate_execution(evidence, frame,
                                       (runtime / "check-project/valuable").read_bytes())
+        if args.managed_services:
+            (output / "verified-job.json").write_bytes(frame)
+            receipt["verified_job_records"] = 1
+        else:
+            receipt["durable_jobs"] = 1
         receipt["admission_elapsed_ns"] = evidence["admission_elapsed_ns"]
-        receipt["durable_jobs"] = len(records)
         receipt["read_only_execution"] = True
         receipt["terminal_exit_code"] = terminal["job"]["result"]["exit_code"]
         receipt["terminal_effects"] = terminal["job"]["result"]["effects"]
@@ -221,7 +333,17 @@ def main():
     finally:
         # a failed execution proof can retain an owned child and its recovery records.
         safe_to_remove = result == 0
-        safe_to_remove = cleanup_owned(owned, receipt) and safe_to_remove
+        if args.managed_services:
+            if managed_before is not None:
+                try:
+                    after = managed_snapshot(helper.Installer(host_home, uid, installed, installed), helper.ROLES)
+                    assert after == managed_before, "managed cohort, installed binary, or ownership metadata changed"
+                    receipt["managed_services_preserved"] = True
+                except Exception as reason:
+                    receipt["managed_preservation_failure"] = str(reason)
+                    safe_to_remove = False
+        else:
+            safe_to_remove = cleanup_owned(owned, receipt) and safe_to_remove
         for parent, directories, files in os.walk(runtime, followlinks=False):
             for name in files:
                 path = pathlib.Path(parent) / name

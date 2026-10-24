@@ -35,9 +35,28 @@ elif name=='codesign':
   if os.environ.get('FAIL_VERIFY'): sys.exit(13)
 '''
 
+LIFECYCLE = '''import json,os,sys
+from pathlib import Path
+action=sys.argv[1]
+arguments=sys.argv[2:]
+binary=Path(arguments[arguments.index('--binary')+1])
+with Path(os.environ['TRACE']).open('a') as stream: stream.write('lifecycle '+action+'\\n')
+if action=='preflight':
+ if os.environ.get('FAIL_SERVICE_PREFLIGHT'): sys.exit(14)
+ candidate=Path(arguments[arguments.index('--candidate')+1])
+ assert candidate.is_file()
+ Path(arguments[arguments.index('--plan')+1]).write_text(json.dumps({'fixture':True}))
+elif action=='apply':
+ assert binary.read_text().startswith('#!/bin/sh')
+ if os.environ.get('FAIL_SERVICE_APPLY'): sys.exit(15)
+else: sys.exit(2)
+'''
+
 
 def check(case):
-    with tempfile.TemporaryDirectory(prefix='reap-install-test-') as temporary:
+    evidence = ROOT / 'target/control-t13'
+    evidence.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='reap-install-test-', dir=evidence) as temporary:
         base = Path(temporary)
         project = base / 'source with spaces'
         home = base / 'home'
@@ -48,6 +67,8 @@ def check(case):
         (project / 'skill').mkdir()
         (project / 'skill/SKILL.md').write_text('fixture skill')
         shutil.copy2(ROOT / 'install.sh', project / 'install.sh')
+        (project / 'tools').mkdir()
+        (project / 'tools/install_services_macos.py').write_text(LIFECYCLE)
         for name in ('cargo', 'codesign', 'uname'):
             path = commands / name
             path.write_text(HELPER)
@@ -59,7 +80,8 @@ def check(case):
         old = b'previous installed executable'
         prebuilt = case.startswith('prebuilt_')
         failed = case in ('build_failure', 'sign_failure', 'verify_failure', 'unsigned_downgrade',
-                          'prebuilt_verify_failure', 'prebuilt_identity_mismatch', 'prebuilt_missing')
+                          'prebuilt_verify_failure', 'prebuilt_identity_mismatch', 'prebuilt_missing',
+                          'service_preflight_failure', 'service_apply_failure')
         if failed:
             installed.write_bytes(old)
         preserved = {}
@@ -79,7 +101,8 @@ def check(case):
         env = dict(os.environ, HOME=str(home), TRACE=str(base / 'trace'),
                    PATH=str(commands) + ':' + str(home / '.cargo/bin') + ':' + os.environ['PATH'])
         for key in ('CARGO_HOME', FIXTURE['environment'], 'FAIL_BUILD', 'FAIL_SIGN',
-                    'FAIL_VERIFY', 'EXISTING_SIGNED', 'TEST_PLATFORM', 'MISMATCH_IDENTITY'):
+                    'FAIL_VERIFY', 'EXISTING_SIGNED', 'TEST_PLATFORM', 'MISMATCH_IDENTITY',
+                    'FAIL_SERVICE_PREFLIGHT', 'FAIL_SERVICE_APPLY'):
             env.pop(key, None)
         if case not in ('fresh', 'build_failure', 'unsigned_downgrade'):
             (project / '.codesign.env').write_text('REAP_CODESIGN_IDENTITY="fixture-file"\n')
@@ -91,6 +114,10 @@ def check(case):
                 env[variable] = '1'
         if case == 'linux':
             env['TEST_PLATFORM'] = 'Linux'
+        if case == 'service_preflight_failure':
+            env['FAIL_SERVICE_PREFLIGHT'] = '1'
+        if case == 'service_apply_failure':
+            env['FAIL_SERVICE_APPLY'] = '1'
         command = ['/bin/bash', str(project / 'install.sh')]
         if prebuilt:
             artifact = base / 'signed input with spaces'
@@ -113,7 +140,7 @@ def check(case):
                                 capture_output=True, text=True)
         trace = (base / 'trace').read_text()
         assert (result.returncode != 0) == failed, (case, result.stdout, result.stderr)
-        if failed:
+        if failed and case != 'service_apply_failure':
             assert installed.read_bytes() == old, case
         else:
             assert subprocess.check_output([str(installed)], text=True).strip() == 'reap fixture'
@@ -146,6 +173,13 @@ def check(case):
             assert 'cargo ' not in trace, trace
         if case == 'linux':
             assert 'codesign ' not in trace, trace
+        if case in ('linux', 'prebuilt_linux'):
+            assert 'lifecycle ' not in trace, trace
+        elif not failed or case == 'service_apply_failure':
+            assert trace.index("'--verify'") < trace.index('lifecycle preflight'), trace
+            assert trace.index('lifecycle preflight') < trace.index('lifecycle apply'), trace
+        if case == 'service_preflight_failure':
+            assert 'lifecycle preflight' in trace and 'lifecycle apply' not in trace, trace
         if prebuilt:
             assert 'cargo ' not in trace and "'--sign'" not in trace, trace
             if case == 'prebuilt_linux':

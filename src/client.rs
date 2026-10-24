@@ -30,8 +30,6 @@ pub enum JobCmd {
 
 /// Render one bounded job observation. The ordinary deadline includes argument parsing.
 pub fn run(command: JobCmd, entered: Instant) -> i32 {
-  use std::io::Write;
-
   let (id, timeout) = match command {
     JobCmd::Show { id } => (id, None),
     JobCmd::Wait { id, timeout } => (id, Some(timeout)),
@@ -53,6 +51,66 @@ pub fn run(command: JobCmd, entered: Instant) -> i32 {
       }
     }
   };
+  emit(receipt)
+}
+
+/// Submit and observe ordinary manifest validation without reading caller filesystem state.
+pub fn run_check(path: Option<String>, wait: Option<Duration>, entered: Instant) -> i32 {
+  let timeout = wait.unwrap_or(RESPONSE_BUDGET);
+  let Some(deadline) = entered.checked_add(timeout).filter(|_| !timeout.is_zero()) else {
+    return emit(Receipt::new(
+      State::Invalid,
+      None,
+      Some("invalid wait deadline".into()),
+    ));
+  };
+  let home = match std::env::var_os("HOME") {
+    Some(home) if !home.is_empty() => std::path::PathBuf::from(home),
+    _ => {
+      return emit(Receipt::new(
+        State::Invalid,
+        None,
+        Some("HOME is unavailable".into()),
+      ))
+    }
+  };
+  if std::env::var_os("REAP_INTERNAL_CONFIG_SNAPSHOT").is_some() {
+    return emit(Receipt::new(
+      State::Invalid,
+      None,
+      Some("internal configuration snapshots are not a public check override".into()),
+    ));
+  }
+  let mut argv = vec!["check".into()];
+  if let Some(path) = path {
+    argv.push(path);
+  }
+  let input = Intent {
+    argv,
+    namespace: invocation::Namespace {
+      home,
+      xdg_state_home: std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from),
+      config_snapshot: None,
+    },
+    provenance: serde_json::json!({}),
+  };
+  let summary = invocation::summary(&input);
+  let client = Client::default();
+  let mut receipt = client.submit_until(input, None, deadline.min(entered + RESPONSE_BUDGET));
+  if receipt.state == State::Pending && Instant::now() < deadline {
+    if let Some(key) = receipt.key.clone() {
+      receipt = client.wait_until(key, deadline);
+    }
+  }
+  if receipt.invocation.is_none() {
+    receipt.invocation = summary;
+  }
+  emit(receipt)
+}
+
+fn emit(receipt: Receipt) -> i32 {
+  use std::io::Write;
+
   let code = receipt.exit_code();
   let mut bytes = serde_json::to_vec(&receipt).expect("bounded receipt serializes");
   bytes.push(b'\n');
@@ -82,6 +140,7 @@ pub enum State {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Receipt {
+  pub protocol: u32,
   pub state: State,
   pub key: Option<Key>,
   pub job_id: Option<String>,
@@ -89,6 +148,8 @@ pub struct Receipt {
   pub observed_at: Option<u64>,
   pub reason: Option<String>,
   pub next_command: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub invocation: Option<invocation::Summary>,
 }
 
 impl Receipt {
@@ -108,6 +169,7 @@ impl Receipt {
       .as_ref()
       .map(|key| format!("reap job show {}", job_id(key)));
     Self {
+      protocol: service::PROTOCOL,
       state,
       key,
       job_id: None,
@@ -115,6 +177,7 @@ impl Receipt {
       observed_at: None,
       reason,
       next_command,
+      invocation: None,
     }
   }
 }
@@ -142,6 +205,18 @@ impl Client {
   }
 
   fn submit_until(&self, input: Intent, key: Option<Key>, deadline: Instant) -> Receipt {
+    let summary = invocation::summary(&input);
+    let mut receipt = self.submit_prepared(input, key, deadline);
+    if receipt.invocation.is_none() {
+      receipt.invocation = summary;
+    } else if summary.is_some() && receipt.invocation != summary {
+      receipt.state = State::Unknown;
+      receipt.reason = Some("retained invocation differs from the submitted request".into());
+    }
+    receipt
+  }
+
+  fn submit_prepared(&self, input: Intent, key: Option<Key>, deadline: Instant) -> Receipt {
     if !invocation::valid_intent(&input)
       || key
         .as_ref()
@@ -155,26 +230,43 @@ impl Client {
     }
     let key = match key {
       Some(key) => key,
-      None => match self.exchange(Role::Control, Request::Epoch, deadline) {
-        Ok(Response {
-          outcome: Outcome::Epoch { epoch },
-          ..
-        }) => match journal::random_token() {
-          Ok(nonce) => Key {
-            generation: epoch.generation,
-            epoch: epoch.current,
-            nonce,
+      None => loop {
+        match self.exchange(Role::Control, Request::Epoch, deadline) {
+          Ok(Response {
+            outcome: Outcome::Epoch { epoch },
+            ..
+          }) => match journal::random_token() {
+            Ok(nonce) => {
+              break Key {
+                generation: epoch.generation,
+                epoch: epoch.current,
+                nonce,
+              }
+            }
+            Err(reason) => return Receipt::new(State::Unavailable, None, Some(reason.to_string())),
           },
+          Ok(Response {
+            snapshot,
+            outcome: Outcome::Unavailable {
+              admission_possible: false,
+            },
+            ..
+          }) if matches!(
+            snapshot.phase,
+            service::Phase::Starting | service::Phase::Busy
+          ) && Instant::now() < deadline =>
+          {
+            std::thread::sleep(WAIT_POLL.min(deadline.saturating_duration_since(Instant::now())));
+          }
+          Ok(_) => {
+            return Receipt::new(
+              State::Unavailable,
+              None,
+              Some("acceptance epoch unavailable".into()),
+            )
+          }
           Err(reason) => return Receipt::new(State::Unavailable, None, Some(reason.to_string())),
-        },
-        Ok(_) => {
-          return Receipt::new(
-            State::Unavailable,
-            None,
-            Some("acceptance epoch unavailable".into()),
-          )
         }
-        Err(reason) => return Receipt::new(State::Unavailable, None, Some(reason.to_string())),
       },
     };
     if journal::validate_key(&key).is_err() {
@@ -352,6 +444,10 @@ fn observe(key: Key, decision: Decision) -> Receipt {
   let state = match decision {
     Decision::Present { job } => {
       if job.key != key
+        || job
+          .invocation
+          .as_ref()
+          .is_some_and(|summary| !summary.valid())
         || job.result.is_some() != job.completed_at.is_some()
         || job.completed_at.is_some_and(|at| at < job.created_at)
         || job
@@ -372,6 +468,7 @@ fn observe(key: Key, decision: Decision) -> Receipt {
       };
       let mut receipt = Receipt::new(state, Some(key.clone()), None);
       receipt.job_id = Some(job_id(&key));
+      receipt.invocation = job.invocation.clone();
       receipt.job = Some(job);
       return receipt;
     }
@@ -428,7 +525,7 @@ fn protocol(may_have_sent: bool) -> Error {
   }
 }
 
-fn parse_timeout(value: &str) -> Result<Duration, String> {
+pub(crate) fn parse_timeout(value: &str) -> Result<Duration, String> {
   let seconds: f64 = value
     .parse()
     .map_err(|_| "timeout must be a positive finite number".to_string())?;

@@ -5,9 +5,10 @@ struct Fixture(PathBuf);
 
 impl Fixture {
   fn new() -> Self {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-      .join("target/control-t13")
-      .join(format!("unit-{}", random_token().unwrap()));
+    let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+      .map(PathBuf::from)
+      .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target/control-t13"));
+    let path = base.join(format!("unit-{}", random_token().unwrap()));
     fs::create_dir_all(&path).unwrap();
     Self(path)
   }
@@ -36,6 +37,38 @@ fn input() -> Prepared {
     authority: "fixture disposal policy".into(),
     volumes: vec!["volume-a".into()],
   }
+}
+
+#[test]
+fn native_invocation_summary_survives_restart_and_exact_replay() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let key = key(&journal);
+  let intent = crate::invocation::Intent {
+    argv: vec!["check".into(), "../selected-project".into()],
+    namespace: crate::invocation::Namespace {
+      home: fixture.0.clone(),
+      xdg_state_home: None,
+      config_snapshot: None,
+    },
+    provenance: serde_json::json!({}),
+  };
+  let mut prepared = input();
+  prepared.request = serde_json::to_string(&intent).unwrap();
+  let accepted = journal
+    .admit_execution(key.clone(), prepared.clone(), 1)
+    .unwrap();
+  let Decision::Present { job } = &accepted else {
+    panic!("native admission did not persist")
+  };
+  assert_eq!(job.invocation, crate::invocation::summary(&intent));
+  let mut corrupted = journal.job(&key).unwrap().unwrap();
+  corrupted.view.invocation.as_mut().unwrap().requested_scope = "unrelated".into();
+  assert!(corrupted.validate().is_err());
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  assert_eq!(journal.lookup(&key).unwrap(), accepted);
+  assert_eq!(journal.replay(&key, &prepared).unwrap(), accepted);
 }
 
 fn terminal() -> Terminal {
@@ -320,6 +353,7 @@ fn pending_durable_admission_is_recovered_without_a_second_identity() {
       created_at: 1,
       completed_at: None,
       result: None,
+      invocation: None,
     },
   };
   stage(&fixture.0, &Document::Job(job));

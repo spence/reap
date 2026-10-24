@@ -1,6 +1,6 @@
 # Native caller-directory capture
 
-- Status: native preparation/admission integration; public routing and target execution remain open.
+- Status: native preparation, admission, and public read-only `check` integration.
 - Consumers: the fixed resolver and control admission pipeline.
 - Grounds: owner-authorized `DEC-LIFETIME-AUTHORITY`, section 8.
 - Bindings: `src/invocation.rs`, the native transport, and owned native fixtures.
@@ -66,7 +66,7 @@ identity again before target or namespace effects; serialized context is not an 
 These cases run through `tools/verify_control_macos.py`. The production resolver and state writer
 also run through `tools/verify_ingress_macos.py` at the installed signed executable path.
 Native preparation does not establish target policy, execution-grant, or legacy-fence proof.
-Public command migration and those execution gates remain required.
+Other public command migration and effectful execution gates remain required.
 
 The [component evidence](../proof/CALLER-CONTEXT-T13.md) states actual host coverage and unavailable gates.
 The later [installed ingress evidence](../proof/NATIVE-INGRESS-T13.md) proves the production resolver

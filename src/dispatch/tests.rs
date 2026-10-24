@@ -27,7 +27,9 @@ struct Fixture(PathBuf);
 
 impl Fixture {
   fn new() -> Self {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/control-t13");
+    let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+      .map(PathBuf::from)
+      .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target/control-t13"));
     let path = base.join(format!("dispatch-{}", random_token().unwrap()));
     fs::create_dir_all(path.join("home")).unwrap();
     fs::create_dir(path.join("project")).unwrap();
@@ -80,6 +82,78 @@ impl Fixture {
       Decision::Present { .. }
     ));
     (key, input)
+  }
+
+  fn external_store(&self) -> crate::store_bindings::StoreBinding {
+    fs::create_dir(self.0.join("external")).unwrap();
+    fs::create_dir_all(self.0.join("state/reap")).unwrap();
+    fs::write(self.0.join("external/valuable"), b"external survivor").unwrap();
+    fs::write(self.0.join("project/.reap.json"), br#"{"version":2,"target":"../outside","keep":{"paths":["valuable"]},"stores":[{"resource":"logs","retention":{"max_age_days":2}},{"resource":"unbound","retention":{"max_bytes":10}}]}"#).unwrap();
+    let project = fs::metadata(self.0.join("project")).unwrap();
+    let external = fs::metadata(self.0.join("external")).unwrap();
+    let binding = crate::store_bindings::StoreBinding {
+      project_path: self.0.join("project").to_str().unwrap().into(),
+      project_dev: project.dev(),
+      project_ino: project.ino(),
+      resource: "logs".into(),
+      path: self.0.join("external").to_str().unwrap().into(),
+      dev: external.dev(),
+      ino: external.ino(),
+      token: random_token().unwrap(),
+    };
+    self.registry(std::slice::from_ref(&binding));
+    self.marker(&binding);
+    binding
+  }
+
+  fn registry(&self, bindings: &[crate::store_bindings::StoreBinding]) {
+    fs::write(
+      self.0.join("state/reap/store-bindings.json"),
+      serde_json::to_vec(&serde_json::json!({"version": 1, "bindings": bindings})).unwrap(),
+    )
+    .unwrap();
+  }
+
+  fn marker(&self, binding: &crate::store_bindings::StoreBinding) {
+    fs::write(
+      self.0.join("external/REAP-STORE.TAG"),
+      serde_json::to_vec(
+        &serde_json::json!({"signature": "reap-external-store-v1", "binding": binding}),
+      )
+      .unwrap(),
+    )
+    .unwrap();
+  }
+
+  fn survivors(&self) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn files(path: &Path, result: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+      for entry in fs::read_dir(path).unwrap() {
+        let entry = entry.unwrap();
+        let kind = entry.file_type().unwrap();
+        if kind.is_dir() {
+          files(&entry.path(), result);
+        } else if kind.is_file() {
+          result.insert(entry.path(), fs::read(entry.path()).unwrap());
+        } else if kind.is_symlink() {
+          result.insert(
+            entry.path(),
+            fs::read_link(entry.path())
+              .unwrap()
+              .as_os_str()
+              .as_encoded_bytes()
+              .to_vec(),
+          );
+        }
+      }
+    }
+    let mut result = std::collections::BTreeMap::new();
+    for directory in ["home", "state", "project", "external", "outside"] {
+      let path = self.0.join(directory);
+      if path.is_dir() {
+        files(&path, &mut result);
+      }
+    }
+    result
   }
 }
 
@@ -141,6 +215,268 @@ fn native_check_pipeline_completes_once_with_local_store_and_protected_survivors
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_check_assesses_bound_unbound_and_external_target_without_effects() {
+  let fixture = Fixture::new();
+  fixture.external_store();
+  fs::create_dir(fixture.0.join("outside")).unwrap();
+  fs::write(fixture.0.join("outside/valuable"), b"target survivor").unwrap();
+  let survivors = fixture.survivors();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let (key, _) = fixture.admit(&mut journal);
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let result = terminal(&mut journal, &mut scheduler, &key);
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 0);
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["target_exists"], true);
+  assert_eq!(detail["stores"][0]["resource"], "logs");
+  assert_eq!(
+    detail["stores"][0]["directory"],
+    fixture.0.join("external").to_str().unwrap()
+  );
+  assert_eq!(detail["stores"][0]["armed"], true);
+  assert_eq!(detail["stores"][1]["resource"], "unbound");
+  assert_eq!(detail["stores"][1]["directory"], serde_json::Value::Null);
+  assert_eq!(detail["stores"][1]["armed"], false);
+  assert_eq!(fixture.survivors(), survivors);
+  assert!(journal.launch(&key).unwrap().unwrap().released());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_unbound_assessment_requires_fresh_registry_absence_and_contents() {
+  let fixture = Fixture::new();
+  let binding = fixture.external_store();
+  let registry = fixture.0.join("state/reap/store-bindings.json");
+  std::fs::remove_file(&registry).unwrap();
+  let input = fixture.input();
+  let absent = resolve(&input).unwrap();
+  let terminal = assess(&input, &absent).unwrap();
+  assert_eq!(terminal.exit_code, 0);
+  let detail: serde_json::Value = serde_json::from_str(&terminal.detail).unwrap();
+  assert_eq!(detail["stores"][0]["armed"], false);
+  assert_eq!(detail["target_exists"], false);
+  fixture.registry(&[]);
+  assert!(assess(&input, &absent).is_err());
+  let empty = resolve(&input).unwrap();
+  assert_eq!(assess(&input, &empty).unwrap().exit_code, 0);
+  fixture.registry(std::slice::from_ref(&binding));
+  assert!(assess(&input, &empty).is_err());
+  let bound = resolve(&input).unwrap();
+  fixture.registry(&[]);
+  assert!(assess(&input, &bound).is_err());
+  for bytes in [
+    b"{bad json".as_slice(),
+    b"{\"version\":2,\"bindings\":[]}".as_slice(),
+  ] {
+    fs::write(&registry, bytes).unwrap();
+    assert!(resolve(&input).is_err());
+  }
+  fs::write(&registry, vec![b' '; MAX_INPUT as usize + 1]).unwrap();
+  assert!(resolve(&input).is_err());
+  fixture.registry(&[binding.clone(), binding]);
+  assert!(resolve(&input).is_err());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_external_binding_identity_token_marker_and_overlap_fail_closed() {
+  let fixture = Fixture::new();
+  let binding = fixture.external_store();
+  let input = fixture.input();
+  let scope = resolve(&input).unwrap();
+  for field in ["project_dev", "project_ino", "dev", "ino", "token"] {
+    let mut changed = serde_json::to_value(&binding).unwrap();
+    if field == "token" {
+      changed[field] = "wrong-token".into();
+    } else {
+      changed[field] = (changed[field].as_u64().unwrap() + 1).into();
+    }
+    let changed = serde_json::from_value(changed).unwrap();
+    fixture.registry(&[changed]);
+    assert!(resolve(&input).is_err(), "{field}");
+    assert!(assess(&input, &scope).is_err(), "{field}");
+  }
+  fixture.registry(std::slice::from_ref(&binding));
+  let mut wrong = binding.clone();
+  wrong.project_path = fixture.0.join("other-project").to_str().unwrap().into();
+  fixture.marker(&wrong);
+  assert!(resolve(&input).is_err());
+  for bytes in [
+    b"Signature: reap-store-marker-v1\n".as_slice(),
+    b"{}".as_slice(),
+  ] {
+    fs::write(fixture.0.join("external/REAP-STORE.TAG"), bytes).unwrap();
+    assert!(resolve(&input).is_err());
+  }
+  fixture.marker(&binding);
+  fs::remove_file(fixture.0.join("external/REAP-STORE.TAG")).unwrap();
+  assert!(resolve(&input).is_err());
+  assert!(assess(&input, &scope).is_err());
+  fixture.marker(&binding);
+  let mut wrong = binding.clone();
+  wrong.path = fixture.0.join("home").to_str().unwrap().into();
+  fixture.registry(&[wrong]);
+  assert!(resolve(&input).is_err());
+  fixture.registry(std::slice::from_ref(&binding));
+  for path in [format!("{}/.", binding.path), format!("{}//", binding.path)] {
+    let mut wrong = binding.clone();
+    wrong.path = path;
+    fixture.registry(std::slice::from_ref(&wrong));
+    fixture.marker(&wrong);
+    assert!(resolve(&input).is_err());
+  }
+  fixture.marker(&binding);
+  fixture.registry(std::slice::from_ref(&binding));
+  for directory in ["external", "project"] {
+    fs::rename(
+      fixture.0.join(directory),
+      fixture.0.join(format!("old-{directory}")),
+    )
+    .unwrap();
+    fs::create_dir(fixture.0.join(directory)).unwrap();
+    if directory == "project" {
+      fs::copy(
+        fixture.0.join("old-project/.reap.json"),
+        fixture.0.join("project/.reap.json"),
+      )
+      .unwrap();
+    }
+    assert!(resolve(&input).is_err());
+    fs::remove_dir_all(fixture.0.join(directory)).unwrap();
+    fs::rename(
+      fixture.0.join(format!("old-{directory}")),
+      fixture.0.join(directory),
+    )
+    .unwrap();
+  }
+  fs::write(fixture.0.join("external/Cargo.toml"), b"[workspace]\n").unwrap();
+  assert!(resolve(&input).is_err());
+  fs::remove_file(fixture.0.join("external/Cargo.toml")).unwrap();
+  std::os::unix::fs::symlink(fixture.0.join("external"), fixture.0.join("outside")).unwrap();
+  assert!(
+    resolve(&input).is_err(),
+    "target alias overlaps the external store"
+  );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_external_target_aliases_keep_physical_exclusion_and_fresh_identity() {
+  let fixture = Fixture::new();
+  fs::create_dir(fixture.0.join("outside")).unwrap();
+  fs::write(
+    fixture.0.join("project/.reap.json"),
+    br#"{"target":"../outside"}"#,
+  )
+  .unwrap();
+  let input = fixture.input();
+  let canonical = resolve(&input).unwrap();
+  assert_eq!(assess(&input, &canonical).unwrap().exit_code, 0);
+  fs::create_dir(fixture.0.join("bridge")).unwrap();
+  std::os::unix::fs::symlink(fixture.0.join("outside"), fixture.0.join("bridge/link")).unwrap();
+  std::os::unix::fs::symlink(fixture.0.join("bridge/link"), fixture.0.join("alias")).unwrap();
+  fs::write(
+    fixture.0.join("project/.reap.json"),
+    br#"{"target":"../alias"}"#,
+  )
+  .unwrap();
+  let alias = resolve(&input).unwrap();
+  assert_eq!(assess(&input, &alias).unwrap().exit_code, 0);
+  assert_eq!(canonical.physical_volumes, alias.physical_volumes);
+  assert!(alias
+    .objects
+    .iter()
+    .any(|object| object.path == fixture.0.join("bridge")));
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut admit = || {
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    assert!(matches!(
+      journal.admit(key.clone(), fixture.input(), 1).unwrap(),
+      Decision::Present { .. }
+    ));
+    key
+  };
+  let first = admit();
+  let second = admit();
+  assert!(journal
+    .reserve_launch(
+      &first,
+      1,
+      Resources::Bulk {
+        physical_volumes: canonical.physical_volumes,
+      }
+    )
+    .unwrap()
+    .is_some());
+  assert!(journal
+    .reserve_launch(
+      &second,
+      1,
+      Resources::Bulk {
+        physical_volumes: alias.physical_volumes.clone(),
+      }
+    )
+    .unwrap()
+    .is_none());
+  fs::create_dir(fixture.0.join("replacement")).unwrap();
+  fs::remove_file(fixture.0.join("alias")).unwrap();
+  std::os::unix::fs::symlink(fixture.0.join("replacement"), fixture.0.join("alias")).unwrap();
+  assert!(assess(&input, &alias).is_err());
+  fs::write(
+    fixture.0.join("project/.reap.json"),
+    br#"{"target":"../absent/nested"}"#,
+  )
+  .unwrap();
+  let absent = resolve(&input).unwrap();
+  assert_eq!(assess(&input, &absent).unwrap().exit_code, 0);
+  fs::create_dir_all(fixture.0.join("absent/nested")).unwrap();
+  assert!(assess(&input, &absent).is_err());
+  fs::write(
+    fixture.0.join("project/.reap.json"),
+    br#"{"target":"../bridge/link/not-yet"}"#,
+  )
+  .unwrap();
+  let absent_alias = resolve(&input).unwrap();
+  assert_eq!(assess(&input, &absent_alias).unwrap().exit_code, 0);
+  fs::write(fixture.0.join("regular-target"), b"not a directory").unwrap();
+  fs::write(
+    fixture.0.join("project/.reap.json"),
+    br#"{"target":"../regular-target"}"#,
+  )
+  .unwrap();
+  let regular = resolve(&input).unwrap();
+  assert_eq!(assess(&input, &regular).unwrap().exit_code, 0);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_external_overlap_uses_admitted_config_and_caller_relative_roots() {
+  let fixture = Fixture::new();
+  fixture.external_store();
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  for config in [
+    serde_json::json!({"roots": ["external"]}),
+    serde_json::json!({"roots": ["$HOME/../external"]}),
+    serde_json::json!({"quarantine": {"dir": "external"}}),
+  ] {
+    fs::write(
+      fixture.0.join("home/.config/reap/config.json"),
+      serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let input = fixture.input();
+    assert!(resolve(&input).is_err());
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn changed_native_scope_caller_config_and_grant_resources_refuse() {
   let fixture = Fixture::new();
   let input = fixture.input();
@@ -177,7 +513,6 @@ fn special_oversized_external_and_incomplete_check_inputs_never_report_success()
   assert!(before.elapsed() < Duration::from_secs(2));
   fs::remove_file(&manifest).unwrap();
   for bytes in [
-    br#"{"version":2,"stores":[{"resource":"logs","retention":{"max_age_days":1}}]}"#.to_vec(),
     br#"{"version":3}"#.to_vec(),
     vec![b' '; MAX_INPUT as usize + 1],
     serde_json::to_vec(&serde_json::json!({"keep":{"paths": vec!["full-evidence"; 1000]}}))

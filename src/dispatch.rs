@@ -1,7 +1,7 @@
 //! Durable read-only Cargo exception-manifest execution in bounded owned phases.
 //!
-//! The fixed state writer owns this scheduler. Public CLI migration and applying operations
-//! remain separate. Unknown process ownership never becomes replacement capacity.
+//! The fixed state writer owns this scheduler. Applying operations remain separate.
+//! Unknown process ownership never becomes replacement capacity.
 
 use std::collections::{BTreeSet, VecDeque};
 use std::fs::{File, OpenOptions};
@@ -281,10 +281,6 @@ impl Scope {
       .validate()?;
       if !object.path.is_absolute()
         || object
-          .path
-          .components()
-          .any(|part| matches!(part, Component::ParentDir))
-        || object
           .missing
           .iter()
           .any(|name| name.is_empty() || name == "." || name == ".." || name.contains('/'))
@@ -307,6 +303,7 @@ struct Inspector<'a> {
   allowed: Option<&'a [String]>,
   objects: Vec<Object>,
   physical: BTreeSet<String>,
+  nofollow: BTreeSet<PathBuf>,
 }
 
 impl Inspector<'_> {
@@ -328,6 +325,18 @@ impl Inspector<'_> {
       ));
     }
     let identity = ObjectIdentity::read(file)?;
+    if content.is_none() && missing.is_empty() && file.metadata()?.is_dir() {
+      if let Some(previous) = self
+        .objects
+        .iter()
+        .find(|object| object.path == path && object.content.is_none() && object.missing.is_empty())
+      {
+        if previous.identity != identity || previous.physical_volumes != physical_volumes {
+          return Err(invalid("check directory changed during assessment"));
+        }
+        return Ok(());
+      }
+    }
     if self.objects.len() >= MAX_OBJECTS {
       return Err(invalid("check closure exceeds its object bound"));
     }
@@ -368,7 +377,7 @@ impl Inspector<'_> {
             return Err(invalid("absent path has no anchor"));
           }
         }
-        Ok(metadata) if metadata.is_dir() => {
+        Ok(metadata) if metadata.is_dir() || metadata.file_type().is_symlink() => {
           let file = self.directory(&anchor)?;
           self.record(path, &file, None, missing)?;
           return Ok(());
@@ -379,17 +388,136 @@ impl Inspector<'_> {
   }
 
   fn optional_directory(&mut self, path: &Path) -> io::Result<bool> {
+    self.parents(path)?;
     match self.directory(path) {
       Ok(_) => Ok(true),
       Err(reason) if reason.kind() == io::ErrorKind::NotFound => {
         self.absent(path)?;
         Ok(false)
       }
+      Err(reason) if reason.raw_os_error() == Some(libc::ENOTDIR) => {
+        // a regular target or local store is not a directory, but its evidence is still required.
+        self.bytes(path)?;
+        Ok(false)
+      }
       Err(reason) => Err(reason),
     }
   }
 
+  /// Include directory and alias dependencies, including intermediate symlink destinations.
+  fn parents(&mut self, path: &Path) -> io::Result<()> {
+    let mut pending = VecDeque::from([path.to_path_buf()]);
+    let mut seen = BTreeSet::new();
+    while let Some(path) = pending.pop_front() {
+      if !seen.insert(path.clone()) {
+        continue;
+      }
+      if seen.len() > MAX_OBJECTS {
+        return Err(invalid("check path aliases exceed their bound"));
+      }
+      for ancestor in path.ancestors() {
+        if let Some(parent) = ancestor.parent() {
+          match self.directory(parent) {
+            Ok(_) => {}
+            Err(reason) if reason.kind() == io::ErrorKind::NotFound => continue,
+            Err(reason) => return Err(reason),
+          }
+        }
+        match std::fs::symlink_metadata(ancestor) {
+          Ok(meta) if meta.file_type().is_symlink() => {
+            let link = std::fs::read_link(ancestor)?;
+            let destination = if link.is_absolute() {
+              link
+            } else {
+              ancestor
+                .parent()
+                .ok_or_else(|| invalid("alias has no parent"))?
+                .join(link)
+            };
+            pending.push_back(destination);
+          }
+          Ok(_) => {}
+          Err(reason) if reason.kind() == io::ErrorKind::NotFound => {}
+          Err(reason) => return Err(reason),
+        }
+      }
+    }
+    Ok(())
+  }
+
+  /// Resolve aliases and missing suffixes while retaining the original path's evidence.
+  fn canonical_path(&mut self, path: &Path) -> io::Result<PathBuf> {
+    self.optional_directory(path)?;
+    let mut anchor = path.to_path_buf();
+    let mut missing = Vec::new();
+    for _ in 0..128 {
+      match std::fs::canonicalize(&anchor) {
+        Ok(mut canonical) => {
+          self.optional_directory(&canonical)?;
+          for name in missing.iter().rev() {
+            canonical.push(name);
+          }
+          return Ok(canonical);
+        }
+        Err(reason) if reason.kind() == io::ErrorKind::NotFound => {
+          missing.push(
+            anchor
+              .file_name()
+              .ok_or_else(|| invalid("invalid path anchor"))?
+              .to_owned(),
+          );
+          if !anchor.pop() {
+            return Err(invalid("path has no anchor"));
+          }
+        }
+        Err(reason) => return Err(reason),
+      }
+    }
+    Err(invalid("path ancestry exceeds its bound"))
+  }
+
+  /// Apply the external binding's canonical-directory and mount guards through bounded reads.
+  fn external_directory(&mut self, path: &Path) -> io::Result<File> {
+    if !path.is_absolute() || path.parent().is_none() {
+      return Err(invalid(
+        "external store must have an absolute non-root path",
+      ));
+    }
+    let mut walk = PathBuf::from("/");
+    let mut file = self.directory(&walk)?;
+    let mut previous_dev = file.metadata()?.dev();
+    let mut transitions = 0;
+    let count = path.components().count();
+    for (index, component) in path.components().enumerate().skip(1) {
+      let Component::Normal(name) = component else {
+        return Err(invalid("external store has a non-normal path component"));
+      };
+      walk.push(name);
+      file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(&walk)?;
+      self.record(&walk, &file, None, vec![])?;
+      self.nofollow.insert(walk.clone());
+      let dev = file.metadata()?.dev();
+      if dev != previous_dev {
+        transitions += 1;
+        if index + 1 == count || transitions > 1 {
+          return Err(invalid(
+            "external store is a mount root or crosses nested mounts",
+          ));
+        }
+      }
+      previous_dev = dev;
+    }
+    if std::fs::canonicalize(path)?.as_os_str() != path.as_os_str() {
+      return Err(invalid("external store path is not canonical"));
+    }
+    Ok(file)
+  }
+
   fn bytes(&mut self, path: &Path) -> io::Result<Option<Vec<u8>>> {
+    self.parents(path)?;
     let mut file = match OpenOptions::new()
       .read(true)
       .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
@@ -434,6 +562,7 @@ fn inspect(input: &Prepared, allowed: Option<&[String]>) -> io::Result<(Scope, T
     allowed,
     objects: Vec::new(),
     physical: BTreeSet::new(),
+    nofollow: BTreeSet::new(),
   };
   let intent: crate::invocation::Intent = serde_json::from_str(&input.request)?;
   if intent.argv.first().map(String::as_str) != Some("check") || intent.argv.len() > 2 {
@@ -450,7 +579,7 @@ fn inspect(input: &Prepared, allowed: Option<&[String]>) -> io::Result<(Scope, T
     .unwrap_or_else(|| intent.namespace.home.join(".local/state"));
   io.optional_directory(&state)?;
   let config = intent.namespace.home.join(".config/reap/config.json");
-  io.bytes(&config)?;
+  let config_bytes = io.bytes(&config)?;
   let (intent, caller, _pin) = crate::invocation::fresh(input)?;
   io.directory(&caller.base)?;
   let raw = intent
@@ -503,35 +632,127 @@ fn inspect(input: &Prepared, allowed: Option<&[String]>) -> io::Result<(Scope, T
   let manifest = crate::manifest::parse_manifest(&project, manifest_bytes.as_deref())
     .map_err(|reason| invalid(&reason.to_string()))?;
   let target = manifest.target_dir();
-  if !target.starts_with(&project)
-    || target
-      .components()
-      .any(|part| matches!(part, Component::ParentDir))
-  {
-    return Err(invalid(
-      "unsupported check closure: target is outside the project",
-    ));
-  }
   let target_exists = io.optional_directory(&target)?;
+  let state = state.join("reap");
+  let bindings = if manifest.stores.iter().any(|store| store.resource.is_some()) {
+    io.bytes(&state.join("store-bindings.json"))?
+      .map(|bytes| crate::store_bindings::parse_bindings(&bytes).map_err(|reason| invalid(&reason)))
+      .transpose()?
+      .unwrap_or_default()
+  } else {
+    Vec::new()
+  };
   let mut stores = Vec::new();
   for store in &manifest.stores {
-    if store.resource.is_some() {
-      return Err(invalid(
-        "unsupported check closure: external store binding requires the legacy binding bridge",
-      ));
-    }
-    let directory = project.join(store.path.trim_matches('/'));
-    let exists = io.optional_directory(&directory)?;
-    let armed = if exists {
-      io.bytes(&directory.join(crate::stores::STORE_MARKER))?
-        .map(|bytes| signature(&bytes, "reap-store-marker-v1"))
-        .transpose()?
-        .unwrap_or(false)
+    let (directory, armed) = if let Some(resource) = &store.resource {
+      let mut matches = bindings.iter().filter(|binding| {
+        binding.project_path == project.to_string_lossy() && binding.resource == *resource
+      });
+      let binding = matches.next();
+      if matches.next().is_some() {
+        return Err(invalid("duplicate local bindings for named store"));
+      }
+      if let Some(binding) = binding {
+        let meta = io.directory(&project)?.metadata()?;
+        if meta.dev() != binding.project_dev || meta.ino() != binding.project_ino {
+          return Err(invalid("external binding changed project identity"));
+        }
+        let directory = PathBuf::from(&binding.path);
+        let meta = io.external_directory(&directory)?.metadata()?;
+        if meta.dev() != binding.dev || meta.ino() != binding.ino {
+          return Err(invalid("external binding changed store identity"));
+        }
+        let marker = io
+          .bytes(&directory.join(crate::stores::STORE_MARKER))?
+          .ok_or_else(|| invalid("external store marker is absent"))?;
+        crate::store_bindings::parse_marker(&marker, binding).map_err(|reason| invalid(&reason))?;
+        let cfg: crate::config::Config = config_bytes
+          .as_deref()
+          .map(serde_json::from_slice)
+          .transpose()?
+          .unwrap_or_default();
+        let expand = |raw: &str| {
+          let home = intent.namespace.home.to_string_lossy();
+          let mut expanded = if raw == "~" {
+            home.to_string()
+          } else if let Some(suffix) = raw.strip_prefix("~/") {
+            format!("{home}/{suffix}")
+          } else {
+            raw.to_string()
+          };
+          if expanded.contains("$HOME") {
+            expanded = expanded.replace("${HOME}", &home).replace("$HOME", &home);
+          }
+          let path = PathBuf::from(expanded);
+          if path.is_absolute() {
+            path
+          } else {
+            caller.base.join(path)
+          }
+        };
+        let quarantine = cfg
+          .quarantine
+          .dir
+          .as_deref()
+          .filter(|dir| !dir.trim().is_empty())
+          .map(&expand)
+          .unwrap_or_else(|| state.join("quarantine"));
+        let mut protected = vec![
+          project.clone(),
+          io.canonical_path(&target)?,
+          io.canonical_path(&state)?,
+          io.canonical_path(&quarantine)?,
+        ];
+        for root in &cfg.roots {
+          protected.push(io.canonical_path(&expand(root))?);
+        }
+        for local in manifest
+          .stores
+          .iter()
+          .filter(|local| local.resource.is_none())
+        {
+          protected.push(io.canonical_path(&project.join(&local.path))?);
+        }
+        protected.extend(
+          bindings
+            .iter()
+            .filter(|other| *other != binding)
+            .map(|other| PathBuf::from(&other.path)),
+        );
+        if protected
+          .iter()
+          .any(|other| directory.starts_with(other) || other.starts_with(&directory))
+          || intent.namespace.home.starts_with(&directory)
+        {
+          return Err(invalid("external store overlaps a protected root"));
+        }
+        for name in [".git", ".reap.json", "Cargo.toml"] {
+          let path = directory.join(name);
+          match std::fs::symlink_metadata(&path) {
+            Ok(_) => return Err(invalid("external store appears to be a project root")),
+            Err(reason) if reason.kind() == io::ErrorKind::NotFound => io.absent(&path)?,
+            Err(reason) => return Err(reason),
+          }
+        }
+        (Some(directory), true)
+      } else {
+        (None, false)
+      }
     } else {
-      false
+      let directory = project.join(store.path.trim_matches('/'));
+      let armed = if io.optional_directory(&directory)? {
+        io.bytes(&directory.join(crate::stores::STORE_MARKER))?
+          .map(|bytes| signature(&bytes, "reap-store-marker-v1"))
+          .transpose()?
+          .unwrap_or(false)
+      } else {
+        false
+      };
+      (Some(directory), armed)
     };
     stores.push(serde_json::json!({
-      "path": store.path, "armed": armed, "keep_last": store.retention.keep_last,
+      "path": store.path, "resource": store.resource, "directory": directory,
+      "armed": armed, "keep_last": store.retention.keep_last,
       "min_age_hours": store.retention.min_age_hours, "max_age_days": store.retention.max_age_days,
       "max_bytes": store.retention.max_bytes, "unit": store.unit,
       "disposition": match store.disposition { crate::manifest::StoreDisposition::Delete => "delete", crate::manifest::StoreDisposition::Quarantine => "quarantine" },
@@ -576,10 +797,15 @@ fn inspect(input: &Prepared, allowed: Option<&[String]>) -> io::Result<(Scope, T
       .custom_flags(
         libc::O_NONBLOCK
           | libc::O_CLOEXEC
-          | if object.content.is_some() {
+          | if object.content.is_none() {
+            libc::O_DIRECTORY
+          } else {
+            0
+          }
+          | if object.content.is_some() || io.nofollow.contains(&path) {
             libc::O_NOFOLLOW
           } else {
-            libc::O_DIRECTORY
+            0
           },
       )
       .open(&path)?;
@@ -593,15 +819,19 @@ fn inspect(input: &Prepared, allowed: Option<&[String]>) -> io::Result<(Scope, T
         allowed,
         objects: Vec::new(),
         physical: BTreeSet::new(),
+        nofollow: BTreeSet::new(),
       };
       let bytes = confirmation
         .bytes(&path)?
         .ok_or_else(|| invalid("check input disappeared"))?;
-      if format!("{:x}", Sha256::digest(bytes)) != *digest {
+      if confirmation.objects.last().map(|read| &read.identity) != Some(&object.identity)
+        || format!("{:x}", Sha256::digest(bytes)) != *digest
+      {
         return Err(invalid("check input content changed during assessment"));
       }
     }
   }
+  crate::invocation::fresh(input)?;
   let scope = Scope {
     project,
     physical_volumes: io.physical.into_iter().collect(),

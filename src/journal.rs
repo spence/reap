@@ -66,6 +66,8 @@ pub struct View {
   pub created_at: u64,
   pub completed_at: Option<u64>,
   pub result: Option<Terminal>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub invocation: Option<crate::invocation::Summary>,
 }
 
 /// Authoritative lookup distinguishes proven non-admission from possible prior effects.
@@ -373,6 +375,10 @@ impl Journal {
         created_at: now,
         completed_at: None,
         result: None,
+        invocation: executing
+          .then(|| serde_json::from_str::<crate::invocation::Intent>(&input.request).ok())
+          .flatten()
+          .and_then(|input| crate::invocation::summary(&input)),
       },
       input,
       launch: None,
@@ -1085,6 +1091,15 @@ impl Job {
   fn validate(&self) -> io::Result<()> {
     validate_key(&self.view.key)?;
     validate_input(&self.input)?;
+    if let Some(summary) = &self.view.invocation {
+      let input = serde_json::from_str::<crate::invocation::Intent>(&self.input.request)
+        .map_err(|_| invalid("job invocation summary has invalid request evidence"))?;
+      if crate::invocation::summary(&input).as_ref() != Some(summary) {
+        return Err(invalid(
+          "job invocation summary differs from its retained request",
+        ));
+      }
+    }
     if let Some(progress) = &self.execution {
       use crate::dispatch::Progress;
       match progress {

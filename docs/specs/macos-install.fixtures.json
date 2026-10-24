@@ -1,5 +1,5 @@
 {
   "identifier": "dev.micro.reap",
   "environment": "REAP_CODESIGN_IDENTITY",
-  "cases": ["fresh", "configured", "environment_override", "build_failure", "sign_failure", "verify_failure", "unsigned_downgrade", "linux", "existing_skill", "existing_skill_symlink", "dangling_skill_symlink", "repeat_install", "prebuilt_signed", "prebuilt_verify_failure", "prebuilt_identity_mismatch", "prebuilt_missing", "prebuilt_linux"]
+  "cases": ["fresh", "configured", "environment_override", "build_failure", "sign_failure", "verify_failure", "unsigned_downgrade", "linux", "existing_skill", "existing_skill_symlink", "dangling_skill_symlink", "repeat_install", "prebuilt_signed", "prebuilt_verify_failure", "prebuilt_identity_mismatch", "prebuilt_missing", "prebuilt_linux", "service_preflight_failure", "service_apply_failure"]
 }

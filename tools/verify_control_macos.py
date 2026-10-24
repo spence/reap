@@ -82,7 +82,7 @@ def main():
             # this executable contains only the owned transport fixtures, not agent providers.
             run = subprocess.run(
                 selection, env=environment,
-                cwd=output if arguments.filter == "archive::tests" else None,
+                cwd=output if arguments.filter == "archive::tests" else runtime,
                 stdout=log, stderr=subprocess.STDOUT, timeout=60,
             )
         receipt["native_exit"] = run.returncode
@@ -153,7 +153,8 @@ def main():
         if arguments.fault_library:
             faults = {
                 "control::tests": [],
-                "service::tests": ["native_blocked_sync_does_not_ack_early_or_replace_the_writer",
+                "service::tests": ["native_client_waits_for_cold_writer_within_original_admission_budget",
+                                   "native_blocked_sync_does_not_ack_early_or_replace_the_writer",
                                    "native_recovery_flushes_an_unacknowledged_pending_record_before_publication",
                                    "native_blocked_context_open_preserves_resolver_slot_and_abandons_late_capture"],
                 "launch::tests": ["coordinator_death_during_grant_sync_never_releases_an_ungranted_child"],

@@ -72,9 +72,7 @@ use quarantine::{
   restore_entry, rollback_restore, save_index, select_purge, EntryDiagnosis, PurgeSelect,
   RetireOpts, RetirePass,
 };
-use stores::{
-  apply_store, init_stores, marker_armed, plan_stores, quarantine_store, StorePlan, StoreState,
-};
+use stores::{apply_store, init_stores, plan_stores, quarantine_store, StorePlan, StoreState};
 use util::{fmt_rel, hostname, lock_state, parse_ttl, state_dir};
 
 #[derive(Parser)]
@@ -127,6 +125,15 @@ enum Cmd {
     #[arg(value_enum)]
     role: service::Role,
   },
+  #[command(name = "__service-profile", hide = true)]
+  ServiceProfile,
+  #[command(name = "__service-probe", hide = true)]
+  ServiceProbe {
+    #[arg(value_enum)]
+    role: service::Role,
+  },
+  #[command(name = "__process-identity", hide = true)]
+  ProcessIdentity { pid: u32 },
   /// Discover & dry-run every target dir under the configured roots (the default)
   Sweep {
     /// Actually delete
@@ -169,7 +176,12 @@ enum Cmd {
   /// List discovered target dirs (no deletion)
   List,
   /// Validate a project's exception manifest (.reap.json), if any (default: cwd)
-  Check { path: Option<String> },
+  Check {
+    path: Option<String>,
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
+  },
   /// Show effective config, or `--init` to write the default config file
   Config {
     /// Write the default config file
@@ -368,6 +380,27 @@ fn main() {
     Some(Cmd::Job { cmd }) => client::run(cmd, entered),
     Some(Cmd::Worker { launch, process }) => worker::run(&launch, &process),
     Some(Cmd::Service { role }) => service::run(role),
+    Some(Cmd::ServiceProfile) => {
+      println!("{}", service::profile());
+      0
+    }
+    Some(Cmd::ServiceProbe { role }) => service::probe(role),
+    Some(Cmd::ProcessIdentity { pid }) => match launch::ProcessIdentity::read(pid) {
+      Ok(identity) => {
+        println!(
+          "{}",
+          serde_json::json!({"state": if identity.is_some() {"present"} else {"absent"}, "identity": identity})
+        );
+        0
+      }
+      Err(reason) => {
+        println!(
+          "{}",
+          serde_json::json!({"state":"unknown", "reason":reason.to_string()})
+        );
+        1
+      }
+    },
     // Bare `reap` == dry-run sweep.
     None => cmd_sweep(false, false, false, &PolicyArgs::default()),
     Some(Cmd::Sweep {
@@ -391,7 +424,7 @@ fn main() {
       policy,
     }) => cmd_one(path, true, verbose, quick, &policy),
     Some(Cmd::List) => cmd_list(),
-    Some(Cmd::Check { path }) => cmd_check(path),
+    Some(Cmd::Check { path, wait }) => client::run_check(path, wait, entered),
     Some(Cmd::Config { init }) => cmd_config(init),
     Some(Cmd::Stores {
       path,
@@ -722,121 +755,6 @@ fn cmd_list() -> i32 {
     eprintln!("  ! {}", w);
   }
   0
-}
-
-fn cmd_check(path: Option<String>) -> i32 {
-  let raw = match path {
-    Some(p) => PathBuf::from(p),
-    None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-  };
-  let abs = absolutize(&raw);
-  // A target dir passed directly -> check its project (the parent).
-  let start = if is_cargo_target_dir(&abs) {
-    abs
-      .parent()
-      .map(Path::to_path_buf)
-      .unwrap_or_else(|| abs.clone())
-  } else {
-    abs.clone()
-  };
-  let root = find_project_root(&start).unwrap_or(start);
-
-  let manifest = match load_manifest(&root) {
-    Ok(m) => m,
-    Err(e) => {
-      eprintln!("INVALID: {}", e);
-      return 1;
-    }
-  };
-  let tgt = manifest.target_dir();
-  if manifest.has_file {
-    println!(
-      "OK  {}  (exception manifest)",
-      root.join(MANIFEST_NAME).display()
-    );
-  } else {
-    println!(
-      "OK  {}  (no manifest -- built-in defaults; the norm)",
-      root.display()
-    );
-  }
-  let exists = if tgt.is_dir() {
-    ""
-  } else {
-    "  (does not exist yet)"
-  };
-  println!("    target            : {}{}", tgt.display(), exists);
-  println!(
-    "    keep.profiles     : {}",
-    joined(&manifest.keep.profiles)
-  );
-  println!("    keep.paths        : {}", joined(&manifest.keep.paths));
-  println!("    keep.names        : {}", joined(&manifest.keep.names));
-  println!(
-    "    keep.binaries     : {}",
-    joined(&manifest.keep.binaries)
-  );
-  println!("    keep_recent       : {}", manifest.policy.keep_recent);
-  println!(
-    "    prune_incremental : {}",
-    manifest.policy.prune_incremental
-  );
-  println!(
-    "    prune_build       : {}",
-    manifest.policy.prune_build_scripts
-  );
-  println!(
-    "    min_age_minutes   : {}",
-    manifest.policy.min_age_minutes
-  );
-  println!(
-    "    stale_profile_days: {}",
-    serde_json::to_string(&manifest.policy.stale_profile_days).unwrap_or_else(|_| "{}".to_string())
-  );
-  let mut rc = 0;
-  for s in &manifest.stores {
-    let (label, armed) = if let Some(resource) = &s.resource {
-      let status = match store_bindings::lookup(&manifest, resource) {
-        Ok(None) => "UNBOUND (`reap stores --bind` to allow apply)".to_string(),
-        Ok(Some(binding)) => match store_bindings::verify_for_manifest(&manifest, &binding) {
-          Ok(dir) => format!("armed at {}", dir.display()),
-          Err(e) => {
-            rc = 1;
-            format!("INVALID BINDING: {e}")
-          }
-        },
-        Err(e) => {
-          rc = 1;
-          format!("INVALID BINDING: {e}")
-        }
-      };
-      (format!("resource:{resource}"), status)
-    } else {
-      let dir = root.join(s.path.trim_matches('/'));
-      let status = if marker_armed(&dir) {
-        "armed".to_string()
-      } else {
-        "UNARMED (`reap stores --init` to allow apply)".to_string()
-      };
-      (s.path.clone(), status)
-    };
-    println!(
-      "    store             : {}  [{}]  keep_last={} min_age_hours={}{}{}",
-      label,
-      armed,
-      s.retention.keep_last,
-      s.retention.min_age_hours,
-      s.retention
-        .max_age_days
-        .map(|d| format!(" max_age_days={}", d))
-        .unwrap_or_default(),
-      s.retention
-        .max_bytes
-        .map(|b| format!(" max_bytes={}", b))
-        .unwrap_or_default(),
-    );
-  }
-  rc
 }
 
 fn cmd_config(init: bool) -> i32 {
@@ -2420,14 +2338,6 @@ fn roots_display(roots: &[PathBuf]) -> String {
     .map(|p| p.display().to_string())
     .collect::<Vec<_>>()
     .join(", ")
-}
-
-fn joined(v: &[String]) -> String {
-  if v.is_empty() {
-    "(none)".to_string()
-  } else {
-    v.join(", ")
-  }
 }
 
 fn print_plan(name: &str, plan: &Plan, apply_mode: bool, verbose: bool, quick: bool) {

@@ -1,0 +1,330 @@
+{
+  "boundary": "bounded public read-only check; no other command or archive activation",
+  "fault_library": {
+    "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+    "code_directory_hash": "93b7b8cd2df5b3cdf1917daed59d7b57147b0a31",
+    "identifier": "dev.micro.reap.native-faults",
+    "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+    "team": "35A87BDK48"
+  },
+  "fleet": {
+    "catalyst": {
+      "consumer_log_sha256": {
+        "preservation": "f058c8d287222bcc2bc72f8f3013f6e5b36ec896113329b4d8d0b98ad3a6ca41",
+        "public_check": "77d6e68f6fe8dedfcf81ce9ce99dc90d17ecc207c93db2509c1e7abe5ecee846",
+        "workspace": "1af7003cd9484eb4097969dc70e8d29cd7964042ce5e70e8d0806bc450f3485e"
+      },
+      "idempotent": {
+        "ownership_state_sha256": "479d181c40c9c6982b88fe36849f1899a56a294e0ca614d5215471c3fd3f273d",
+        "roles": [
+          {
+            "argument": "control",
+            "endpoint": "dev.micro.reap.control.v1.501",
+            "identity": {
+              "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+              "pid": 40149,
+              "start_fraction": 333950,
+              "start_seconds": 1792872231,
+              "uid": 501
+            },
+            "intent": "7101faa6434943e39163a87a02675547",
+            "label": "dev.micro.reap.control"
+          },
+          {
+            "argument": "context-resolver",
+            "endpoint": "dev.micro.reap.resolver.v1.501",
+            "identity": {
+              "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+              "pid": 40168,
+              "start_fraction": 468573,
+              "start_seconds": 1792872231,
+              "uid": 501
+            },
+            "intent": "7109b87bec664d15b2a11aa4f4d7e8d3",
+            "label": "dev.micro.reap.context-resolver"
+          },
+          {
+            "argument": "state-writer",
+            "endpoint": "dev.micro.reap.writer.v1.501",
+            "identity": {
+              "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+              "pid": 40188,
+              "start_fraction": 600603,
+              "start_seconds": 1792872231,
+              "uid": 501
+            },
+            "intent": "45a2a283cce24bd2aa42e572ad090354",
+            "label": "dev.micro.reap.state-writer"
+          }
+        ],
+        "same_cohort": true
+      },
+      "installed_methods": {
+        "preservation": 14,
+        "public_check": 5,
+        "workspace": 5
+      },
+      "managed_ingress": {
+        "admission_elapsed_ns": 29346209,
+        "client_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96",
+        "installed_sha256": "5e6ebf9dd6471876ea2a7a4771cc414d1a8cc41029f3bbdd813a7dcea19feac9",
+        "managed_services_preserved": true,
+        "runtime_removed": true,
+        "terminal_effects": 0,
+        "verification_exit": 0
+      },
+      "native": {
+        "client": {
+          "ignored": 0,
+          "passed": 9,
+          "receipt_sha256": "7bcd197c0856e15d88c787a3d6be34db0f7f5b436bc5d7dd55ee193fb68d8b73",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "control": {
+          "ignored": 0,
+          "passed": 10,
+          "receipt_sha256": "19a4a98bedf513889fb3dfdc34c0d4a9c94c3103a3fd344ab4bdd69981a9b462",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "dispatch": {
+          "ignored": 0,
+          "passed": 10,
+          "receipt_sha256": "24fb05afacd7514c668b1f1fa2c3646c9fd6dfa64476bb72e8e04e6cad4e2dfb",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "journal": {
+          "ignored": 0,
+          "passed": 16,
+          "receipt_sha256": "e8ced2cf4547efd806137ce82c8ca04ca1db3ff2b950a188c9ab177e64802483",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "service": {
+          "ignored": 0,
+          "passed": 13,
+          "receipt_sha256": "1a0a5f699f59d62244db1c43814b137c2d050290102f71299e9772d9d1ee14fe",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        }
+      }
+    },
+    "mini": {
+      "consumer_log_sha256": {
+        "preservation": "33badd1f2985fe906e4671284386b02a4ddc53113791ce0d06ca47425da230b4",
+        "public_check": "fe246e302acb439285b9deb9751ae54c0fc38b18067423bc21c58950e82729bb",
+        "workspace": "8f1e9c1fce05042f8b3234a5523351d1ef79b34fd91f055108d6eb291cdaa8cb"
+      },
+      "idempotent": {
+        "ownership_state_sha256": "4eace89f32c10e34c238221d5937644aab4d3eb2d8603a7aef9dfde599ad878a",
+        "roles": [
+          {
+            "argument": "control",
+            "endpoint": "dev.micro.reap.control.v1.501",
+            "identity": {
+              "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+              "pid": 17164,
+              "start_fraction": 703048,
+              "start_seconds": 1792872231,
+              "uid": 501
+            },
+            "intent": "658d3ef37ccd428eacf85cb0ed38ac05",
+            "label": "dev.micro.reap.control"
+          },
+          {
+            "argument": "context-resolver",
+            "endpoint": "dev.micro.reap.resolver.v1.501",
+            "identity": {
+              "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+              "pid": 17195,
+              "start_fraction": 781908,
+              "start_seconds": 1792872231,
+              "uid": 501
+            },
+            "intent": "750fa8f85ab54e44a06e58534c63d16f",
+            "label": "dev.micro.reap.context-resolver"
+          },
+          {
+            "argument": "state-writer",
+            "endpoint": "dev.micro.reap.writer.v1.501",
+            "identity": {
+              "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+              "pid": 17228,
+              "start_fraction": 866285,
+              "start_seconds": 1792872231,
+              "uid": 501
+            },
+            "intent": "66752e989e114eec9e66dd14cdc33231",
+            "label": "dev.micro.reap.state-writer"
+          }
+        ],
+        "same_cohort": true
+      },
+      "installed_methods": {
+        "preservation": 14,
+        "public_check": 5,
+        "workspace": 5
+      },
+      "managed_ingress": {
+        "admission_elapsed_ns": 17362792,
+        "client_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96",
+        "installed_sha256": "5e6ebf9dd6471876ea2a7a4771cc414d1a8cc41029f3bbdd813a7dcea19feac9",
+        "managed_services_preserved": true,
+        "runtime_removed": true,
+        "terminal_effects": 0,
+        "verification_exit": 0
+      },
+      "native": {
+        "client": {
+          "ignored": 0,
+          "passed": 9,
+          "receipt_sha256": "609ecf8087c133717745a42cf36ab8be70802c97eaf8137a7fe3bc9561572ec6",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "control": {
+          "ignored": 0,
+          "passed": 10,
+          "receipt_sha256": "98eecde95a3fcb82932bef08a872cc8d0fa5ee95961cc31137d22330f37ce5c1",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "dispatch": {
+          "ignored": 0,
+          "passed": 10,
+          "receipt_sha256": "dbf9d13d19e150d3b5c865963f19c6c9fcf574cd5501990a0704fded894997fb",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "journal": {
+          "ignored": 0,
+          "passed": 16,
+          "receipt_sha256": "a207f96d6089b53ff332c66552cf071834ebfa79b7536a167a852d7cac6e75ae",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        },
+        "service": {
+          "ignored": 0,
+          "passed": 13,
+          "receipt_sha256": "63206ecd8397b8a83beb46a418464c578827987ae7ddc67fbef49453af98a249",
+          "runtime_removed": true,
+          "unit_sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96"
+        }
+      }
+    }
+  },
+  "full_rust_suite": {
+    "declaration": 21,
+    "ignored": 0,
+    "lifecycle": 57,
+    "log_sha256": "02e62eabb3c2ea43ca0f7ae9ab8041b5bb596d68c24325d16f71dd0f1c3090e2",
+    "total": 299,
+    "unit": 221
+  },
+  "mocked_installer": {
+    "distinct_signing_cases": 19,
+    "ingress_verifier_cases": 15,
+    "service_installer_cases": 23
+  },
+  "native_unit": {
+    "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+    "code_directory_hash": "a4e617977178d929c6c79cfc50ef3d07172fa68c",
+    "identifier": "dev.micro.reap.native-tests",
+    "sha256": "05c1ec6b9184dec007865cb76883ab1473ffb1ecceff7ab1f53e49aad62ace96",
+    "team": "35A87BDK48"
+  },
+  "open": [
+    "other foreground commands",
+    "efficient discovery",
+    "retained-by-default creation and lifetime enforcement",
+    "lease/store conversion and old-reader barriers",
+    "unified effectful execution",
+    "native conversation adapters and independent archive retrieval",
+    "separate source release and AIMeter proof",
+    "explicit stalled native wait case",
+    "native Linux runtime",
+    "earlier intermittent Kytos caller-capture cause"
+  ],
+  "operator_context": {
+    "four_global_homes_match": true,
+    "global_context_receipts": [
+      {
+        "commit": "01055b6a61061457e7ed44aacb7632519349568b",
+        "deployment_scope": "global contexts only; other skills and rules unchanged",
+        "files": [
+          {
+            "path": "/Users/spencer/.codex/AGENTS.md",
+            "sha256": "979179c9a9873513a7bbacea1e5c4ba9a8c75178f3cfdc8559d8bed988fe5d57"
+          },
+          {
+            "path": "/Users/spencer/.claude/CLAUDE.md",
+            "sha256": "83f5f5f769825609b414884dff1c6246e3f7491bd55b081ca2db02ca1477f8be"
+          }
+        ]
+      },
+      {
+        "deployment_scope": "global contexts only; other skills and rules unchanged",
+        "files": [
+          {
+            "path": "/Users/spencer/.codex/AGENTS.md",
+            "sha256": "979179c9a9873513a7bbacea1e5c4ba9a8c75178f3cfdc8559d8bed988fe5d57"
+          },
+          {
+            "path": "/Users/spencer/.claude/CLAUDE.md",
+            "sha256": "83f5f5f769825609b414884dff1c6246e3f7491bd55b081ca2db02ca1477f8be"
+          }
+        ]
+      }
+    ],
+    "guide_commit": "1541aa3ae1748d06fa83a0ce2186fc8dbbce61d0",
+    "skills_commit": "01055b6a61061457e7ed44aacb7632519349568b"
+  },
+  "quick_test_storage": {
+    "catalyst_root": "/Users/spencer/src/reap/target/control-t13",
+    "internal_only": true,
+    "journal_and_dispatch_fixtures_use_internal_override": true,
+    "mini_root": "/private/tmp/reap-cores-transport-8yjfimnx/public-check-internal-final",
+    "verifier_sets_internal_cwd": true
+  },
+  "recorded_at": "2026-10-24T20:15:02.174727+00:00",
+  "release": {
+    "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+    "code_directory_hash": "e0c40f04a31a84f4c85f7ecf15ca59e8a4a0fd81",
+    "identifier": "dev.micro.reap",
+    "sha256": "5e6ebf9dd6471876ea2a7a4771cc414d1a8cc41029f3bbdd813a7dcea19feac9",
+    "team": "35A87BDK48"
+  },
+  "schema": 1,
+  "source_parent_revision": "6b73a2c97784426a5ea1759a250b4137e9bab3e2",
+  "source_sha256": {
+    "README.md": "8e2061e14a9ab9f0e8534911c8411ef922c927211ac01574e634812b31438cb0",
+    "docs/specs/invocation.md": "9c7d620402e91af3bc231bf5ef881ff635c638ac45216a8fbae6c767f326e030",
+    "docs/specs/job-client.md": "fb39d64873024fb69b97a033b74535026213c1d0f1365fa266a95431395d1372",
+    "docs/specs/job-execution.md": "e341883c1547eb5558193566d65b56c7e8adfb0e871348aac741e67af3f25579",
+    "docs/specs/macos-install.fixtures.json": "afcade7f1501ca9ae0e22d62eeef623829b445cc627e6a682bced527689ee156",
+    "docs/specs/macos-install.md": "07aa6c1dee2d3c8cd03c039ca23ffbf6f154c56bf4b7428f04c545bfdb2825c6",
+    "install.sh": "d9950e62cdff65121083a2dfbeb34024742c45dc0c4bf39443aeca40993a10b0",
+    "skill/SKILL.md": "b020e9b945d823e334fc520897c0bcc72c073b236f4f86811df8c7d0b54c09dd",
+    "src/client.rs": "12053728e0feba8a3085d8291d63de8f0b1e91d65e205eceee942b9eb08b527a",
+    "src/client/tests.rs": "623322a8cdd7c230a01e25a4d9f117237d35d417b1a7e88eec827b92e0a45ce2",
+    "src/dispatch.rs": "91240bfd04250c6faf51a9a8dc541e9c9ccbf0b47dece176d78c2a290e8c4063",
+    "src/dispatch/tests.rs": "6f1d487d4f32bf8e2e75828c265422fcabe120fd57307d8e240cdf0bc1fe3d2b",
+    "src/invocation.rs": "6be4cdd050681a4a32d0b4dea4800ab2f66e9b613afa045b875a0d37bd2af3b6",
+    "src/journal.rs": "93f5e83a9f41ae37bcc35ba4bae0b8dae737659ab4dd9f4b99b8e33bf3f5d3e9",
+    "src/journal/tests.rs": "8ec7c5e8716d23ea8d18c496e1fbfd4a85d77dd72e8459039a4dc78ce610b27d",
+    "src/main.rs": "7532a2ad1947071c870d338c2dd41c91eaa2c49f9a416439e600c9578612adbc",
+    "src/service.rs": "fe9852a644c0c966ad106b46aa315ed5e061ebd635cf1271ba673ad6e73f76d6",
+    "src/service/tests.rs": "caf6311ff23cd51dc2f8775c7abbe8cf50759ee16489be61fb210938e0bf07b2",
+    "src/store_bindings.rs": "e275fc7116f6c154f6eab534a6f4b474ae6b0f1bd6573b27b38cb2a9e4c1ae76",
+    "tests/install_signing.py": "479edb527fff372ee43106e3870586388f9af79d50271a4d02af413602ff0ae4",
+    "tests/lifecycle_state.rs": "b59da4f2d2e7e8351d77513336a5a634df922cdaa2d6fe7d22de1b556dfd3bbe",
+    "tests/test_ingress_execution_verifier.py": "dbfb6a93f6a4f87969478a9cf2bfeb627bcde2cf266505aec8f233a27c7794d3",
+    "tests/test_public_check.py": "0f5a387b6217b2356f0241a209babdfdf23f8670d25928b1bcc8fd9b6bb1fa57",
+    "tests/test_service_installation.py": "a70388fa37d2efd2a74d8c996952c02c641e0addf59b890122b426fce227413b",
+    "tools/install_services_macos.py": "e04ee0ffd92a6ca852147887392ff861b50508961366547ac447adbcd3c048fc",
+    "tools/verify_control_macos.py": "f10812d254c1677e66774e9a06d2bcbc7c540c32c0a00cd7dbc5e053c7eced06",
+    "tools/verify_ingress_macos.py": "4375a1753a1a1d94dec664f52657648242bac3b74940f9c51650e7ca4c88c354"
+  }
+}

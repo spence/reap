@@ -1246,7 +1246,7 @@ fn external_store_requires_local_binding_and_matching_marker() {
   fs::copy(project.join(".reap.json"), copied.join(".reap.json")).unwrap();
   success(root.run(args(&["stores", "--apply", "{path}"], &copied)));
   assert!(store.join("old.log").is_file(), "copy has no local binding");
-  success(root.run(args(&["check", "{path}"], &project)));
+  success(root.run(args(&["check", "{path}", "--wait", "30"], &project)));
   success(root.run(args(&["stores", "--apply", "{path}"], &project)));
   assert!(!store.join("old.log").exists());
   assert!(store.join("new.log").is_file());

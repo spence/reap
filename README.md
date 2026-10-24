@@ -207,10 +207,17 @@ The installer:
 
 * builds the binary in staging with Cargo, verifies its macOS signature, and
   atomically installs it into Cargo's binary directory;
+* on macOS, verifies service ownership before publication, then registers three on-demand,
+  agentless roles in `user/<uid>` for bounded `check` and job observations;
 * bootstraps `skill/SKILL.md` in an existing `~/.claude/skills` or
   `~/.codex/skills` home when no Reap skill is installed;
 * preserves existing skills and symlinks. Update an operator guide through its
   owner; on this fleet, `~/src/skills` owns that guide.
+
+Service setup refuses unknown registrations. Managed refresh requires exact creation ownership
+and native process evidence. Target worker groups remain intact. Interrupted setup retains
+recovery evidence in `~/.local/state/reap/service-installation/ownership.json`; rerun the same
+installation to reconcile it. A failure after publication reports incomplete service setup.
 
 To install a verified existing build without compiling or signing again:
 
@@ -268,7 +275,7 @@ reap clean [dir]
 
 # discovery and configuration
 reap list
-reap check [dir]
+reap check [dir] [--wait [SECONDS]]
 reap config
 reap config --init
 
@@ -472,7 +479,7 @@ profile.
 Validate the effective project configuration with:
 
 ```bash
-reap check
+reap check --wait 30
 ```
 
 ## artifact stores
@@ -1062,24 +1069,29 @@ Safety behavior is covered with synthetic target-tree tests. Changes to artifact
 classification or deletion boundaries should include an invariant test showing
 both what is removed and what must survive.
 
-Existing filesystem commands retain their current execution path.
-The bounded [job client](docs/specs/job-client.md) supports read-only job observations:
+The bounded [job client](docs/specs/job-client.md) supports manifest validation and job observations:
 
 ```bash
+reap check [dir]                 # ordinary response budget: one second
+reap check [dir] --wait 30        # explicit completion wait
 reap job show GENERATION:EPOCH:NONCE
 reap job wait GENERATION:EPOCH:NONCE --timeout 30
 ```
 
 These commands emit JSON. Exit 0 requires completed success; exit 75 means pending or unknown.
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
+`check` submits one read-only job. A pending receipt includes the same-key observation command;
+require completed success before a dependent step. `--wait` without a value means 30 seconds.
+Waiting does not cancel or resubmit work. Receipts identify protocol 2, operation, mode, and
+requested scope. The requested scope is not native target identity or cleanup permission.
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
-Service activation and ordinary-command migration remain open.
+macOS installation registers that broker. Other filesystem commands retain their foreground routes.
 
 Their component contracts are [transport](docs/specs/control-transport.md) and
 [admission](docs/specs/admission.md). Native admission proof does not establish
 cleanup, migration, target policy permission, or worker execution grants.
 The [native preparation pipeline](docs/specs/invocation.md) binds caller directory, namespace,
-and configuration evidence before new metadata admission. Public command routing remains open.
+and configuration evidence before new metadata admission. Other public command routing remains open.
 The [worker-grant core](docs/specs/worker-grants.md) records process ownership before target work.
 Its owned resolver runtime uses a private grant/result channel and rejects duplicate process starts.
 The [native physical resolver](docs/specs/physical-resources.md) identifies admitted APFS NVMe storage
@@ -1087,8 +1099,8 @@ without a helper. Unknown topologies refuse. Native boot evidence also governs l
 The [portable lifetime core](docs/specs/lifetime-v2.md) returns retained-by-default proposals.
 The [permanent custody core](docs/specs/archive-custody.md) stores immutable captures with independent retrieval.
 Native prepared jobs now have a [read-only check execution path](docs/specs/job-execution.md)
-through owned resolver/bulk workers and durable terminal results. This does not route the ordinary
-`check` command through jobs or activate applying operations.
+through owned resolver/bulk workers and durable terminal results. Ordinary `check` uses this path;
+applying operations are not activated.
 These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.
 

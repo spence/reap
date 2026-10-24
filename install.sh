@@ -86,6 +86,12 @@ if [ "$PLATFORM" = Darwin ]; then
   fi
 fi
 
+if [ "$PLATFORM" = Darwin ]; then
+  echo "==> service installation preflight"
+  python3 "$HERE/tools/install_services_macos.py" preflight \
+    --candidate "$STAGE/bin/reap" --binary "$DEST" --plan "$STAGE/services.json"
+fi
+
 PUBLISH="$(mktemp "$CARGO_ROOT/bin/.reap-install.XXXXXX")"
 if [ "$PLATFORM" = Darwin ]; then
   cp -X "$STAGE/bin/reap" "$PUBLISH"
@@ -95,6 +101,12 @@ fi
 chmod 755 "$PUBLISH"
 mv -f "$PUBLISH" "$DEST"
 PUBLISH=""
+
+if [ "$PLATFORM" = Darwin ]; then
+  echo "==> registering on-demand agentless services"
+  python3 "$HERE/tools/install_services_macos.py" apply \
+    --binary "$DEST" --plan "$STAGE/services.json"
+fi
 
 echo "==> bootstrapping missing agent skills (Claude Code, Codex)"
 homed=0

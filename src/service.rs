@@ -19,7 +19,7 @@ use crate::invocation::{self, Intent, Receipt};
 use crate::journal::Prepared;
 use crate::journal::{Decision, Epoch, Journal, Key};
 
-pub(crate) const PROTOCOL: u32 = 1;
+pub(crate) const PROTOCOL: u32 = 2;
 const WORK_BUDGET: std::time::Duration = std::time::Duration::from_millis(750);
 
 /// Fixed platform-managed process roles. None is an effectful target worker.
@@ -29,6 +29,71 @@ pub enum Role {
   Control,
   StateWriter,
   ContextResolver,
+}
+
+/// Describe the fixed agentless role processes for the platform installer.
+/// Target workers are separate processes; the supervisor must preserve their process groups.
+pub fn profile() -> serde_json::Value {
+  // SAFETY: geteuid has no pointer arguments.
+  let uid = unsafe { libc::geteuid() };
+  let roles: Vec<_> = [
+    (Role::Control, "control"),
+    (Role::StateWriter, "state-writer"),
+    (Role::ContextResolver, "context-resolver"),
+  ]
+  .into_iter()
+  .map(|(role, argument)| {
+    serde_json::json!({
+      "argument": argument,
+      "label": format!("dev.micro.reap.{argument}"),
+      "endpoint": endpoint(role),
+    })
+  })
+  .collect();
+  serde_json::json!({
+    "schema": 1,
+    "protocol": PROTOCOL,
+    "uid": uid,
+    "role_profile": "fixed-agentless-v1",
+    "agent_hosts": false,
+    "abandon_process_group": true,
+    "roles": roles,
+  })
+}
+
+/// Observe an advertised role through bounded native IPC without filesystem fallback.
+pub fn probe(role: Role) -> i32 {
+  let body = serde_json::to_vec(&Message {
+    protocol: PROTOCOL,
+    request: Request::Ping,
+  })
+  .expect("fixed probe serializes");
+  let response = control::exchange(
+    &endpoint(role),
+    &body,
+    Instant::now() + control::RESPONSE_BUDGET,
+  );
+  match response
+    .map_err(|error| error.to_string())
+    .and_then(|response| {
+      serde_json::from_slice::<Response>(&response.body).map_err(|error| error.to_string())
+    }) {
+    Ok(response)
+      if response.protocol == PROTOCOL
+        && response.via == role
+        && matches!(response.outcome, Outcome::Pong) =>
+    {
+      println!(
+        "{}",
+        serde_json::to_string(&response).expect("probe response serializes")
+      );
+      0
+    }
+    response => {
+      eprintln!("service probe unavailable: {response:?}");
+      1
+    }
+  }
 }
 
 /// Internal admission protocol; a prepared input is not an execution capability.

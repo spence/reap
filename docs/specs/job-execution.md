@@ -10,7 +10,7 @@
 
 This contract covers the first read-only `check [path]` execution path.
 `check` means Cargo exception-manifest validation, not directory existence.
-The public CLI retains its legacy route. This stage does not activate applying operations,
+The public CLI uses the bounded job client. This path does not activate applying operations,
 legacy migration, archive policy, source pruning, or new cleanup authority.
 The unified legacy bridge, old-reader barriers, and commit guards remain required for effectful routes.
 
@@ -55,13 +55,15 @@ Existing journal framing, metadata capacity, completion reserve, and result rete
 
 The path supports an existing directory, Cargo target marker selection, bounded ancestor project selection,
 and the legacy parser's versions, defaults, store validation, and policy normalization.
-The result includes every legacy `check` policy/keep field and each local store's marker and retention evidence.
-Target and local-store dependencies include absent-path anchors and native directory identities.
-Resource ownership includes caller, namespace/configuration, project, target, and local-store read dependencies.
+The result includes every legacy `check` policy/keep field and each store's marker and retention evidence.
+Target and store dependencies include absent-path anchors and native directory identities.
+Resource ownership includes caller, namespace/configuration, project, target, registry, and store read dependencies.
 Physical topology support remains the physical-resources contract's native allowlist.
 
-External named-store bindings require the legacy binding bridge. This stage refuses that entire assessment.
-A target outside its project also refuses. Neither refusal implies a valid or complete manifest assessment.
+Named external stores use the caller namespace's binding registry. Unbound stores remain explicit.
+Bound stores require matching project/store native identities and the complete armed marker.
+Targets outside the project retain their own native dependencies and physical-resource reservations.
+Changed identities, aliases, overlaps, or registry/marker evidence refuse the complete assessment.
 Unreadable, symlinked, special, or oversized marker/config/manifest inputs refuse rather than select defaults.
 
 ## Durable state and recovery
