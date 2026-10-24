@@ -1,0 +1,119 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T12",
+  "recorded_utc": "2026-10-24T06:39:10.366279+00:00",
+  "boundary": "host-local transport; not public CLI routing, durable admission, unified execution, migration or permanent archives",
+  "base_git_revision": "a349cf9798f79d6b49eedb526afab0fc6c47cb13",
+  "reviewed_source_sha256": {
+    "build.rs": "b533200ef221a29d332f578607405cbc366d3fa2f8198d7c12e900c208280fbe",
+    "src/main.rs": "74d1f6f252b06829927eb9339c423b36e586e97b0adaaf1cbf6dc379da599e2d",
+    "src/control.rs": "0eecaa6ac76f6d780f38478d0c01fd43faec359401a2db9ef8b990d95e97e710",
+    "src/control_macos.rs": "5fb313a787701a7a740a5783da1aa8b89477aacfed39bf9c092889d3ec684ac9",
+    "src/control_linux.rs": "7772a007211771d183ee85409355c53aba229d5d40ee23b9d6083aff23f1df04",
+    "src/control_xpc.cpp": "8f9627bf8fb970307ec32c10fc679c9ee51c79901cd81ea11e030acbb89829c1",
+    "src/control/tests.rs": "451c5e9b5b13a4b44fc1de459fa7928feb57adaaa293c025e1bac508c4524e06",
+    "tools/verify_control_macos.py": "d1084e52dabb065d4b7c8af4e7fb08a92fb96640e6597c2c1e902ae907eea3b6"
+  },
+  "full_rust_suite": {
+    "exit_code": 0,
+    "results": [
+      "test result: ok. 72 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.47s",
+      "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 87.76s",
+      "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.78s"
+    ],
+    "log_sha256": "e9d84a15e961147777dc9718588082c8ae43ec62ef6da26163fa1ff5847e6fcb"
+  },
+  "fleet": {
+    "catalyst": {
+      "runtime": "/private/tmp/reap-control-runtime-heblcit7",
+      "labels_absent": [
+        "user/501/dev.micro.reap.test.31021.1792823702027229000",
+        "user/501/dev.micro.reap.test.31021.1792823702617692000",
+        "user/501/dev.micro.reap.test.31021.1792823700963975000",
+        "user/501/dev.micro.reap.test.31021.1792823702315205000",
+        "user/501/dev.micro.reap.test.31021.1792823700475322000"
+      ],
+      "native_exit": 0,
+      "binary_sha256": "bb0987317b14b0b7f6f9fc8998bde60a38fc5e53fba56ca23158519740345c52",
+      "runtime_removed": true,
+      "results": [
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 2.20s"
+      ],
+      "measurement": "cold 38.849167ms, stalled-worker p99 957.417\u00b5s, max 1.792084ms",
+      "log_sha256": "babaf9ff4ca22ad61ad2d0fbb15e5a7d15ee0fe8ec58eed87066161d7a629145"
+    },
+    "catalyst-mini": {
+      "runtime": "/private/tmp/reap-control-runtime-5iofjkty",
+      "labels_absent": [
+        "user/501/dev.micro.reap.test.90865.1792823704153610000",
+        "user/501/dev.micro.reap.test.90865.1792823706105917000",
+        "user/501/dev.micro.reap.test.90865.1792823704673915000",
+        "user/501/dev.micro.reap.test.90865.1792823706433270000",
+        "user/501/dev.micro.reap.test.90865.1792823705789198000"
+      ],
+      "native_exit": 0,
+      "binary_sha256": "bb0987317b14b0b7f6f9fc8998bde60a38fc5e53fba56ca23158519740345c52",
+      "runtime_removed": true,
+      "results": [
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 2.38s"
+      ],
+      "measurement": "cold 16.486167ms, stalled-worker p99 171.584\u00b5s, max 287.792\u00b5s",
+      "log_sha256": "64e014ba1cad12c8758cd95356e8dfd0b4527e66d9324542bbfe963cb5c3d567"
+    }
+  },
+  "ownership_cycle_reproduction": {
+    "exit_code": 101,
+    "results": [
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 71 filtered out; finished in 2.19s"
+    ],
+    "log_sha256": "29a88327a5c945b20520608da195fb2630b4a484abda72de6ecf21462a766796",
+    "correction": "Destroy handler context on the serial response queue after callbacks finish; pending worker replies retain only the remaining transport state."
+  },
+  "linux": {
+    "cross_compile_command": "CARGO_BUILD_JOBS=2 cargo check --target aarch64-unknown-linux-gnu --tests",
+    "exit_code": 0,
+    "log_sha256": "1bec58d9b54f9daaf69c8869a3e21700ec15a081810d8627113be66563872428",
+    "native_runtime": "unrun; no installed project-supported local Linux VM/container or repository CI route",
+    "native_pass": false
+  },
+  "rejected_native_controls": [
+    {
+      "control": "user-domain plist without Background session type",
+      "result": "bootstrap failed with code 5; exact labels proved absent"
+    },
+    {
+      "control": "mini launchd output paths on Kytos",
+      "result": "EX_CONFIG; no fixture output files"
+    },
+    {
+      "control": "mini executable staged on Kytos with null output",
+      "result": "activation timeout; owned process sample in dyld open before application entry"
+    },
+    {
+      "control": "mini internal executable with Kytos config FIFO",
+      "result": "six cases passed, controlled read did not open its FIFO; not accepted as full native proof"
+    },
+    {
+      "control": "immediate print after successful bootout",
+      "result": "one transient registered label; corrected finite absence verification"
+    }
+  ],
+  "mini_sample": {
+    "sha256": "cd55fe0165b792362c846710a53a5450c8e256a6c1b42adaa5a7c2c9e1469f48",
+    "selected_symbols": [
+      "dyld4::prepare",
+      "dyld4::Loader::getOnDiskBinarySliceOffset",
+      "__open"
+    ],
+    "cause_limit": "No TCC diagnosis or system repair is claimed."
+  },
+  "artifact_kib": {
+    "catalyst_repository": 1072984,
+    "mini_repository": 23662820,
+    "mini_external_project": 9180
+  },
+  "production_service_installed": false,
+  "installed_binary_changed": false,
+  "cleanup_authority_activated": false,
+  "native_histories_or_credentials_changed": false,
+  "foreign_agents_or_services_stopped": false
+}

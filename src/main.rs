@@ -14,6 +14,7 @@
 //! marker, manifest, binding, or lease already authorized.
 
 mod config;
+pub mod control;
 mod coverage;
 mod create;
 mod discover;
