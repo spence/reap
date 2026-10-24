@@ -23,7 +23,12 @@ elif name=='cargo':
  output.chmod(0o755)
 elif name=='codesign':
  if '--display' in args:
-  if os.environ.get('EXISTING_SIGNED'): print('Authority=Developer ID Application: fixture')
+  if '--requirements' in args:
+   requirement='fixture-existing'
+   if os.environ.get('MISMATCH_IDENTITY') and '.reap-install.' in args[-1]: requirement='fixture-different'
+   print('designated => '+requirement)
+  elif os.environ.get('EXISTING_SIGNED'): print('Signature size=4672\\nTeamIdentifier=fixture')
+  else: print('Signature=adhoc')
  elif '--sign' in args:
   if os.environ.get('FAIL_SIGN'): sys.exit(12)
  elif '--verify' in args:
@@ -52,7 +57,9 @@ def check(case):
         (home / '.codex/skills').mkdir(parents=True)
         installed = home / '.cargo/bin/reap'
         old = b'previous installed executable'
-        failed = case in ('build_failure', 'sign_failure', 'verify_failure', 'unsigned_downgrade')
+        prebuilt = case.startswith('prebuilt_')
+        failed = case in ('build_failure', 'sign_failure', 'verify_failure', 'unsigned_downgrade',
+                          'prebuilt_verify_failure', 'prebuilt_identity_mismatch', 'prebuilt_missing')
         if failed:
             installed.write_bytes(old)
         preserved = {}
@@ -72,7 +79,7 @@ def check(case):
         env = dict(os.environ, HOME=str(home), TRACE=str(base / 'trace'),
                    PATH=str(commands) + ':' + str(home / '.cargo/bin') + ':' + os.environ['PATH'])
         for key in ('CARGO_HOME', FIXTURE['environment'], 'FAIL_BUILD', 'FAIL_SIGN',
-                    'FAIL_VERIFY', 'EXISTING_SIGNED', 'TEST_PLATFORM'):
+                    'FAIL_VERIFY', 'EXISTING_SIGNED', 'TEST_PLATFORM', 'MISMATCH_IDENTITY'):
             env.pop(key, None)
         if case not in ('fresh', 'build_failure', 'unsigned_downgrade'):
             (project / '.codesign.env').write_text('REAP_CODESIGN_IDENTITY="fixture-file"\n')
@@ -84,7 +91,25 @@ def check(case):
                 env[variable] = '1'
         if case == 'linux':
             env['TEST_PLATFORM'] = 'Linux'
-        result = subprocess.run(['/bin/bash', str(project / 'install.sh')], env=env,
+        command = ['/bin/bash', str(project / 'install.sh')]
+        if prebuilt:
+            artifact = base / 'signed input with spaces'
+            if case != 'prebuilt_missing':
+                artifact.write_text('#!/bin/sh\nprintf "reap fixture\\n"\n')
+                artifact.chmod(0o755)
+            command += ['--binary', str(artifact)]
+            env['FAIL_BUILD'] = '1'
+            if case != 'prebuilt_linux':
+                env['EXISTING_SIGNED'] = '1'
+            else:
+                env['TEST_PLATFORM'] = 'Linux'
+            if case == 'prebuilt_identity_mismatch':
+                env['MISMATCH_IDENTITY'] = '1'
+            if case == 'prebuilt_verify_failure':
+                env['FAIL_VERIFY'] = '1'
+            if not installed.exists():
+                installed.write_bytes(old)
+        result = subprocess.run(command, env=env,
                                 capture_output=True, text=True)
         trace = (base / 'trace').read_text()
         assert (result.returncode != 0) == failed, (case, result.stdout, result.stderr)
@@ -121,6 +146,10 @@ def check(case):
             assert 'cargo ' not in trace, trace
         if case == 'linux':
             assert 'codesign ' not in trace, trace
+        if prebuilt:
+            assert 'cargo ' not in trace and "'--sign'" not in trace, trace
+            if case == 'prebuilt_linux':
+                assert 'codesign ' not in trace, trace
         assert not list((home / '.cargo').glob('.reap-install.*')), case
         assert not list((home / '.cargo/bin').glob('.reap-install.*')), case
         print(case + ': passed')

@@ -205,6 +205,16 @@ The installer:
 * preserves existing skills and symlinks. Update an operator guide through its
   owner; on this fleet, `~/src/skills` owns that guide.
 
+To install a verified existing build without compiling or signing again:
+
+```bash
+~/src/reap/install.sh --binary /path/to/reap
+```
+
+On macOS, this path verifies the staged signature and requires the same designated
+requirement as the installed binary, if one exists. A mismatch preserves the installed
+binary and operator guides. Verify the transferred artifact's checksum against its source.
+
 For stable macOS permission identity, copy `.codesign.env.example` to
 `.codesign.env` and set `REAP_CODESIGN_IDENTITY` to your Developer ID
 Application certificate's public hash. A nonempty environment value overrides
@@ -218,7 +228,9 @@ preserves code identity, not a blanket grant: new permission scopes, revoked
 grants, identity/path changes, or OS policy can require approval again.
 Local source installs do not perform notarization or change privacy settings.
 
-If signing over SSH returns `errSecInternalComponent`, run `./install.sh` once
+If signing over SSH returns `errSecInternalComponent`, a verified same-identity build
+from another compatible Mac can use `--binary` without a Keychain change.
+For native source signing, run `./install.sh` once
 in the Mac's logged-in GUI Terminal. Unlock the login Keychain if needed and
 approve the native prompt for `/usr/bin/codesign` to use the selected private
 key with **Always Allow**. Do not put a password in the config or weaken

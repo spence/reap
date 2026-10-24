@@ -11,7 +11,7 @@
 
 ## Contract
 
-- **C1** — A configured macOS install signs with the selected certificate and
+- **C1** — A configured macOS source install signs with the selected certificate and
   fixed identifier `dev.micro.reap`. A nonempty `REAP_CODESIGN_IDENTITY`
   environment value overrides `.codesign.env`.
   · Binding: `tests/install_signing.py`, native `codesign --verify --strict`
@@ -29,6 +29,14 @@
   not binary installation. Build/sign/verification failures leave skills unchanged.
   · Binding: `tests/install_signing.py` existing-skill, symlink, repeated-install and failure cases.
   · Conformance: installer fixtures pass on Catalyst; not deployed.
+- **C5** — `install.sh --binary PATH` installs an existing build through the same private
+  staging and atomic publication path. It does not build or sign again. On macOS, the staged
+  binary passes strict native signature verification. If a macOS binary is already installed,
+  both binaries have the same nonempty designated requirement. Missing input, invalid signatures,
+  and identity mismatch preserve the installed binary and operator guides.
+  · Binding: prebuilt cases in `tests/install_signing.py`, plus native signature, identity,
+    checksum, and installed-consumer proof on both Macs.
+  · Conformance: pending implementation and native proof.
 
 ## Non-goals
 

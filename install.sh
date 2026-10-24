@@ -3,6 +3,16 @@
 # Idempotent; run once per machine. From a clone: `./install.sh`.
 set -euo pipefail
 
+PREBUILT=""
+if [ "$#" -ne 0 ]; then
+  if [ "$#" -eq 2 ] && [ "$1" = --binary ] && [ -n "$2" ]; then
+    PREBUILT="$2"
+  else
+    echo "Usage: $0 [--binary PATH]" >&2
+    exit 2
+  fi
+fi
+
 REPO_URL="https://github.com/spence/reap"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_SRC="$HERE/skill/SKILL.md"
@@ -17,9 +27,16 @@ CARGO_ROOT="${CARGO_HOME:-$HOME/.cargo}"
 DEST="$CARGO_ROOT/bin/reap"
 PLATFORM="$(uname -s)"
 
-if [ "$PLATFORM" = Darwin ] && [ -z "${REAP_CODESIGN_IDENTITY:-}" ] && [ -f "$DEST" ]; then
-  if codesign --display --verbose "$DEST" 2>&1 | grep '^Authority=' >/dev/null; then
-    echo "A certificate-signed Reap is installed. Configure .codesign.env before replacing it." >&2
+if [ -n "$PREBUILT" ] && [ ! -f "$PREBUILT" ]; then
+  echo "Prebuilt binary is not a regular file: $PREBUILT" >&2
+  exit 1
+fi
+
+if [ "$PLATFORM" = Darwin ] && [ -z "$PREBUILT" ] && \
+   [ -z "${REAP_CODESIGN_IDENTITY:-}" ] && [ -f "$DEST" ]; then
+  EXISTING_DETAILS="$(codesign --display --verbose "$DEST" 2>&1)"
+  if ! printf '%s\n' "$EXISTING_DETAILS" | grep '^Signature=adhoc$' >/dev/null; then
+    echo "Existing Reap is not confirmed ad-hoc. Configure .codesign.env before replacing it." >&2
     exit 1
   fi
 fi
@@ -28,26 +45,45 @@ mkdir -p "$CARGO_ROOT/bin"
 STAGE="$(mktemp -d "$CARGO_ROOT/.reap-install.XXXXXX")"
 PUBLISH=""
 cleanup() {
-  if [ -n "$PUBLISH" ] && [ -e "$PUBLISH" ]; then rm "$PUBLISH"; fi
+  if [ -n "$PUBLISH" ] && [ -e "$PUBLISH" ]; then unlink "$PUBLISH"; fi
   rm -r "$STAGE"
 }
 trap cleanup EXIT
 
-echo "==> building reap for $CARGO_ROOT/bin"
-if [ -f "$HERE/Cargo.toml" ]; then
+if [ -n "$PREBUILT" ]; then
+  echo "==> staging prebuilt reap for $CARGO_ROOT/bin"
+  mkdir -p "$STAGE/bin"
+  if [ "$PLATFORM" = Darwin ]; then
+    cp -X "$PREBUILT" "$STAGE/bin/reap"
+  else
+    cp "$PREBUILT" "$STAGE/bin/reap"
+  fi
+elif [ -f "$HERE/Cargo.toml" ]; then
+  echo "==> building reap for $CARGO_ROOT/bin"
   cargo install --path "$HERE" --locked --force --root "$STAGE"
 else
+  echo "==> building reap for $CARGO_ROOT/bin"
   cargo install --git "$REPO_URL" --locked --force --root "$STAGE"
 fi
 
 if [ "$PLATFORM" = Darwin ]; then
-  if [ -n "${REAP_CODESIGN_IDENTITY:-}" ]; then
-    codesign --force --timestamp=none --identifier dev.micro.reap \
-      --sign "$REAP_CODESIGN_IDENTITY" "$STAGE/bin/reap"
-  else
-    codesign --force --timestamp=none --identifier dev.micro.reap --sign - "$STAGE/bin/reap"
+  if [ -z "$PREBUILT" ]; then
+    if [ -n "${REAP_CODESIGN_IDENTITY:-}" ]; then
+      codesign --force --timestamp=none --identifier dev.micro.reap \
+        --sign "$REAP_CODESIGN_IDENTITY" "$STAGE/bin/reap"
+    else
+      codesign --force --timestamp=none --identifier dev.micro.reap --sign - "$STAGE/bin/reap"
+    fi
   fi
   codesign --verify --strict "$STAGE/bin/reap"
+  if [ -n "$PREBUILT" ] && [ -f "$DEST" ]; then
+    OLD_REQUIREMENT="$(codesign --display --requirements - "$DEST" 2>/dev/null)"
+    NEW_REQUIREMENT="$(codesign --display --requirements - "$STAGE/bin/reap" 2>/dev/null)"
+    if [ -z "$OLD_REQUIREMENT" ] || [ "$OLD_REQUIREMENT" != "$NEW_REQUIREMENT" ]; then
+      echo "Prebuilt binary does not preserve the installed signing identity." >&2
+      exit 1
+    fi
+  fi
 fi
 
 PUBLISH="$(mktemp "$CARGO_ROOT/bin/.reap-install.XXXXXX")"
