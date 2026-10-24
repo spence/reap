@@ -1,0 +1,242 @@
+{
+  "work": "MS-LIFETIME-AUTHORITY.T7",
+  "recorded_utc": "2026-10-24T04:16:17.841756+00:00",
+  "host": "catalyst",
+  "source_base": "73262e2",
+  "scope": "native feasibility, not production activation or source-release permission",
+  "versions": {
+    "codex_local": "0.163.0",
+    "codex_mini": "0.163.0",
+    "claude_local": "2.1.309",
+    "claude_mini": "2.1.310",
+    "claude_sdk": "0.3.220",
+    "claude_child_source": "2.1.302"
+  },
+  "codex": {
+    "version": "codex-cli 0.163.0",
+    "private_copy_only": true,
+    "changed_columns": [
+      "rollout_path"
+    ],
+    "native_restore": {
+      "thread_id": "01a16bec-9474-7552-87e2-ec4f9e532a16",
+      "turn_ids": [
+        "01a16bec-9ab4-7f71-aacd-d6658e463a53"
+      ],
+      "turn_count": 1,
+      "item_count": 10,
+      "item_types": [
+        "agentMessage",
+        "commandExecution",
+        "reasoning",
+        "userMessage"
+      ],
+      "turn_digest": "eb375023ff7bd4d51ccdaff197a6a45b2a04780d20c02f316a40ef701409c497",
+      "item_digest": "591b35d0b913572473faa33c665cafe97de96f175fa31475a449c6296754653c",
+      "marker_present": true,
+      "source_history_mode": "paginated",
+      "pid": 57785,
+      "exit_code": 0
+    },
+    "source_unchanged": true
+  },
+  "codex_snapshots": [
+    {
+      "relative": "goals_1.sqlite",
+      "bytes": 32768,
+      "sha256": "8e6ad97bb6e2d2c282f9e8b3f0fff81fbc2c86f56893251fabc8cc68663033c2",
+      "snapshot": {
+        "done": true,
+        "callbacks": 1,
+        "counts": {
+          "_sqlx_migrations": 2,
+          "thread_goals": 0,
+          "thread_goal_continuation_deferrals": 0
+        }
+      }
+    },
+    {
+      "relative": "logs_2.sqlite",
+      "bytes": 49152,
+      "sha256": "5fa06bee8422dcfb4a84e96f3fe6d3c4e4935e3e65d30a53cfe3afe2efd48ab3",
+      "snapshot": {
+        "done": true,
+        "callbacks": 1,
+        "counts": {
+          "_sqlx_migrations": 2,
+          "logs": 0
+        }
+      }
+    },
+    {
+      "relative": "memories_1.sqlite",
+      "bytes": 45056,
+      "sha256": "0c413f02817995cb82d0d22c428ce0aab5de1a810e1435bb8e5e58e2056ad520",
+      "snapshot": {
+        "done": true,
+        "callbacks": 1,
+        "counts": {
+          "_sqlx_migrations": 2,
+          "stage1_outputs": 0,
+          "jobs": 0,
+          "consolidation_progress": 1
+        }
+      }
+    },
+    {
+      "relative": "queue_1.sqlite",
+      "bytes": 40960,
+      "sha256": "8d98b873dd76c29c747df9e1bb4d636df0a850fce5abb9ec1400d2d6627b18cc",
+      "snapshot": {
+        "done": true,
+        "callbacks": 1,
+        "counts": {
+          "_sqlx_migrations": 2,
+          "queued_items": 0,
+          "queued_thread_revisions": 0
+        }
+      }
+    },
+    {
+      "relative": "sessions/2026/10/23/rollout-2026-10-23T20-20-29-01a16bec-9474-7552-87e2-ec4f9e532a16.jsonl",
+      "bytes": 204591,
+      "sha256": "668556a6904071fedc7d673382a9d447fb78b06c07c1c979c78ef97c5e04a60f",
+      "snapshot": null
+    },
+    {
+      "relative": "state_5.sqlite",
+      "bytes": 286720,
+      "sha256": "cd24806d8f12b1ae21c88c935e1f6262223b0cfc755c933362d1cca0d5c3ee00",
+      "snapshot": {
+        "done": true,
+        "callbacks": 5,
+        "counts": {
+          "_sqlx_migrations": 61,
+          "threads": 1,
+          "thread_dynamic_tools": 0,
+          "backfill_state": 1,
+          "thread_spawn_edges": 0,
+          "remote_control_enrollments": 0,
+          "external_agent_config_imports": 0,
+          "thread_sections": 1,
+          "rollout_migration_state": 0,
+          "rollout_migration_skipped_rollouts": 0,
+          "projects": 0,
+          "project_roots": 0,
+          "project_idempotency_keys": 0,
+          "thread_attachments": 0,
+          "guardian_review_feedback": 0,
+          "thread_read_receipts": 0
+        }
+      }
+    },
+    {
+      "relative": "thread_history_1.sqlite",
+      "bytes": 135168,
+      "sha256": "c18c2800d0a899c1a22f781640d801acc9e733f8dbbf85ac8f0ad8a622db72c8",
+      "snapshot": {
+        "done": true,
+        "callbacks": 3,
+        "counts": {
+          "_sqlx_migrations": 8,
+          "thread_turns": 1,
+          "thread_items": 10,
+          "thread_history_projection_state": 1,
+          "thread_realtime_items": 0
+        }
+      }
+    }
+  ],
+  "claude_normal": {
+    "initialized": true,
+    "sdkMessages": 2,
+    "messageDigest": "34759be6bf15b8a703bd662c39f21c7753d7d88e14ecc0b3d40a7dfc5e4454ed",
+    "nativeEventTypes": []
+  },
+  "claude_normal_context": {
+    "userMessageTokens": 494,
+    "assistantMessageTokens": 611,
+    "attachmentTokens": 20348
+  },
+  "claude_child": {
+    "initialized": true,
+    "sessionId": "1e0fa202-d298-4fde-80c1-3cbc96179628",
+    "parent": {
+      "messages": 5,
+      "digest": "af83c3557a7b956cc48eaf8d27caf469c0550704006b46cac54c7a72b857b273"
+    },
+    "children": [
+      {
+        "agentId": "a68740f53da19dcd2",
+        "messages": 1,
+        "digest": "a2a551820a82badf03479be1e60425ec3383c6cad15df898ea363ba35b911210"
+      }
+    ],
+    "events": [],
+    "nativeContext": {
+      "user": 110,
+      "assistant": 317
+    },
+    "archiveUnchanged": true
+  },
+  "negative_controls": {
+    "source_and_network_denied": {
+      "codex_native": true,
+      "claude_native": true,
+      "reap_state": true,
+      "codex_capture_origin": true,
+      "network": true
+    },
+    "incomplete_snapshot": {
+      "failure": "timeout",
+      "statuses": [
+        5
+      ],
+      "done": false,
+      "complete_capture": false,
+      "elapsed_seconds": 0.31305887503549457,
+      "busy_timeout_ms": 0
+    }
+  },
+  "negative_native_dependencies": {
+    "missingChildMessages": 0,
+    "requiredChildCount": 1,
+    "missingDependencyComplete": false,
+    "changedBytesComplete": false
+  },
+  "rejected_controls": {
+    "initial_claude_source_denial": false,
+    "initial_claude_restore_accepted": false,
+    "codex_injected_items_normal_turns": 0,
+    "codex_unchanged_absolute_path_restore_error": -32600
+  },
+  "private_evidence": {
+    "root": "target/archive-native-t7",
+    "payload_committed": false,
+    "harnesses": {
+      "probe_codex_normal.py": "929f7e8d7b33f0660afee97268eadeda8bc92ae76a652f4d67d8b71d65ae6d5a",
+      "snapshot_codex.py": "97630971316be0f595c0db44f84b0c71c8e9f490088f7a2d9250c5d3c186feae",
+      "relocate_codex.py": "fea0e9831d95a742c118a4b3c57f2f7744f0ab3a2bd15b1fad3c36ff9fbb8b85",
+      "probe_claude.mjs": "2e2e828c7baa2cb6fb3ab40a56eb740ea6f385c998994e9961a60ef420b44254",
+      "probe_claude_child.mjs": "8c41d049c21354ab6c90a698933b6c557d133ecc9831b94e38cb86a6aa83617d",
+      "negative_controls.py": "d8834839920535304ffdfb1c66d92019bf73baeb9cde95abc733333d2d9fd71f",
+      "missing_child.mjs": "57e81fde6adb8d012f817cbeaacc8c59964bf4ccd0a872f2b15fbfaad21a100f",
+      "restore-strict.sb": "186f4cd3c67c95cb114199f63745360ac37f01aa285953c0447375464e063976",
+      "restore-codex-relocated.sb": "e05fe36c5913ee965c29383b6feffffc4140bbcd774dff776620e55dc3bf55bd",
+      "restore-claude-child.sb": "4e11c537aca93e73f3132686eadb1994578e3eebe97c26ef402b461220c46e35"
+    }
+  },
+  "unproved_gates": [
+    "production cross-file closure under concurrent native writers",
+    "Codex normal spawned-descendant/checkpoint/external-attachment restoration",
+    "Claude checkpoint and external upload restoration",
+    "native provider-coordinated expected-content removal covering all writers",
+    "AIMeter final-boundary origin-aware acknowledgement and replay",
+    "native restore on mini provider versions"
+  ],
+  "original_sources_unchanged": true,
+  "archive_bytes_unchanged": true,
+  "activation": false,
+  "source_removed": false,
+  "foreign_process_control": false
+}
