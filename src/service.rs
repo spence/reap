@@ -1,7 +1,7 @@
 //! Fixed control, context-resolver, and metadata-writer roles with memory-only response loops.
 //!
-//! Native preparation precedes new admission. No request here dispatches target work,
-//! issues an execution grant, or establishes target cleanup-policy permission.
+//! Native preparation precedes new admission. The writer dispatches bounded read-only `check`
+//! phases; no service request establishes target cleanup-policy permission.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -19,7 +19,7 @@ use crate::invocation::{self, Intent, Receipt};
 use crate::journal::Prepared;
 use crate::journal::{Decision, Epoch, Journal, Key};
 
-const PROTOCOL: u32 = 1;
+pub(crate) const PROTOCOL: u32 = 1;
 const WORK_BUDGET: std::time::Duration = std::time::Duration::from_millis(750);
 
 /// Fixed platform-managed process roles. None is an effectful target worker.
@@ -138,6 +138,11 @@ fn names(role: Role) -> (String, String) {
     Role::ContextResolver => resolver_name(),
   };
   (name, writer)
+}
+
+/// Return the host-user endpoint without filesystem access.
+pub fn endpoint(role: Role) -> String {
+  names(role).0
 }
 
 fn resolver_name() -> String {
@@ -464,9 +469,37 @@ fn write_state(
       return;
     }
   };
+  let mut scheduler = match crate::dispatch::Scheduler::recover(&mut journal) {
+    Ok(scheduler) => scheduler,
+    Err(reason) => {
+      unavailable(&shared, &reason.to_string());
+      return;
+    }
+  };
   ready(&shared, journal.epoch());
   let mut failed = false;
-  while let Ok(work) = receiver.recv() {
+  loop {
+    if !failed && scheduler.pending() {
+      busy(&shared);
+      if let Err(reason) = scheduler.tick(&mut journal, now()) {
+        failed = true;
+        unavailable(&shared, &reason.to_string());
+      } else {
+        ready(&shared, journal.epoch());
+      }
+    }
+    let work = if !failed && scheduler.pending() {
+      match receiver.recv_timeout(std::time::Duration::from_millis(20)) {
+        Ok(work) => work,
+        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+      }
+    } else {
+      match receiver.recv() {
+        Ok(work) => work,
+        Err(_) => break,
+      }
+    };
     if failed || Instant::now() >= work.deadline {
       send_deferred(
         work.reply,
@@ -501,6 +534,24 @@ fn write_state(
       });
     match result {
       Ok(outcome) => {
+        if let Outcome::Decision {
+          decision: Decision::Present { job },
+        } = &outcome
+        {
+          if let Err(reason) = scheduler.enqueue(&mut journal, job.key.clone()) {
+            failed = true;
+            unavailable(&shared, &reason.to_string());
+            send_deferred(
+              work.reply,
+              Role::StateWriter,
+              snapshot(&shared),
+              Outcome::Unavailable {
+                admission_possible: mutation,
+              },
+            );
+            continue;
+          }
+        }
         ready(&shared, journal.epoch());
         send_deferred(work.reply, Role::StateWriter, snapshot(&shared), outcome);
       }
@@ -546,7 +597,7 @@ fn admit_resolved(
         outcome: Outcome::Validation { valid: true },
         ..
       }) if Instant::now() < deadline => journal
-        .admit(receipt.key, receipt.input, now)
+        .admit_execution(receipt.key, receipt.input, now)
         .map(|decision| Outcome::Decision { decision }),
       Ok(Response {
         protocol: PROTOCOL,

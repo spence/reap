@@ -14,11 +14,13 @@
 //! marker, manifest, binding, or lease already authorized.
 
 pub mod archive;
+pub mod client;
 mod config;
 pub mod control;
 mod coverage;
 mod create;
 mod discover;
+pub mod dispatch;
 mod doctor;
 mod files;
 pub mod identity;
@@ -111,6 +113,11 @@ struct PolicyArgs {
 
 #[derive(Subcommand)]
 enum Cmd {
+  /// Read retained job state or wait for a terminal result.
+  Job {
+    #[command(subcommand)]
+    cmd: client::JobCmd,
+  },
   /// Internal pre-grant target worker.
   #[command(hide = true)]
   Worker { launch: String, process: String },
@@ -354,8 +361,10 @@ enum RunError {
 }
 
 fn main() {
+  let entered = Instant::now();
   let cli = Cli::parse();
   let code = match cli.cmd {
+    Some(Cmd::Job { cmd }) => client::run(cmd, entered),
     Some(Cmd::Worker { launch, process }) => worker::run(&launch, &process),
     Some(Cmd::Service { role }) => service::run(role),
     // Bare `reap` == dry-run sweep.

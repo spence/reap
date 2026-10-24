@@ -314,6 +314,7 @@ fn pending_durable_admission_is_recovered_without_a_second_identity() {
     revision: 1,
     input: input(),
     launch: None,
+    execution: None,
     view: View {
       key: key.clone(),
       created_at: 1,

@@ -1,0 +1,215 @@
+use super::*;
+use crate::journal::Terminal;
+
+fn key() -> Key {
+  Key {
+    generation: "1234567890abcdef1234567890abcdef".into(),
+    epoch: 7,
+    nonce: "abcdef1234567890abcdef1234567890".into(),
+  }
+}
+
+fn view(result: Option<Terminal>) -> View {
+  View {
+    key: key(),
+    created_at: 1,
+    completed_at: result.as_ref().map(|_| 2),
+    result,
+  }
+}
+
+#[test]
+fn accepted_pending_and_unknown_never_return_completed_success() {
+  for (decision, state) in [
+    (Decision::Present { job: view(None) }, State::Pending),
+    (Decision::Unknown, State::Unknown),
+    (Decision::NotAccepted, State::NotAccepted),
+    (Decision::Conflict, State::Conflict),
+    (Decision::Capacity, State::Capacity),
+  ] {
+    let receipt = observe(key(), decision);
+    assert_eq!(receipt.state, state);
+    assert_ne!(receipt.exit_code(), 0);
+    assert_eq!(receipt.key, Some(key()));
+    assert!(receipt.next_command.unwrap().contains(&job_id(&key())));
+  }
+  let done = observe(
+    key(),
+    Decision::Present {
+      job: view(Some(Terminal {
+        exit_code: 0,
+        effects: 0,
+        detail: "read-only operation complete".into(),
+      })),
+    },
+  );
+  assert_eq!(done.state, State::Completed);
+  assert_eq!(done.exit_code(), 0);
+  assert_eq!(done.job_id, Some(job_id(&key())));
+  let failed = observe(
+    key(),
+    Decision::Present {
+      job: view(Some(Terminal {
+        exit_code: 1,
+        effects: 0,
+        detail: "incomplete scope evidence".into(),
+      })),
+    },
+  );
+  assert_eq!(failed.state, State::Failed);
+  assert_eq!(failed.exit_code(), 1);
+}
+
+#[test]
+fn malformed_or_other_key_terminal_evidence_cannot_return_success() {
+  let terminal = Some(Terminal {
+    exit_code: 0,
+    effects: 0,
+    detail: "complete".into(),
+  });
+  for changed in 0..5 {
+    let mut job = view(terminal.clone());
+    match changed {
+      0 => job.key.epoch += 1,
+      1 => job.completed_at = None,
+      2 => job.completed_at = Some(0),
+      3 => job.result.as_mut().unwrap().exit_code = 75,
+      _ => job.result.as_mut().unwrap().detail = "x".repeat(4097),
+    }
+    let receipt = observe(key(), Decision::Present { job });
+    assert_eq!(receipt.state, State::Unknown);
+    assert_eq!(receipt.exit_code(), 75);
+    assert!(receipt.job.is_none());
+    assert!(receipt.job_id.is_none());
+  }
+}
+
+#[test]
+fn lost_admission_reply_keeps_the_same_key_and_reports_possible_acceptance() {
+  let receipt = observe_response(
+    key(),
+    Err(Error {
+      kind: ErrorKind::Timeout,
+      may_have_sent: true,
+    }),
+    true,
+  );
+  assert_eq!(receipt.state, State::AcceptanceUnknown);
+  assert_eq!(receipt.exit_code(), 75);
+  assert_eq!(receipt.key, Some(key()));
+  assert!(receipt.job_id.is_none());
+  assert!(receipt.observed_at.is_none());
+  let lookup = observe_response(
+    key(),
+    Err(Error {
+      kind: ErrorKind::Timeout,
+      may_have_sent: true,
+    }),
+    false,
+  );
+  assert_eq!(lookup.state, State::Unavailable);
+  assert_eq!(lookup.key, Some(key()));
+}
+
+#[test]
+fn native_observation_time_is_preserved_without_inventing_freshness() {
+  let response = Response {
+    protocol: service::PROTOCOL,
+    via: Role::Control,
+    snapshot: service::Snapshot {
+      phase: service::Phase::Ready,
+      epoch: None,
+      observed_at: Some(42),
+      reason: None,
+    },
+    outcome: Outcome::Decision {
+      decision: Decision::Present { job: view(None) },
+    },
+  };
+  let receipt = observe_response(key(), Ok(response), false);
+  assert_eq!(receipt.observed_at, Some(42));
+  assert_eq!(receipt.state, State::Pending);
+  let unavailable = observe_response(key(), Err(protocol(false)), false);
+  assert!(unavailable.observed_at.is_none());
+}
+
+#[test]
+fn expired_submission_budget_does_not_capture_context_or_replace_the_key() {
+  let client = Client::for_fixture("unused.control".into(), "unused.resolver".into());
+  let input = Intent {
+    argv: vec!["check".into()],
+    namespace: invocation::Namespace {
+      home: "/nonexistent-native-client-fixture".into(),
+      xdg_state_home: None,
+      config_snapshot: None,
+    },
+    provenance: serde_json::json!({}),
+  };
+  let receipt = client.submit_until(
+    input,
+    Some(key()),
+    Instant::now() - Duration::from_millis(1),
+  );
+  assert_eq!(receipt.state, State::Unavailable);
+  assert_eq!(receipt.key, Some(key()));
+  assert!(receipt.job_id.is_none());
+}
+
+#[test]
+fn job_ids_are_canonical_and_invalid_keys_do_not_form_command_suggestions() {
+  let valid = job_id(&key());
+  assert_eq!(parse_job_id(&valid).unwrap(), key());
+  for value in [
+    "".into(),
+    valid.replace(":7:", ":0:"),
+    valid.replace(":7:", ":07:"),
+    valid.replace(":7:", ":+7:"),
+    valid.replace(":7:", ":18446744073709551616:"),
+    format!("{valid}:extra"),
+    "x".repeat(1024),
+  ] {
+    assert!(parse_job_id(&value).is_err(), "{value}");
+  }
+  let mut invalid = key();
+  invalid.nonce = "not a request key".into();
+  let receipt = Receipt::new(State::Invalid, Some(invalid), None);
+  assert_eq!(receipt.exit_code(), 2);
+  assert!(receipt.key.is_none());
+  assert!(receipt.next_command.is_none());
+}
+
+#[test]
+fn zero_or_unrepresentable_wait_is_invalid_before_any_transmission() {
+  let client = Client::for_fixture("unused.control".into(), "unused.resolver".into());
+  for timeout in [Duration::ZERO, Duration::MAX] {
+    let receipt = client.wait(key(), timeout);
+    assert_eq!(receipt.state, State::Invalid);
+    assert_eq!(receipt.exit_code(), 2);
+  }
+}
+
+#[test]
+fn cli_wait_timeout_accepts_positive_finite_values_only() {
+  assert_eq!(parse_timeout("0.25").unwrap(), Duration::from_millis(250));
+  assert_eq!(parse_timeout("30").unwrap(), Duration::from_secs(30));
+  for value in ["0", "-1", "NaN", "inf", "1e300", "1e-12", "not-a-duration"] {
+    assert!(parse_timeout(value).is_err(), "{value}");
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn missing_native_service_is_prompt_and_never_falls_back_to_filesystem_work() {
+  let nonce = journal::random_token().unwrap();
+  let client = Client::for_fixture(
+    format!("dev.micro.reap.absent.{nonce}"),
+    format!("dev.micro.reap.absent.resolver.{nonce}"),
+  );
+  let start = Instant::now();
+  let receipt = client.show(key());
+  assert!(start.elapsed() < RESPONSE_BUDGET + Duration::from_millis(100));
+  assert_eq!(receipt.state, State::Unavailable);
+  assert_eq!(receipt.exit_code(), 1);
+  assert_eq!(receipt.key, Some(key()));
+  assert!(receipt.job.is_none());
+}

@@ -85,11 +85,53 @@ pub fn valid_receipt(receipt: &Receipt) -> bool {
 }
 
 /// Immutable caller-directory evidence. Request-supplied paths cannot construct this evidence.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Context {
   pub directory: ObjectIdentity,
   pub base: PathBuf,
   pub uid: u32,
+}
+
+/// Revalidate admitted caller and namespace evidence without service-environment defaults.
+/// Call only in an owned target phase. A changed path, configuration, or namespace refuses.
+pub(crate) fn fresh(input: &Prepared) -> io::Result<(Intent, Context, File)> {
+  use std::fs::OpenOptions;
+  use std::os::unix::fs::OpenOptionsExt;
+
+  #[derive(Deserialize)]
+  #[serde(deny_unknown_fields)]
+  struct Binding {
+    caller: Context,
+    namespace: Namespace,
+    evidence: serde_json::Value,
+  }
+  let intent: Intent = serde_json::from_str(&input.request)?;
+  let binding: Binding = serde_json::from_str(&input.context)?;
+  // SAFETY: geteuid has no pointer arguments.
+  if !valid_intent(&intent)
+    || binding.caller.uid != unsafe { libc::geteuid() }
+    || binding.namespace != intent.namespace
+    || !input.volumes.is_empty()
+    || !binding.caller.base.is_absolute()
+  {
+    return Err(unavailable("admitted invocation is invalid"));
+  }
+  let directory = OpenOptions::new()
+    .read(true)
+    .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+    .open(&binding.caller.base)?;
+  if ObjectIdentity::read(&directory)? != binding.caller.directory {
+    return Err(unavailable("admitted caller directory changed"));
+  }
+  let evidence = namespace_evidence(&intent.namespace, binding.caller.uid)?;
+  let authority = serde_json::json!({"config": evidence.1, "cleanup_granted": false});
+  if binding.evidence != evidence.0
+    || serde_json::from_str::<serde_json::Value>(&input.authority)? != authority
+  {
+    return Err(unavailable("admitted namespace or configuration changed"));
+  }
+  Ok((intent, binding.caller, directory))
 }
 
 /// The held descriptor keeps the captured object distinct from later path replacements.
@@ -163,7 +205,7 @@ fn unconfirmed(reply: &DeferredReply, deadline: Instant) -> io::Result<Captured>
   native::capture(peer.pid, peer.uid)
 }
 
-fn namespace_evidence(
+pub(crate) fn namespace_evidence(
   namespace: &Namespace,
   uid: u32,
 ) -> io::Result<(serde_json::Value, serde_json::Value)> {

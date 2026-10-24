@@ -46,6 +46,16 @@ Only its lease marker and explicitly approved Cargo targets are exceptions.
 Local exclusion works for `files`, not for `retire`; do not switch to
 scratch to evade that distinction.
 
+## Job observations
+
+`reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
+`reap job wait GENERATION:EPOCH:NONCE --timeout 30` explicitly waits for completion.
+Both emit JSON. Exit 0 means completed success; exit 75 means pending or unknown.
+Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
+A wait timeout does not cancel or resubmit the job. Require terminal success before a dependent step.
+An unavailable broker is not permission for a synchronous fallback.
+Existing filesystem commands retain their current route; full command migration remains open.
+
 ## 1. Reclaim cargo build output (the common job)
 
 ```bash

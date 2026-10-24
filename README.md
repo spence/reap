@@ -1055,7 +1055,19 @@ Safety behavior is covered with synthetic target-tree tests. Changes to artifact
 classification or deletion boundaries should include an invariant test showing
 both what is removed and what must survive.
 
-The control and admission backends are not yet the ordinary CLI execution path.
+Existing filesystem commands retain their current execution path.
+The bounded [job client](docs/specs/job-client.md) supports read-only job observations:
+
+```bash
+reap job show GENERATION:EPOCH:NONCE
+reap job wait GENERATION:EPOCH:NONCE --timeout 30
+```
+
+These commands emit JSON. Exit 0 requires completed success; exit 75 means pending or unknown.
+Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
+The commands require the native broker. An unavailable broker never selects a synchronous fallback.
+Service activation and ordinary-command migration remain open.
+
 Their component contracts are [transport](docs/specs/control-transport.md) and
 [admission](docs/specs/admission.md). Native admission proof does not establish
 cleanup, migration, target policy permission, or worker execution grants.
@@ -1067,7 +1079,10 @@ The [native physical resolver](docs/specs/physical-resources.md) identifies admi
 without a helper. Unknown topologies refuse. Native boot evidence also governs launch recovery.
 The [portable lifetime core](docs/specs/lifetime-v2.md) returns retained-by-default proposals.
 The [permanent custody core](docs/specs/archive-custody.md) stores immutable captures with independent retrieval.
-These cores do not activate new executors, migrate leases, capture live conversations, or release sources.
+Native prepared jobs now have a [read-only check execution path](docs/specs/job-execution.md)
+through owned resolver/bulk workers and durable terminal results. This does not route the ordinary
+`check` command through jobs or activate applying operations.
+These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.
 
 ## license

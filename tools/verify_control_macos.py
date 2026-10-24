@@ -28,7 +28,8 @@ def main():
     parser.add_argument("--filter", choices=["control::tests", "service::tests", "launch::tests",
                                             "lifetime::tests", "archive::tests",
                                             "quarantine::tests", "util::tests", "worker::tests",
-                                            "journal::tests", "volumes::"], default="control::tests")
+                                            "journal::tests", "volumes::", "dispatch::tests",
+                                            "client::tests"], default="control::tests")
     parser.add_argument("--fault-library", type=pathlib.Path)
     parser.add_argument("--worker-binary", type=pathlib.Path)
     arguments = parser.parse_args()
@@ -96,7 +97,9 @@ def main():
                                "malformed_native_requests_do_not_poison_the_writer",
                                "native_resolved_admission_binds_caller_namespace_and_replays_after_ticket_expiry",
                                "native_invalid_namespaces_and_untrusted_receipts_never_create_jobs",
-                               "native_prepare_capacity_recovers_after_idle_ticket_expiry"],
+                               "native_prepare_capacity_recovers_after_idle_ticket_expiry",
+                               "native_client_prepare_admit_executes_check_and_returns_durable_terminal",
+                               "native_stalled_bulk_keeps_its_slot_without_blocking_ping_or_status"],
             "launch::tests": ["unresolved_launch_reserves_all_volumes_across_restart_without_blocking_other_volumes",
                               "ungranted_child_exits_without_effects_and_ambiguous_intent_is_not_replaced",
                               "durable_grant_survives_writer_restart_and_release_requires_native_exit",
@@ -128,6 +131,15 @@ def main():
                           "native_target_aliases_and_held_rename_share_keys",
                           "unknown_virtual_raid_and_incomplete_topologies_refuse",
                           "external_tunneled_nvme_requires_exact_endpoint"],
+            "dispatch::tests": ["native_check_pipeline_completes_once_with_local_store_and_protected_survivors",
+                                "changed_native_scope_caller_config_and_grant_resources_refuse",
+                                "special_oversized_external_and_incomplete_check_inputs_never_report_success",
+                                "restart_retains_surviving_child_and_compaction_preserves_recovery_evidence",
+                                "durable_resolver_and_bulk_results_recover_across_each_publication_boundary"],
+            "client::tests": ["accepted_pending_and_unknown_never_return_completed_success",
+                              "malformed_or_other_key_terminal_evidence_cannot_return_success",
+                              "lost_admission_reply_keeps_the_same_key_and_reports_possible_acceptance",
+                              "missing_native_service_is_prompt_and_never_falls_back_to_filesystem_work"],
         }[arguments.filter]
         if not all(case in content for case in required) or "test result: ok." not in content:
             result = 1
@@ -148,7 +160,7 @@ def main():
             receipt["runtime_device"] = runtime.stat().st_dev
     finally:
         # a failed launch fixture can retain an unresolved owned descendant.
-        safe_to_remove = not (arguments.filter in ("launch::tests", "worker::tests") and result != 0)
+        safe_to_remove = result == 0
         for path in runtime.glob("fixtures/*/*.plist"):
             data = plistlib.loads(path.read_bytes())
             expected = [str(runtime / "reap-native-test"), "--exact",

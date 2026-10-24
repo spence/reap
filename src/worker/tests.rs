@@ -260,3 +260,29 @@ fn invalid_task_cannot_create_a_reservation_or_process() {
     assert!(journal.launch(&key).unwrap().is_none());
   }
 }
+
+#[test]
+fn invalid_check_terminal_or_incomplete_scope_cannot_be_worker_success() {
+  let frame = |report: Report| {
+    let body = serde_json::to_vec(&report).unwrap();
+    let mut frame = (body.len() as u32).to_be_bytes().to_vec();
+    frame.extend_from_slice(&body);
+    frame
+  };
+  for (exit_code, effects, detail) in [
+    (0, 1, "invalid effects".into()),
+    (75, 0, "pending is not terminal".into()),
+    (0, 0, "x".repeat(4097)),
+  ] {
+    let terminal = crate::journal::Terminal {
+      exit_code,
+      effects,
+      detail,
+    };
+    assert!(decode_report(&frame(Report::Checked { terminal })).is_err());
+  }
+  let report: Report = serde_json::from_value(serde_json::json!({
+    "result": "check_resolved", "scope": {"project": "/", "physical_volumes": ["invented-domain"], "objects": []}
+  })).unwrap();
+  assert!(decode_report(&frame(report)).is_err());
+}

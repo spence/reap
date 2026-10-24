@@ -304,7 +304,20 @@ impl Journal {
       Decision::NotAccepted => {}
       decision => return Ok(decision),
     }
-    self.insert(key, input, now)
+    self.insert(key, input, now, false)
+  }
+
+  /// Admit native prepared intent and its queued execution phase in the same transaction.
+  pub(crate) fn admit_execution(
+    &mut self,
+    key: Key,
+    input: Prepared,
+    now: u64,
+  ) -> io::Result<Decision> {
+    match self.replay(&key, &input)? {
+      Decision::NotAccepted => self.insert(key, input, now, true),
+      decision => Ok(decision),
+    }
   }
 
   /// Assess an exact retained request without permission to create a new job.
@@ -325,7 +338,13 @@ impl Journal {
     Ok(Decision::NotAccepted)
   }
 
-  fn insert(&mut self, key: Key, input: Prepared, now: u64) -> io::Result<Decision> {
+  fn insert(
+    &mut self,
+    key: Key,
+    input: Prepared,
+    now: u64,
+    executing: bool,
+  ) -> io::Result<Decision> {
     let volume_set = if input.volumes.is_empty() {
       vec!["<unresolved>".to_string()]
     } else {
@@ -357,6 +376,7 @@ impl Journal {
       },
       input,
       launch: None,
+      execution: executing.then_some(crate::dispatch::Progress::Queued),
     };
     self.persist(Document::Job(job.clone()))?;
     self.install(job.clone())?;
@@ -414,6 +434,57 @@ impl Journal {
   pub fn launch(&self, key: &Key) -> io::Result<Option<Launch>> {
     self.bindings()?;
     Ok(self.job(key)?.and_then(|job| job.launch))
+  }
+
+  /// Return the bounded live execution index without filesystem enumeration.
+  pub(crate) fn execution_keys(&self) -> Vec<Key> {
+    self
+      .index
+      .iter()
+      .filter(|(_, entry)| entry.executing && entry.view.result.is_none())
+      .map(|(key, _)| key.clone())
+      .collect()
+  }
+
+  /// Read live prepared input, phase evidence, and its exact launch without new admission.
+  pub(crate) fn execution(
+    &self,
+    key: &Key,
+  ) -> io::Result<Option<(Prepared, crate::dispatch::Progress, Option<Launch>)>> {
+    self.bindings()?;
+    Ok(
+      self
+        .job(key)?
+        .filter(|job| job.view.result.is_none())
+        .and_then(|job| {
+          job
+            .execution
+            .map(|progress| (job.input, progress, job.launch))
+        }),
+    )
+  }
+
+  /// Persist phase/result evidence before reservation release or terminal publication.
+  pub(crate) fn execution_progress(
+    &mut self,
+    key: &Key,
+    next: crate::dispatch::Progress,
+  ) -> io::Result<()> {
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("execution job is not retained"))?;
+    let previous = job
+      .execution
+      .as_ref()
+      .ok_or_else(|| invalid("job is not activated"))?;
+    if previous == &next {
+      return Ok(());
+    }
+    if job.view.result.is_some() || !previous.successor(&next) {
+      return Err(invalid("invalid execution phase transition"));
+    }
+    job.execution = Some(next);
+    self.update(job)
   }
 
   /// Reserve one of the worker's two direct-helper slots before spawning that helper.
@@ -619,6 +690,7 @@ impl Journal {
       .ok_or_else(|| invalid("job revision overflow"))?;
     job.view.completed_at = Some(now.max(job.view.created_at));
     job.view.result = Some(result);
+    job.validate()?;
     self.persist(Document::Job(job.clone()))?;
     self.install(job.clone())?;
     Ok(Decision::Present { job: job.view })
@@ -738,6 +810,7 @@ impl Journal {
         device: metadata.dev(),
         inode: metadata.ino(),
         launch: job.launch,
+        executing: job.execution.is_some(),
       },
     );
     self.healthy = true;
@@ -890,9 +963,11 @@ impl Journal {
         previous.validate()?;
         next.validate()?;
         let completion = next.launch == previous.launch
+          && next.execution == previous.execution
           && next.view.result.is_some()
           && next.view.completed_at.is_some();
         let execution = next.view == previous.view
+          && next.execution == previous.execution
           && match (&previous.launch, &next.launch) {
             (None, Some(launch)) => {
               launch.sequence == 1
@@ -902,11 +977,14 @@ impl Journal {
             (Some(previous), Some(next)) => previous.successor(next),
             _ => false,
           };
+        let phase = next.view == previous.view
+          && next.launch == previous.launch
+          && matches!((&previous.execution, &next.execution), (Some(previous), Some(next)) if previous.successor(next));
         if next.view.key != previous.view.key
           || next.input != previous.input
           || Some(next.revision) != previous.revision.checked_add(1)
           || previous.view.result.is_some()
-          || (!completion && !execution)
+          || (!completion && !execution && !phase)
           || next.view.created_at != previous.view.created_at
         {
           return Err(invalid("invalid job transaction"));
@@ -995,6 +1073,8 @@ struct Job {
   input: Prepared,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   launch: Option<Launch>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  execution: Option<crate::dispatch::Progress>,
 }
 
 impl Job {
@@ -1005,6 +1085,49 @@ impl Job {
   fn validate(&self) -> io::Result<()> {
     validate_key(&self.view.key)?;
     validate_input(&self.input)?;
+    if let Some(progress) = &self.execution {
+      use crate::dispatch::Progress;
+      match progress {
+        Progress::Resolved { scope } | Progress::Checking { scope } => scope.validate()?,
+        Progress::Result { terminal }
+          if terminal.detail.len() > 4096 || terminal.exit_code == 75 || terminal.effects != 0 =>
+        {
+          return Err(invalid("invalid execution terminal evidence"));
+        }
+        _ => {}
+      }
+      let phase_matches = match progress {
+        Progress::Queued => self.launch.is_none(),
+        Progress::Resolving | Progress::Resolved { .. } => self
+          .launch
+          .as_ref()
+          .is_none_or(|launch| launch.resources == Resources::Resolver),
+        Progress::Checking { scope } => self.launch.as_ref().is_some_and(|launch| {
+          (launch.resources == Resources::Resolver && launch.released())
+            || launch.resources
+              == (Resources::Bulk {
+                physical_volumes: scope.physical_volumes.clone(),
+              })
+        }),
+        Progress::Result { terminal } => {
+          terminal.exit_code != 0
+            || self
+              .launch
+              .as_ref()
+              .is_some_and(|launch| matches!(launch.resources, Resources::Bulk { .. }))
+        }
+      };
+      if !phase_matches {
+        return Err(invalid(
+          "execution phase does not match its owned resource reservation",
+        ));
+      }
+      if self.view.result.as_ref().is_some_and(
+        |result| !matches!(progress, Progress::Result { terminal } if terminal == result),
+      ) {
+        return Err(invalid("terminal result differs from execution evidence"));
+      }
+    }
     if self.schema != SCHEMA
       || self.revision < if self.view.result.is_some() { 2 } else { 1 }
       || self.view.result.is_some() != self.view.completed_at.is_some()
@@ -1035,6 +1158,7 @@ struct Entry {
   device: u64,
   inode: u64,
   launch: Option<Launch>,
+  executing: bool,
 }
 
 fn find_process<'a>(launch: &'a mut Launch, token: &str) -> io::Result<&'a mut Process> {

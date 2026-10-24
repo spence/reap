@@ -85,7 +85,7 @@ mod native {
       let fault = if role == Role::StateWriter {
         self
           .fault
-          .filter(|mode| *mode != "context")
+          .filter(|mode| !["context", "execution"].contains(mode))
           .map(|mode| {
             let library = std::env::var("REAP_NATIVE_CONTROL_FAULT_LIBRARY")
               .expect("native sync fault library is required");
@@ -98,7 +98,16 @@ mod native {
               self.root.join("gate").display()
             )
           })
-          .unwrap_or_default()
+          .unwrap_or_else(|| {
+            if self.fault == Some("execution") {
+              format!(
+                "<key>REAP_NATIVE_EXECUTION_GATE</key><string>{}</string>",
+                self.root.join("gate").display()
+              )
+            } else {
+              String::new()
+            }
+          })
       } else if role == Role::ContextResolver && self.fault == Some("context") {
         let library =
           std::env::var("REAP_NATIVE_CONTROL_FAULT_LIBRARY").expect("context fault library");
@@ -118,6 +127,7 @@ mod native {
 <key>Label</key><string>{name}</string>
 <key>LimitLoadToSessionType</key><string>Background</string>
 <key>ThrottleInterval</key><integer>0</integer>
+{abandon}
 <key>ProgramArguments</key><array><string>{executable}</string><string>--exact</string>
 <string>service::tests::native::server_process</string><string>--nocapture</string></array>
 <key>MachServices</key><dict><key>{name}</key><true/></dict>
@@ -130,6 +140,11 @@ mod native {
 {fault}
 </dict><key>StandardOutPath</key><string>/dev/null</string>
 <key>StandardErrorPath</key><string>/dev/null</string></dict></plist>"#,
+        abandon = if self.fault == Some("execution") && role == Role::StateWriter {
+          "<key>AbandonProcessGroup</key><true/>"
+        } else {
+          ""
+        },
         executable = executable.display(),
         writer = self.writer,
         resolver = self.resolver,
@@ -344,7 +359,7 @@ mod native {
       },
     );
     let Outcome::Decision {
-      decision: original @ Decision::Present { .. },
+      decision: Decision::Present { .. },
     } = response.outcome
     else {
       panic!("native admission failed: {response:?}")
@@ -361,9 +376,13 @@ mod native {
         .outcome,
       Outcome::Validation { valid: false }
     ));
+    let current = fixture.call(Role::Control, Request::Lookup { key: key.clone() });
+    let Outcome::Decision { decision: current } = current.outcome else {
+      panic!("retained lookup required")
+    };
     assert!(
       matches!(fixture.call(Role::Control, Request::Admit { receipt: receipt.clone() }).outcome,
-      Outcome::Decision { decision } if decision == original)
+      Outcome::Decision { decision } if decision == current)
     );
     let mut changed = receipt.clone();
     changed.input.context.push(' ');
@@ -402,6 +421,229 @@ mod native {
     let response = fixture.call(Role::ContextResolver, Request::Prepare { key, input });
     assert!(matches!(response.outcome, Outcome::Prepared { .. }));
     println!("native ingress: caller namespace/config bound; no cleanup grant; expired receipt cannot create work; exact durable retry survives");
+  }
+
+  #[test]
+  fn native_client_prepare_admit_executes_check_and_returns_durable_terminal() {
+    use crate::client::{Client, State};
+    let fixture = Fixture::new();
+    fixture.install(Role::ContextResolver);
+    let key = key(&fixture);
+    let mut input = intent(&fixture);
+    let project = fixture.root.join("project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(project.join("valuable"), b"native protected survivor").unwrap();
+    input.argv = vec!["check".into(), project.to_str().unwrap().into()];
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    fixture.call(Role::ContextResolver, Request::Ping);
+    let receipt = client.submit(input.clone(), Some(key.clone()));
+    assert_eq!(receipt.state, State::Pending, "{receipt:?}");
+    assert_eq!(receipt.exit_code(), 75);
+    let done = client.wait(key.clone(), Duration::from_secs(10));
+    assert_eq!(done.state, State::Completed, "{done:?}");
+    assert_eq!(done.exit_code(), 0);
+    let result = done.job.as_ref().unwrap().result.as_ref().unwrap();
+    assert_eq!(result.effects, 0);
+    assert_eq!(
+      serde_json::from_str::<serde_json::Value>(&result.detail).unwrap()["command"],
+      "check"
+    );
+    assert_eq!(
+      fs::read(project.join("valuable")).unwrap(),
+      b"native protected survivor"
+    );
+    let replay = client.submit(input, Some(key.clone()));
+    assert_eq!(replay.state, State::Completed, "{replay:?}");
+    assert_eq!(replay.job, done.job);
+    fixture.stop(Role::StateWriter);
+    fixture.install(Role::StateWriter);
+    fixture.epoch();
+    assert_eq!(client.show(key).job, done.job);
+    println!("native client: cumulative Prepare -> Admit -> resolver -> bulk check -> durable terminal; exact replay and writer restart");
+  }
+
+  fn assert_pending(client: &crate::client::Client, key: Key) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+      let receipt = client.show(key.clone());
+      if receipt.state == crate::client::State::Pending {
+        return;
+      }
+      assert_eq!(
+        receipt.state,
+        crate::client::State::Unavailable,
+        "{receipt:?}"
+      );
+      assert!(
+        Instant::now() < deadline,
+        "retained job did not become observable: {receipt:?}"
+      );
+      thread::sleep(Duration::from_millis(10));
+    }
+  }
+
+  fn release_bulk(fixture: &Fixture) {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+      match fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(fixture.root.join("gate/fifo"))
+      {
+        Ok(mut fifo) => {
+          fifo.write_all(b"x").unwrap();
+          return;
+        }
+        Err(reason) if reason.raw_os_error() == Some(libc::ENXIO) => {}
+        Err(reason) => panic!("owned bulk release: {reason}"),
+      }
+      assert!(
+        Instant::now() < deadline,
+        "owned bulk reader did not reach its gate"
+      );
+      thread::sleep(Duration::from_millis(10));
+    }
+  }
+
+  fn live_launches(fixture: &Fixture) -> Vec<crate::launch::Launch> {
+    fs::read_dir(fixture.root.join("state/reap/admission"))
+      .unwrap()
+      .filter_map(|entry| {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if !name.to_str().unwrap().starts_with('j') {
+          return None;
+        }
+        let bytes = fs::read(entry.path()).unwrap();
+        let job: serde_json::Value = serde_json::from_slice(&bytes[40..]).unwrap();
+        job
+          .get("launch")
+          .map(|launch| serde_json::from_value(launch.clone()).unwrap())
+      })
+      .collect()
+  }
+
+  #[test]
+  fn native_stalled_bulk_keeps_its_slot_without_blocking_ping_or_status() {
+    use crate::client::{Client, State};
+    let fixture = Fixture::with_fault(Some("execution"));
+    fixture.install(Role::ContextResolver);
+    let first = key(&fixture);
+    let mut input = intent(&fixture);
+    let project = fixture.root.join("project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    input.argv = vec!["check".into(), project.to_str().unwrap().into()];
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    fixture.call(Role::ContextResolver, Request::Ping);
+    assert_eq!(
+      client.submit(input.clone(), Some(first.clone())).state,
+      State::Pending
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !fixture.root.join("gate/entered").exists() {
+      assert!(
+        Instant::now() < deadline,
+        "bulk phase did not reach its owned stall"
+      );
+      thread::sleep(Duration::from_millis(10));
+    }
+    let writer_pid = fixture.pid(Role::StateWriter).unwrap();
+    let mut second = first.clone();
+    second.nonce = crate::journal::random_token().unwrap();
+    // aliases and a distinct namespace still share the actual physical bulk reservation.
+    std::os::unix::fs::symlink(&project, fixture.root.join("alias")).unwrap();
+    input.argv[1] = fixture.root.join("alias").to_str().unwrap().into();
+    input.namespace.xdg_state_home = Some(fixture.root.join("other-state"));
+    assert_eq!(
+      client.submit(input, Some(second.clone())).state,
+      State::Pending
+    );
+    for _ in 0..32 {
+      for role in [Role::Control, Role::StateWriter] {
+        let start = Instant::now();
+        assert!(matches!(
+          fixture.call(role, Request::Ping).outcome,
+          Outcome::Pong
+        ));
+        assert!(matches!(
+          fixture.call(role, Request::Status).outcome,
+          Outcome::Snapshot
+        ));
+        assert!(start.elapsed() < RESPONSE_BUDGET);
+      }
+    }
+    assert_eq!(fixture.pid(Role::StateWriter), Some(writer_pid));
+    assert_pending(&client, first.clone());
+    assert_pending(&client, second.clone());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+      let launches = live_launches(&fixture);
+      let bulk: Vec<_> = launches
+        .iter()
+        .filter(|launch| {
+          matches!(launch.resources, crate::launch::Resources::Bulk { .. }) && !launch.released()
+        })
+        .collect();
+      assert_eq!(
+        bulk.len(),
+        1,
+        "one physical domain must have exactly one unresolved bulk owner"
+      );
+      if launches.iter().any(|launch| {
+        matches!(launch.resources, crate::launch::Resources::Resolver) && launch.released()
+      }) {
+        break;
+      }
+      assert!(
+        Instant::now() < deadline,
+        "second resolver did not reach the occupied bulk slot"
+      );
+      thread::sleep(Duration::from_millis(10));
+    }
+    let surviving = live_launches(&fixture)
+      .into_iter()
+      .find(|launch| {
+        matches!(launch.resources, crate::launch::Resources::Bulk { .. }) && !launch.released()
+      })
+      .unwrap();
+    fixture.stop(Role::StateWriter);
+    fixture.install(Role::StateWriter);
+    fixture.epoch();
+    assert!(live_launches(&fixture).contains(&surviving));
+    let crate::launch::ProcessState::Granted { identity, .. } = &surviving.worker.state else {
+      panic!("exact granted child required")
+    };
+    assert_eq!(
+      crate::launch::ProcessIdentity::read(identity.pid)
+        .unwrap()
+        .as_ref(),
+      Some(identity)
+    );
+    assert_pending(&client, first.clone());
+    release_bulk(&fixture);
+    let lost = client.wait(first, Duration::from_secs(10));
+    assert_eq!(
+      lost.state,
+      State::Failed,
+      "a lost private result is incomplete, never a successful rerun: {lost:?}"
+    );
+    assert!(lost
+      .job
+      .unwrap()
+      .result
+      .unwrap()
+      .detail
+      .contains("incomplete"));
+    release_bulk(&fixture);
+    assert_eq!(
+      client.wait(second, Duration::from_secs(10)).state,
+      State::Completed
+    );
+    println!("native stalled bulk: prompt memory-only ping/status; one alias/namespace bulk slot; exact child survives owned writer restart; lost result stays incomplete");
   }
 
   #[test]
@@ -722,11 +964,12 @@ mod native {
       epoch: epoch.current,
       nonce: crate::journal::random_token().unwrap(),
     };
+    let project = root.join("check-project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(project.join("valuable"), b"installed protected survivor").unwrap();
     let input = Intent {
-      argv: vec![
-        "files".into(),
-        std::env::var("REAP_INSTALLED_INGRESS_EXPECT_CWD").unwrap(),
-      ],
+      argv: vec!["check".into(), project.to_str().unwrap().into()],
       namespace: invocation::Namespace {
         home: root.join("caller-home"),
         xdg_state_home: Some(root.join("caller-state")),
@@ -804,23 +1047,84 @@ mod native {
       .outcome,
       Outcome::Invalid
     ));
+    let client = crate::client::Client::default();
+    let completed = client.wait(key.clone(), Duration::from_secs(10));
+    assert_eq!(
+      completed.state,
+      crate::client::State::Completed,
+      "{completed:?}"
+    );
+    assert_eq!(completed.exit_code(), 0);
+    assert_eq!(
+      fs::read(project.join("valuable")).unwrap(),
+      b"installed protected survivor"
+    );
     thread::sleep(Duration::from_millis(800));
     assert!(
       matches!(call(Role::Control, Request::Admit { receipt: receipt.clone() }, Instant::now()+RESPONSE_BUDGET).outcome,
-      Outcome::Decision { decision } if decision == original)
+      Outcome::Decision { decision: Decision::Present { job } } if Some(&job) == completed.job.as_ref())
     );
+    let installed = std::env::var_os("REAP_INSTALLED_INGRESS_BINARY").unwrap();
+    let id = crate::client::job_id(&key);
+    let mut cli_receipts = Vec::new();
+    for operation in ["show", "wait"] {
+      let mut command = Command::new(&installed);
+      command.args(["job", operation, &id]);
+      if operation == "wait" {
+        command.args(["--timeout", "1"]);
+      }
+      let output = command
+        .env("HOME", root.join("service-home"))
+        .output()
+        .unwrap();
+      assert!(output.status.success(), "{output:?}");
+      let observed: crate::client::Receipt = serde_json::from_slice(&output.stdout).unwrap();
+      assert_eq!(observed.state, crate::client::State::Completed);
+      assert_eq!(observed.key, Some(key.clone()));
+      assert_eq!(
+        observed
+          .job
+          .as_ref()
+          .unwrap()
+          .result
+          .as_ref()
+          .unwrap()
+          .effects,
+        0
+      );
+      cli_receipts.push(observed);
+    }
+    let mut unknown = key.clone();
+    unknown.generation.replace_range(
+      ..1,
+      if key.generation.starts_with('0') {
+        "1"
+      } else {
+        "0"
+      },
+    );
+    let output = Command::new(&installed)
+      .args(["job", "show", &crate::client::job_id(&unknown)])
+      .output()
+      .unwrap();
+    assert_eq!(output.status.code(), Some(75));
+    let unknown_receipt: crate::client::Receipt = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(unknown_receipt.state, crate::client::State::Unknown);
+    assert!(unknown_receipt.job.is_none());
     fs::write(
       root.join("client-receipt.json"),
       serde_json::to_vec_pretty(&serde_json::json!({
         "key":key,"receipt":receipt,"context":context,"authority":authority,
         "decision":original,"admission_elapsed_ns":admission_elapsed_ns,
         "raw_admission_refused":true,"expired_ticket_exact_replay":true,
-        "metadata_only":true,"cleanup_granted":false,
+        "metadata_only":false,"read_only_execution":true,"terminal":completed,"cleanup_granted":false,
+        "prepared_key":receipt.key,
+        "job_cli":cli_receipts,"unknown_job_cli":unknown_receipt,
       }))
       .unwrap(),
     )
     .unwrap();
-    println!("installed ingress: native context, namespace/config, durable receipt and raw-admission refusal; elapsed {admission_elapsed_ns} ns");
+    println!("installed ingress: native context, namespace/config, actual read-only check, durable terminal and raw-admission refusal; admission elapsed {admission_elapsed_ns} ns");
   }
 
   #[test]

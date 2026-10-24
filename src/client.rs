@@ -1,0 +1,445 @@
+//! Deadline-bounded job clients. No method reads config, state, or the caller's directory.
+//!
+//! Native context preparation belongs to the resolver. A failed transmission never causes
+//! a fresh-key retry or a synchronous filesystem fallback.
+
+use std::time::{Duration, Instant};
+
+use clap::Subcommand;
+use serde::{Deserialize, Serialize};
+
+use crate::control::{self, Error, ErrorKind, MAX_BODY, RESPONSE_BUDGET};
+use crate::invocation::{self, Intent};
+use crate::journal::{self, Decision, Key, View};
+use crate::service::{self, Message, Outcome, Request, Response, Role};
+
+const WAIT_POLL: Duration = Duration::from_millis(50);
+
+/// Read-only job observations. These commands do not submit or cancel work.
+#[derive(Subcommand)]
+pub enum JobCmd {
+  /// Show retained job state through the bounded control service.
+  Show { id: String },
+  /// Wait for a terminal observation without cancelling or resubmitting the job.
+  Wait {
+    id: String,
+    #[arg(long, default_value = "30", value_parser = parse_timeout)]
+    timeout: Duration,
+  },
+}
+
+/// Render one bounded job observation. The ordinary deadline includes argument parsing.
+pub fn run(command: JobCmd, entered: Instant) -> i32 {
+  use std::io::Write;
+
+  let (id, timeout) = match command {
+    JobCmd::Show { id } => (id, None),
+    JobCmd::Wait { id, timeout } => (id, Some(timeout)),
+  };
+  let receipt = match parse_job_id(&id) {
+    Err(reason) => Receipt::new(State::Invalid, None, Some(reason.into())),
+    Ok(key) => {
+      let client = Client::default();
+      match timeout {
+        None => client.show_until(key, entered + RESPONSE_BUDGET),
+        Some(timeout) => match entered.checked_add(timeout) {
+          Some(deadline) => client.wait_until(key, deadline),
+          None => Receipt::new(
+            State::Invalid,
+            Some(key),
+            Some("wait timeout is not representable".into()),
+          ),
+        },
+      }
+    }
+  };
+  let code = receipt.exit_code();
+  let mut bytes = serde_json::to_vec(&receipt).expect("bounded receipt serializes");
+  bytes.push(b'\n');
+  if std::io::stdout().write_all(&bytes).is_err() {
+    return 1;
+  }
+  code
+}
+
+/// A job observation. Unavailable or unknown is not proof of completion or non-admission.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+  Completed,
+  Failed,
+  Pending,
+  AcceptanceUnknown,
+  NotAccepted,
+  Unknown,
+  Conflict,
+  Capacity,
+  Unavailable,
+  Invalid,
+}
+
+/// Bounded caller evidence. A job ID is present only after authoritative retained-job lookup.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Receipt {
+  pub state: State,
+  pub key: Option<Key>,
+  pub job_id: Option<String>,
+  pub job: Option<View>,
+  pub observed_at: Option<u64>,
+  pub reason: Option<String>,
+  pub next_command: Option<String>,
+}
+
+impl Receipt {
+  /// Exit zero means completed success, never queue admission or an unavailable observation.
+  pub fn exit_code(&self) -> i32 {
+    match self.state {
+      State::Completed => 0,
+      State::Pending | State::AcceptanceUnknown | State::Unknown | State::Capacity => 75,
+      State::Invalid => 2,
+      _ => 1,
+    }
+  }
+
+  fn new(state: State, key: Option<Key>, reason: Option<String>) -> Self {
+    let key = key.filter(|key| journal::validate_key(key).is_ok());
+    let next_command = key
+      .as_ref()
+      .map(|key| format!("reap job show {}", job_id(key)));
+    Self {
+      state,
+      key,
+      job_id: None,
+      job: None,
+      observed_at: None,
+      reason,
+      next_command,
+    }
+  }
+}
+
+/// Uses the fixed per-user broker, independent of caller namespace or state-directory aliases.
+pub struct Client {
+  control: String,
+  resolver: String,
+}
+
+impl Default for Client {
+  fn default() -> Self {
+    Self {
+      control: service::endpoint(Role::Control),
+      resolver: service::endpoint(Role::ContextResolver),
+    }
+  }
+}
+
+impl Client {
+  /// Submit within one cumulative ordinary budget. The caller can retain an explicit key.
+  /// Automatic-key mode cannot recover a key after the caller loses all receipt output.
+  pub fn submit(&self, input: Intent, key: Option<Key>) -> Receipt {
+    self.submit_until(input, key, Instant::now() + RESPONSE_BUDGET)
+  }
+
+  fn submit_until(&self, input: Intent, key: Option<Key>, deadline: Instant) -> Receipt {
+    if !invocation::valid_intent(&input)
+      || key
+        .as_ref()
+        .is_some_and(|key| journal::validate_key(key).is_err())
+    {
+      return Receipt::new(
+        State::Invalid,
+        key,
+        Some("invalid invocation or request key".into()),
+      );
+    }
+    let key = match key {
+      Some(key) => key,
+      None => match self.exchange(Role::Control, Request::Epoch, deadline) {
+        Ok(Response {
+          outcome: Outcome::Epoch { epoch },
+          ..
+        }) => match journal::random_token() {
+          Ok(nonce) => Key {
+            generation: epoch.generation,
+            epoch: epoch.current,
+            nonce,
+          },
+          Err(reason) => return Receipt::new(State::Unavailable, None, Some(reason.to_string())),
+        },
+        Ok(_) => {
+          return Receipt::new(
+            State::Unavailable,
+            None,
+            Some("acceptance epoch unavailable".into()),
+          )
+        }
+        Err(reason) => return Receipt::new(State::Unavailable, None, Some(reason.to_string())),
+      },
+    };
+    if journal::validate_key(&key).is_err() {
+      return Receipt::new(
+        State::Unavailable,
+        Some(key),
+        Some("invalid service epoch".into()),
+      );
+    }
+    let request = serde_json::to_string(&input).expect("validated invocation serializes");
+    let prepared = match self.exchange(
+      Role::ContextResolver,
+      Request::Prepare {
+        key: key.clone(),
+        input,
+      },
+      deadline,
+    ) {
+      Ok(Response {
+        outcome: Outcome::Prepared { receipt },
+        ..
+      }) if receipt.key == key
+        && receipt.input.request == request
+        && invocation::valid_receipt(&receipt) =>
+      {
+        receipt
+      }
+      Ok(Response {
+        outcome: Outcome::Decision {
+          decision: Decision::Capacity,
+        },
+        ..
+      }) => {
+        return Receipt::new(
+          State::Capacity,
+          Some(key),
+          Some("native preparation is busy; prior key effects remain unknown".into()),
+        );
+      }
+      Ok(_) => {
+        return Receipt::new(
+          State::Unavailable,
+          Some(key),
+          Some("native context unavailable; no new admission was sent".into()),
+        )
+      }
+      Err(reason) => return Receipt::new(State::Unavailable, Some(key), Some(reason.to_string())),
+    };
+    observe_response(
+      key,
+      self.exchange(
+        Role::Control,
+        Request::Admit { receipt: prepared },
+        deadline,
+      ),
+      true,
+    )
+  }
+
+  /// Observe one key within the ordinary budget. No new job or native context is created.
+  pub fn show(&self, key: Key) -> Receipt {
+    self.show_until(key, Instant::now() + RESPONSE_BUDGET)
+  }
+
+  fn show_until(&self, key: Key, deadline: Instant) -> Receipt {
+    if journal::validate_key(&key).is_err() {
+      return Receipt::new(
+        State::Invalid,
+        Some(key),
+        Some("invalid request key".into()),
+      );
+    }
+    observe_response(
+      key.clone(),
+      self.exchange(
+        Role::Control,
+        Request::Lookup { key: key.clone() },
+        deadline,
+      ),
+      false,
+    )
+  }
+
+  /// Explicit finite completion wait. Timeout does not cancel, resubmit, or change the key.
+  pub fn wait(&self, key: Key, timeout: Duration) -> Receipt {
+    let Some(deadline) = Instant::now()
+      .checked_add(timeout)
+      .filter(|_| !timeout.is_zero())
+    else {
+      return Receipt::new(
+        State::Invalid,
+        Some(key),
+        Some("wait requires a positive finite timeout".into()),
+      );
+    };
+    self.wait_until(key, deadline)
+  }
+
+  fn wait_until(&self, key: Key, deadline: Instant) -> Receipt {
+    loop {
+      let mut receipt =
+        self.show_until(key.clone(), deadline.min(Instant::now() + RESPONSE_BUDGET));
+      if !matches!(receipt.state, State::Pending | State::Unavailable) || Instant::now() >= deadline
+      {
+        if receipt.state == State::Unavailable && Instant::now() >= deadline {
+          receipt.state = State::Unknown;
+          receipt.reason = Some("wait deadline elapsed; result is not confirmed".into());
+        }
+        return receipt;
+      }
+      std::thread::sleep(WAIT_POLL.min(deadline.saturating_duration_since(Instant::now())));
+    }
+  }
+
+  fn exchange(&self, role: Role, request: Request, deadline: Instant) -> Result<Response, Error> {
+    let body = serde_json::to_vec(&Message {
+      protocol: service::PROTOCOL,
+      request,
+    })
+    .map_err(|_| protocol(false))?;
+    if body.len() > MAX_BODY {
+      return Err(Error {
+        kind: ErrorKind::TooLarge,
+        may_have_sent: false,
+      });
+    }
+    let name = match role {
+      Role::Control => &self.control,
+      Role::ContextResolver => &self.resolver,
+      _ => return Err(protocol(false)),
+    };
+    let response = control::exchange(name, &body, deadline)?;
+    let response: Response = serde_json::from_slice(&response.body).map_err(|_| protocol(true))?;
+    if response.protocol != service::PROTOCOL || response.via != role {
+      return Err(protocol(true));
+    }
+    Ok(response)
+  }
+
+  #[cfg(test)]
+  pub(crate) fn for_fixture(control: String, resolver: String) -> Self {
+    Self { control, resolver }
+  }
+}
+
+/// Canonical public job identifier; the request key remains available as structured JSON.
+pub fn job_id(key: &Key) -> String {
+  format!("{}:{}:{}", key.generation, key.epoch, key.nonce)
+}
+
+/// Parse a job identifier without filesystem access or service lookup.
+pub fn parse_job_id(value: &str) -> Result<Key, &'static str> {
+  if value.len() > 86 {
+    return Err("invalid job ID");
+  }
+  let mut parts = value.split(':');
+  let (Some(generation), Some(epoch), Some(nonce), None) =
+    (parts.next(), parts.next(), parts.next(), parts.next())
+  else {
+    return Err("job ID must be generation:epoch:nonce");
+  };
+  let key = Key {
+    generation: generation.into(),
+    epoch: epoch.parse().map_err(|_| "invalid job epoch")?,
+    nonce: nonce.into(),
+  };
+  journal::validate_key(&key).map_err(|_| "invalid job ID")?;
+  if job_id(&key) != value {
+    return Err("job ID is not canonical");
+  }
+  Ok(key)
+}
+
+fn observe(key: Key, decision: Decision) -> Receipt {
+  let state = match decision {
+    Decision::Present { job } => {
+      if job.key != key
+        || job.result.is_some() != job.completed_at.is_some()
+        || job.completed_at.is_some_and(|at| at < job.created_at)
+        || job
+          .result
+          .as_ref()
+          .is_some_and(|result| result.exit_code == 75 || result.detail.len() > 4096)
+      {
+        return Receipt::new(
+          State::Unknown,
+          Some(key),
+          Some("invalid retained job evidence".into()),
+        );
+      }
+      let state = match &job.result {
+        Some(result) if result.exit_code == 0 => State::Completed,
+        Some(_) => State::Failed,
+        None => State::Pending,
+      };
+      let mut receipt = Receipt::new(state, Some(key.clone()), None);
+      receipt.job_id = Some(job_id(&key));
+      receipt.job = Some(job);
+      return receipt;
+    }
+    Decision::NotAccepted => State::NotAccepted,
+    Decision::Unknown => State::Unknown,
+    Decision::Conflict => State::Conflict,
+    Decision::Capacity => State::Capacity,
+  };
+  Receipt::new(state, Some(key), None)
+}
+
+fn observe_response(key: Key, response: Result<Response, Error>, mutation: bool) -> Receipt {
+  let response = match response {
+    Ok(response) => response,
+    Err(reason) => {
+      return Receipt::new(
+        if mutation && reason.may_have_sent {
+          State::AcceptanceUnknown
+        } else {
+          State::Unavailable
+        },
+        Some(key),
+        Some(reason.to_string()),
+      )
+    }
+  };
+  let mut receipt = match response.outcome {
+    Outcome::Decision { decision } => observe(key, decision),
+    Outcome::Unavailable {
+      admission_possible: true,
+    } if mutation => Receipt::new(
+      State::AcceptanceUnknown,
+      Some(key),
+      Some("admission unavailable; retain this key for reconciliation".into()),
+    ),
+    _ => Receipt::new(
+      if mutation {
+        State::AcceptanceUnknown
+      } else {
+        State::Unavailable
+      },
+      Some(key),
+      Some("operation observation unavailable; prior key effects remain unknown".into()),
+    ),
+  };
+  receipt.observed_at = response.snapshot.observed_at;
+  receipt
+}
+
+fn protocol(may_have_sent: bool) -> Error {
+  Error {
+    kind: ErrorKind::Protocol,
+    may_have_sent,
+  }
+}
+
+fn parse_timeout(value: &str) -> Result<Duration, String> {
+  let seconds: f64 = value
+    .parse()
+    .map_err(|_| "timeout must be a positive finite number".to_string())?;
+  if !seconds.is_finite() || seconds <= 0.0 {
+    return Err("timeout must be a positive finite number".into());
+  }
+  Duration::try_from_secs_f64(seconds)
+    .ok()
+    .filter(|duration| !duration.is_zero())
+    .ok_or_else(|| "timeout is not representable".into())
+}
+
+#[cfg(test)]
+mod tests;

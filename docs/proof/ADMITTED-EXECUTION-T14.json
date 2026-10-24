@@ -1,0 +1,686 @@
+{
+  "status": "verified admitted read-only execution; full T14 and redesign remain active",
+  "source_base_revision": "61a26de860a25d34ceed1f20e44ee0a9440d3aa2",
+  "source_sha256": {
+    "README.md": "ed434aa5d69e9fc0e1c1af2b8b8fa014c845f42cf3a102e345c83e20ecfa6b95",
+    "skill/SKILL.md": "6c6659377846a3b8d4aab2617aad0fc83c0d6d7d412aa694fa0e3024b4a9c1e7",
+    "src/main.rs": "891c2afa1f03e45d6e3569e26b1de615e80f19f7b8cc9b30b27a0f07a73a8f27",
+    "src/manifest.rs": "491d25e0ee16ab34cea803ed93289fb2898f9c4cdf47d4087d0ea52b438eaf9e",
+    "src/invocation.rs": "d18c45a2f468292c1752fa53364a53f49b2b62c868f544cd698792954f02bf17",
+    "src/client.rs": "8dd19e4cc9ed59032f40811dae88571b7de45f91cdfc2c96fe35d99cce71b831",
+    "src/client/tests.rs": "6e9cf3427ff101319b4583070de087ebbaf2f5b9b55063d0bdac5c099bd98519",
+    "src/dispatch.rs": "3a7003ea3fb32cfd56045d46f99bfd83fee7c5f5fea4aa84bcd35c88345a0496",
+    "src/dispatch/tests.rs": "aee5c9c59f42a4492e6c30f78a62decc32a0c2e8a4fc30d185ed1a728ea544e9",
+    "src/journal.rs": "9084eb75ccfe396a533b289a0e542241620f78d5c89d0a9d726831aa2e5ec3e8",
+    "src/journal/tests.rs": "a05b47ff5b99a403d8a1175a290dbbd2831426c592a6a124dc1cce3e7a4c02d0",
+    "src/service.rs": "17ef16c9941a1fab503ac56f801725de8d09755759e6636f7faa85ffcd0dbd82",
+    "src/service/tests.rs": "47ab34c4d575800598e4a888b7f02abd30693ea818bf71e53c48e05e067c6459",
+    "src/worker.rs": "3d6f81be3a4637538f2ece6bed6195c624657ee85871748ce73b4f71b7f03d89",
+    "src/worker/tests.rs": "0df7f735e2b3727629766e4d428e7eba52d4e7fbed7acc5820dab676c56e9342",
+    "tools/verify_control_macos.py": "c372da50c49aa138734fbb971eac13dd1c6a246245f7bec5a51423aa41200f4e",
+    "tools/verify_ingress_macos.py": "1c2c390b5810d90b65d55d4fd3d4a25ba62f5eda954044ffc44b081e393106c3",
+    "tests/test_ingress_execution_verifier.py": "2c58215935b8605886722955b854d2ebe0e8018c024aa4a68549fd644a5e9616",
+    "docs/specs/job-client.md": "5905987042e1161e1bd45c1e1172d407bd5ef0466bf921517e11ce4e1fc38ff3",
+    "docs/specs/job-execution.md": "7f4cf1e011afcc0fc961d252c2bb6476855c96360990925045b2339389c488b7"
+  },
+  "unit_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+  "signed_binary_sha256": "fafc24c2be004c04f9467d4be09f3f5502b22bcfff61dd24aafcdc35740580b5",
+  "full_suite": {
+    "unit": 202,
+    "lifecycle": 57,
+    "declarations": 21,
+    "total": 280,
+    "ignored": 0,
+    "log": "target/control-t13/dispatch-final-suite.log",
+    "log_sha256": "328a15a04b522930687c8633ad74114c4c58405d79d374c408bf3c1299e865b3"
+  },
+  "native": {
+    "catalyst": {
+      "selected_cases": 83,
+      "groups": {
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-tw6ppwgo",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "fault_library_sha256": "d8d8e428ad17856393d81909aafd98673582e823a6a710547984a65ffc465023",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "26a231aa2a9a495e6edc014fa3482b2ce9ce0b2679b479654891f0868d3f9665"
+        },
+        "journal": {
+          "passed": 15,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-qy6kbrux",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "2cfef750189320a5e254e806bb5b8b9bfd1937905ee84ed62c4ff1aa1253e6a8"
+        },
+        "volumes": {
+          "passed": 11,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-6kstw6ob",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "7350efc152859a1af32ffb27546276373d7e750228109915ec869ed0f3cbdf8c"
+        },
+        "worker": {
+          "passed": 8,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-vvsqtw0l",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "worker_binary": "/Users/spencer/.cargo/bin/reap",
+            "worker_sha256": "fafc24c2be004c04f9467d4be09f3f5502b22bcfff61dd24aafcdc35740580b5",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "3b82afa0ab2233c44f68f75edd3616f5f888dcf5b78894d1262bcc1b79b3a55e"
+        },
+        "dispatch": {
+          "passed": 5,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-3h64ljkm",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "b8d9b2cee447b2f8a234786aba2151c56d229503f8e4a71f8c1f12451fe58c51"
+        },
+        "client": {
+          "passed": 9,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-4fkhv08n",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "8ed9c727c6978e4757516cccacfac8344984cd6c30d1f9d9466cf13b3b6cef9a"
+        },
+        "service": {
+          "passed": 12,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-5n01pjky",
+            "labels_absent": [
+              "user/501/dev.micro.reap.admit.24411.1792860888457511000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860888457511000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860890291396000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860890291396000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860888719764000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860888719764000.resolver",
+              "user/501/dev.micro.reap.admit.24411.1792860888719764000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860892621947000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860892621947000.resolver",
+              "user/501/dev.micro.reap.admit.24411.1792860892621947000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860894908730000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860894908730000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860887118342000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860887118342000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860897094382000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860897094382000.resolver",
+              "user/501/dev.micro.reap.admit.24411.1792860897094382000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860898213797000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860898213797000.resolver",
+              "user/501/dev.micro.reap.admit.24411.1792860898213797000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860891445932000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860891445932000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860888570070000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860888570070000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860886975442000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860886975442000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860893469610000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860893469610000.resolver",
+              "user/501/dev.micro.reap.admit.24411.1792860893469610000.control",
+              "user/501/dev.micro.reap.admit.24411.1792860893703570000.writer",
+              "user/501/dev.micro.reap.admit.24411.1792860893703570000.resolver",
+              "user/501/dev.micro.reap.admit.24411.1792860893703570000.control"
+            ],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "fault_library_sha256": "d8d8e428ad17856393d81909aafd98673582e823a6a710547984a65ffc465023",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "c0beeb92e46c0e45e8a7727e45efd394ff03c1ba3ed8d01d7f138e805062901f"
+        },
+        "control": {
+          "passed": 10,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-a92yg4__",
+            "labels_absent": [
+              "user/501/dev.micro.reap.test.25150.1792860902709355000",
+              "user/501/dev.micro.reap.test.25150.1792860900624639000",
+              "user/501/dev.micro.reap.test.25150.1792860902988436000",
+              "user/501/dev.micro.reap.test.25150.1792860903288452000",
+              "user/501/dev.micro.reap.test.25150.1792860901651191000",
+              "user/501/dev.micro.reap.test.25150.1792860901199498000",
+              "user/501/dev.micro.reap.test.25150.1792860901126299000"
+            ],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "caller_directory_root": "/Users/spencer/src/reap/target/control-t13/dispatch-catalyst-native/control/caller-directories",
+            "caller_directory_device": 16777232,
+            "runtime_device": 16777232,
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "dec96236e2bd4eee26c1c6fcd85269bf444fd5080f66d19cc04d972544da3196"
+        }
+      }
+    },
+    "catalyst-mini": {
+      "selected_cases": 83,
+      "groups": {
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-ty_9sima",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "fault_library_sha256": "d8d8e428ad17856393d81909aafd98673582e823a6a710547984a65ffc465023",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "eb6ed30c888d5fd0ae76a268994cd0fbf1043a13fff8047427562755cfb3d99f"
+        },
+        "journal": {
+          "passed": 15,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-ct3ggmc9",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "6e4f1787e99cab73a33ccda24d2fd0486f4ca3fde5e67afd1b667fbb84ff2902"
+        },
+        "volumes": {
+          "passed": 11,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-2qle3lxe",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "cf337582ae2eb5c49bc9cbf1ca66ba9cff0cfc09c1fdb27aa2b9d0da3a47a8d5"
+        },
+        "worker": {
+          "passed": 8,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-l09ecsi9",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "worker_binary": "/Users/spencer/.cargo/bin/reap",
+            "worker_sha256": "fafc24c2be004c04f9467d4be09f3f5502b22bcfff61dd24aafcdc35740580b5",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "3b82afa0ab2233c44f68f75edd3616f5f888dcf5b78894d1262bcc1b79b3a55e"
+        },
+        "dispatch": {
+          "passed": 5,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-ss_wsyf2",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "e4cff221b46f5cd17426e7685975c8fd74c73ecb80d52598fe6ee23caf199dd6"
+        },
+        "client": {
+          "passed": 9,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-5z6p_o_y",
+            "labels_absent": [],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "8ed9c727c6978e4757516cccacfac8344984cd6c30d1f9d9466cf13b3b6cef9a"
+        },
+        "service": {
+          "passed": 12,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-1xczuk57",
+            "labels_absent": [
+              "user/501/dev.micro.reap.admit.52993.1792860888810171000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860888810171000.resolver",
+              "user/501/dev.micro.reap.admit.52993.1792860888810171000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860884106739000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860884106739000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860890257370000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860890257370000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860882871532000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860882871532000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860885732530000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860885732530000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860884315050000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860884315050000.resolver",
+              "user/501/dev.micro.reap.admit.52993.1792860884315050000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860892569640000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860892569640000.resolver",
+              "user/501/dev.micro.reap.admit.52993.1792860892569640000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860884193006000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860884193006000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860888980480000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860888980480000.resolver",
+              "user/501/dev.micro.reap.admit.52993.1792860888980480000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860882729745000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860882729745000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860891453709000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860891453709000.resolver",
+              "user/501/dev.micro.reap.admit.52993.1792860891453709000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860887035651000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860887035651000.control",
+              "user/501/dev.micro.reap.admit.52993.1792860888178600000.writer",
+              "user/501/dev.micro.reap.admit.52993.1792860888178600000.resolver",
+              "user/501/dev.micro.reap.admit.52993.1792860888178600000.control"
+            ],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "fault_library_sha256": "d8d8e428ad17856393d81909aafd98673582e823a6a710547984a65ffc465023",
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "c5e6edd68dc5eed6a1dbe20512559fca771be9925455ffe4496bac5daec04c36"
+        },
+        "control": {
+          "passed": 10,
+          "receipt": {
+            "runtime": "/private/tmp/reap-control-runtime-9qn89jck",
+            "labels_absent": [
+              "user/501/dev.micro.reap.test.60725.1792860897668602000",
+              "user/501/dev.micro.reap.test.60725.1792860896583291000",
+              "user/501/dev.micro.reap.test.60725.1792860898285655000",
+              "user/501/dev.micro.reap.test.60725.1792860895423105000",
+              "user/501/dev.micro.reap.test.60725.1792860896057656000",
+              "user/501/dev.micro.reap.test.60725.1792860895974089000",
+              "user/501/dev.micro.reap.test.60725.1792860897946559000"
+            ],
+            "native_exit": 0,
+            "binary_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+            "caller_directory_root": "/private/tmp/reap-cores-transport-8yjfimnx/dispatch-final-native/control/caller-directories",
+            "caller_directory_device": 16777234,
+            "runtime_device": 16777234,
+            "runtime_removed": true,
+            "verification_exit": 0
+          },
+          "log_sha256": "cbaa747311f874e3d78e596dfb1ac97a87cb1b1813ff4943ccf0b01c56ac5c16"
+        }
+      }
+    }
+  },
+  "installed_ingress": {
+    "catalyst": {
+      "receipt": {
+        "host": "catalyst.local",
+        "runtime": "/private/tmp/reap-ingress-runtime-yvbrn4o3",
+        "cwd": "/Users/spencer/src/reap",
+        "labels_absent": [
+          "user/501/dev.micro.reap.proof.ingress.25981.1792860920047123000.control",
+          "user/501/dev.micro.reap.proof.ingress.25981.1792860920047123000.context-resolver",
+          "user/501/dev.micro.reap.proof.ingress.25981.1792860920047123000.state-writer"
+        ],
+        "installed_binary": "/Users/spencer/.cargo/bin/reap",
+        "native_exit": 0,
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+        "installed_sha256": "fafc24c2be004c04f9467d4be09f3f5502b22bcfff61dd24aafcdc35740580b5",
+        "client_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+        "ownership_intents": [
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.25981.1792860920047123000.state-writer",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "state-writer"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-yvbrn4o3/state-writer.plist"
+          },
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.25981.1792860920047123000.context-resolver",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "context-resolver"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-yvbrn4o3/context-resolver.plist"
+          },
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.25981.1792860920047123000.control",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "control"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-yvbrn4o3/control.plist"
+          }
+        ],
+        "admission_elapsed_ns": 192903750,
+        "durable_jobs": 1,
+        "read_only_execution": true,
+        "terminal_exit_code": 0,
+        "terminal_effects": 0,
+        "released_bulk_launch": true,
+        "protected_survivor": true,
+        "job_cli_completed": true,
+        "unknown_job_cli_not_success": true,
+        "runtime_removed": true,
+        "verification_exit": 0
+      },
+      "client_log_sha256": "80eef70791d416db0fdd57fccdb73af45bb5ab3ae98b8ef1e1b8aec11ffd1938",
+      "client_receipt_sha256": "95e88f2d52cb1bda73d188a0f6cd19a4dea5ab9011b91b0898d8d25a5b67282b"
+    },
+    "mini-data": {
+      "receipt": {
+        "host": "catalyst-mini.local",
+        "runtime": "/private/tmp/reap-ingress-runtime-qlu1dz_x",
+        "cwd": "/Users/spencer",
+        "labels_absent": [
+          "user/501/dev.micro.reap.proof.ingress.74788.1792860920369931000.control",
+          "user/501/dev.micro.reap.proof.ingress.74788.1792860920369931000.context-resolver",
+          "user/501/dev.micro.reap.proof.ingress.74788.1792860920369931000.state-writer"
+        ],
+        "installed_binary": "/Users/spencer/.cargo/bin/reap",
+        "native_exit": 0,
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+        "installed_sha256": "fafc24c2be004c04f9467d4be09f3f5502b22bcfff61dd24aafcdc35740580b5",
+        "client_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+        "ownership_intents": [
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.74788.1792860920369931000.state-writer",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "state-writer"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-qlu1dz_x/state-writer.plist"
+          },
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.74788.1792860920369931000.context-resolver",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "context-resolver"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-qlu1dz_x/context-resolver.plist"
+          },
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.74788.1792860920369931000.control",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "control"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-qlu1dz_x/control.plist"
+          }
+        ],
+        "admission_elapsed_ns": 118673958,
+        "durable_jobs": 1,
+        "read_only_execution": true,
+        "terminal_exit_code": 0,
+        "terminal_effects": 0,
+        "released_bulk_launch": true,
+        "protected_survivor": true,
+        "job_cli_completed": true,
+        "unknown_job_cli_not_success": true,
+        "runtime_removed": true,
+        "verification_exit": 0
+      },
+      "client_log_sha256": "39519ef1d8c36392bdfb51955bef6a82f75f6b11f9a4c27143cb56f591c70703",
+      "client_receipt_sha256": "a541564340bcdcd16cb44b4e9caffa8e87979bc265055847e581d86f03677c87"
+    },
+    "mini-kytos": {
+      "receipt": {
+        "host": "catalyst-mini.local",
+        "runtime": "/private/tmp/reap-ingress-runtime-_qp_h4t2",
+        "cwd": "/Volumes/kytos/src/reap/target/control-t13/context-mini-final/caller-directories/dev.micro.reap.test.45487.1792832298145098000/actual",
+        "labels_absent": [
+          "user/501/dev.micro.reap.proof.ingress.74772.1792860922105664000.control",
+          "user/501/dev.micro.reap.proof.ingress.74772.1792860922105664000.context-resolver",
+          "user/501/dev.micro.reap.proof.ingress.74772.1792860922105664000.state-writer"
+        ],
+        "installed_binary": "/Users/spencer/.cargo/bin/reap",
+        "native_exit": 0,
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+        "installed_sha256": "fafc24c2be004c04f9467d4be09f3f5502b22bcfff61dd24aafcdc35740580b5",
+        "client_sha256": "92fcd46501ab2be398958fd699075794854a9bdaf11305bcebe92b3c69878030",
+        "ownership_intents": [
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.74772.1792860922105664000.state-writer",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "state-writer"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-_qp_h4t2/state-writer.plist"
+          },
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.74772.1792860922105664000.context-resolver",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "context-resolver"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-_qp_h4t2/context-resolver.plist"
+          },
+          {
+            "target": "user/501/dev.micro.reap.proof.ingress.74772.1792860922105664000.control",
+            "arguments": [
+              "/Users/spencer/.cargo/bin/reap",
+              "__service",
+              "control"
+            ],
+            "plist": "/private/tmp/reap-ingress-runtime-_qp_h4t2/control.plist"
+          }
+        ],
+        "admission_elapsed_ns": 457416416,
+        "durable_jobs": 1,
+        "read_only_execution": true,
+        "terminal_exit_code": 0,
+        "terminal_effects": 0,
+        "released_bulk_launch": true,
+        "protected_survivor": true,
+        "job_cli_completed": true,
+        "unknown_job_cli_not_success": true,
+        "runtime_removed": true,
+        "verification_exit": 0
+      },
+      "client_log_sha256": "ac43c82f53b20ac247eeadd82ac40b7460a326e1357a9628fdfa2b2143c2951b",
+      "client_receipt_sha256": "eb513a27d7a395ae4c037c813fbea70d7bf7e87c030c4f778acaab058e072680"
+    }
+  },
+  "installed_workflows": {
+    "catalyst": {
+      "workspace_cases": 5,
+      "declaration_cases": 21,
+      "sha256": {
+        "workspaces.log": "7e2aa44bbd7fb434a2c20390881699b20b65da463ef5c05308487af15187f76d",
+        "declarations.log": "8800b23a1ababaa476dd26c63aa16d42daf0d516e35815f19c28c81f606fc076",
+        "install.log": "247cc1c97f010e040b06d79a7395bba5738583a91d34ee2816a1fd13799f3b26",
+        "signature.txt": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      }
+    },
+    "catalyst-mini": {
+      "workspace_cases": 5,
+      "declaration_cases": 21,
+      "sha256": {
+        "workspaces.log": "b1ee72ca30e61c8351b62cb334cd87dc30073935925538fed1537fcce59c9208",
+        "declarations.log": "bd3a04c6169b0ab656ed8a6e36b7f0e82742b09c64e0698a6e410218943db8da",
+        "install.log": "247cc1c97f010e040b06d79a7395bba5738583a91d34ee2816a1fd13799f3b26",
+        "signature.txt": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      }
+    }
+  },
+  "checks": {
+    "verifier_regressions_4": {
+      "log": "target/control-t13/dispatch-final-verifier-tests.log",
+      "sha256": "d094b1bd2c8318c96097f80c50da282add5b2972970a77046de8db6c8935f6ca"
+    },
+    "installer_cases_17": {
+      "log": "target/control-t13/dispatch-install-tests.log",
+      "sha256": "2f865c25cb556cfd0b279e24671aadcc5cdfe2ea6e4a43b9ec39dc55dcb5bb34"
+    },
+    "format": {
+      "log": "target/control-t13/dispatch-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "release_build": {
+      "log": "target/control-t13/dispatch-final-release.log",
+      "sha256": "d26f2f716eb3cc5255e063c0967cca9b2837f7adbf1631116c49b67fb6a81ea6"
+    },
+    "linux_compile_only": {
+      "log": "target/control-t13/dispatch-linux-compile.log",
+      "sha256": "8a38b179c73adaec85fdebc9d2bc720ae1dd847c9208d8bb24603602f9e9e88c"
+    },
+    "installed_cli_help": {
+      "log": "target/control-t13/dispatch-installed-help.txt",
+      "sha256": "151c19743e4a7a39442f6722ade5bf12629ddc4d91ebfc287247f7ff70609b46"
+    },
+    "installed_job_help": {
+      "log": "target/control-t13/dispatch-installed-job-help.txt",
+      "sha256": "48031f1e72a617c740c8e7301d1575ee89f6326700c783c09b4a266662eb844c"
+    }
+  },
+  "delegation": {
+    "peer_id": "peer-18e1829daab637e8-226658",
+    "conversation_id": "conversation-18e1829dabfe5bd0-226662",
+    "implementation_request_id": "cmsg-18e1829dd1752600-226665",
+    "review_request_id": "cmsg-18e1840980d83468-228288",
+    "observed": {
+      "provider": "codex",
+      "model": "gpt-6.1-sol",
+      "effort": "high",
+      "execution_profile": "host"
+    },
+    "conversation_close": {
+      "command": "conversation.close",
+      "ok": true,
+      "result": {
+        "conversation": {
+          "conversation_id": "conversation-18e1829dabfe5bd0-226662",
+          "created_ms": 1792857740377,
+          "initiator_peer_id": null,
+          "metadata": {
+            "agent_gateway_launch": {
+              "launch_key": "reap-native-dispatch-t14-20261024",
+              "request_sha256": "1a58ed863f6d5a53bc9c582bb07afb16eed971f56523dda2f83521eb9854f343"
+            }
+          },
+          "recipient_peer_id": "peer-18e1829daab637e8-226658",
+          "state": "closed",
+          "updated_ms": 1792860838991
+        }
+      },
+      "schema": "agent-gateway.cli/v1"
+    },
+    "peer_close": {
+      "command": "peer.close",
+      "ok": true,
+      "result": {
+        "peer": {
+          "account_id": "default",
+          "agent": "codex",
+          "capabilities": [
+            "deliver",
+            "queue",
+            "steer",
+            "cancel"
+          ],
+          "control_modes": [
+            "queue_next",
+            "append_active",
+            "interrupt",
+            "interrupt_then_send"
+          ],
+          "created_ms": 1792857740355,
+          "display_name": "reap-dispatch-t14",
+          "environment_variable_names": [],
+          "execution_policy": {
+            "approval_policy": "never",
+            "filesystem_boundary": "none",
+            "network_access": true,
+            "permission_mode": null,
+            "slash_tmp_access": null,
+            "source": "native_provider",
+            "tmpdir_access": null,
+            "writable_roots": null
+          },
+          "lifecycle": "closed",
+          "metadata": {
+            "agent_gateway_launch": {
+              "launch_key": "reap-native-dispatch-t14-20261024",
+              "request_sha256": "1a58ed863f6d5a53bc9c582bb07afb16eed971f56523dda2f83521eb9854f343"
+            },
+            "owner": "root",
+            "scope": "admitted read-only execution and durable results",
+            "work": "MS-LIFETIME-ENFORCE.T14"
+          },
+          "observed_effort": "high",
+          "observed_execution_profile": "host",
+          "observed_model": "gpt-6.1-sol",
+          "peer_id": "peer-18e1829daab637e8-226658",
+          "process_ownership": "daemon_owned",
+          "provider_runtime_version": "0.163.0",
+          "readiness": {
+            "delivery_available": false,
+            "next_action": null,
+            "prerequisite": null
+          },
+          "requested_effort": "high",
+          "requested_execution_profile": "host",
+          "requested_model": "gpt-6.1-sol",
+          "result_schema_supported": true,
+          "tags": [],
+          "target": {
+            "peer_id": "peer-18e1829daab637e8-226658",
+            "type": "peer"
+          },
+          "updated_ms": 1792859530939,
+          "working_directory": "/Users/spencer/src/reap"
+        }
+      },
+      "schema": "agent-gateway.cli/v1"
+    }
+  },
+  "remaining": [
+    "Ordinary CLI routing and on-demand service activation",
+    "Effectful workers, fresh commit guards, overlapping scopes and legacy/old-reader barriers",
+    "Portable lifetime and lease/store conversion through the actual executors",
+    "Native conversation adapters, independent provider retrieval, source release and AIMeter proof",
+    "Discovery/performance acceptance and operator-guide migration",
+    "Native Linux runtime conformance",
+    "Intermittent Mini Kytos caller-capture cause and remedy"
+  ],
+  "native_linux_runtime": false,
+  "production_archive_or_source_pruning_activated": false,
+  "production_service_registration_activated": false,
+  "foreign_agents_or_processes_stopped": false,
+  "outer_mini_data_evidence_scope": {
+    "path": "/private/tmp/reap-cores-transport-8yjfimnx",
+    "state": "kept for the active goal"
+  }
+}

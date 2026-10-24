@@ -177,10 +177,27 @@ impl Manifest {
 pub fn load_manifest(project_dir: &Path) -> Result<Manifest, ManifestError> {
   let path = project_dir.join(MANIFEST_NAME);
   let has_file = path.is_file();
-  let file: ManifestFile = if has_file {
-    let text =
-      fs::read_to_string(&path).map_err(|e| ManifestError(format!("{}: {}", path.display(), e)))?;
-    serde_json::from_str(&text).map_err(|e| ManifestError(format!("{}: {}", path.display(), e)))?
+  let text = if has_file {
+    Some(
+      fs::read_to_string(&path).map_err(|e| ManifestError(format!("{}: {}", path.display(), e)))?,
+    )
+  } else {
+    None
+  };
+  parse_manifest(project_dir, text.as_deref().map(str::as_bytes))
+}
+
+/// Parse complete manifest bytes supplied by a validated reader, or proven absence.
+/// This performs the same normalization as the public manifest loader, without another read.
+pub(crate) fn parse_manifest(
+  project_dir: &Path,
+  bytes: Option<&[u8]>,
+) -> Result<Manifest, ManifestError> {
+  let path = project_dir.join(MANIFEST_NAME);
+  let has_file = bytes.is_some();
+  let file: ManifestFile = if let Some(bytes) = bytes {
+    serde_json::from_slice(bytes)
+      .map_err(|e| ManifestError(format!("{}: {}", path.display(), e)))?
   } else {
     ManifestFile::default()
   };

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify native admission through the actual installed Reap service executable."""
+"""Verify native admission and read-only execution through the installed Reap services."""
 
 import argparse
 import hashlib
@@ -30,6 +30,88 @@ def sha256(path):
         for chunk in iter(lambda: source.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def bootstrap_owned(owned, receipt, output, domain, target, arguments, plist):
+    """Record an attempted creation before its result can become ambiguous."""
+    owned.append((target, arguments))
+    receipt.setdefault("ownership_intents", []).append({
+        "target": target, "arguments": arguments, "plist": str(plist)
+    })
+    with (output / "ownership.json").open("w") as evidence:
+        json.dump(receipt["ownership_intents"], evidence, indent=2)
+        evidence.flush()
+        os.fsync(evidence.fileno())
+    boot = launchctl("bootstrap", domain, str(plist))
+    assert boot.returncode == 0, boot.stderr
+
+
+def cleanup_owned(owned, receipt):
+    """Reconcile exact attempted labels; unknown ownership remains explicit."""
+    safe = True
+    for target, expected in reversed(owned):
+        try:
+            state = launchctl("print", target)
+            if state.returncode == 113:
+                receipt["labels_absent"].append(target)
+                continue
+            arguments = re.search(r"arguments = \{\n(.*?)\n\s*\}", state.stdout, re.S)
+            actual = [line.strip() for line in arguments[1].splitlines()] if arguments else []
+            if state.returncode != 0 or actual != expected:
+                raise RuntimeError("registered program ownership is not confirmed")
+            launchctl("bootout", target)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                state = launchctl("print", target)
+                if state.returncode == 113:
+                    receipt["labels_absent"].append(target)
+                    break
+                if state.returncode != 0:
+                    raise RuntimeError("service absence is not confirmed")
+                time.sleep(0.01)
+            else:
+                raise RuntimeError("owned service remains registered")
+        except Exception as reason:
+            safe = False
+            receipt.setdefault("unresolved_ownership", []).append({"target": target, "reason": str(reason)})
+    return safe
+
+
+def validate_execution(evidence, frame, survivor):
+    """Bind actual terminal work to its original and prepared request key."""
+    assert not evidence["metadata_only"] and evidence["read_only_execution"]
+    assert not evidence["cleanup_granted"]
+    terminal = evidence["terminal"]
+    assert terminal["state"] == "completed"
+    assert terminal["key"] == evidence["key"] == evidence["prepared_key"]
+    assert evidence["receipt"]["key"] == evidence["key"]
+    assert terminal["job"]["key"] == terminal["key"]
+    assert terminal["job"]["result"]["exit_code"] == 0
+    assert terminal["job"]["result"]["effects"] == 0
+    assert evidence["raw_admission_refused"] and evidence["expired_ticket_exact_replay"]
+    assert evidence["admission_elapsed_ns"] < 1_000_000_000
+    assert len(frame) <= 128 * 1024 and frame[:4] == b"REJ1"
+    assert int.from_bytes(frame[4:8], "big") == len(frame) - 40
+    assert hashlib.sha256(frame[40:]).digest() == frame[8:40]
+    job = json.loads(frame[40:])
+    assert job["document"] == "Job" and job["view"]["key"] == terminal["key"]
+    assert job["view"] == terminal["job"]
+    assert job["view"]["completed_at"] >= job["view"]["created_at"]
+    assert job["execution"]["phase"] == "result"
+    assert job["execution"]["terminal"] == job["view"]["result"]
+    launch = job["launch"]
+    assert launch["resources"]["slot"] == "bulk"
+    assert launch["worker"]["state"]["phase"] in ("exited", "boot_ended")
+    assert all(helper is None or helper["state"]["phase"] in ("exited", "boot_ended")
+               for helper in launch["helpers"])
+    assert survivor == b"installed protected survivor"
+    assert len(evidence["job_cli"]) == 2
+    assert all(item["state"] == "completed" and item["key"] == evidence["key"]
+               and item["job"]["result"] == terminal["job"]["result"]
+               for item in evidence["job_cli"])
+    assert evidence["unknown_job_cli"]["state"] == "unknown"
+    assert evidence["unknown_job_cli"]["job"] is None
+    return terminal
 
 
 def main():
@@ -91,15 +173,14 @@ def main():
                     "StandardErrorPath": str(runtime / (role + ".log"))}
             plist = runtime / (role + ".plist")
             plist.write_bytes(plistlib.dumps(spec))
-            boot = launchctl("bootstrap", domain, str(plist))
-            assert boot.returncode == 0, boot.stderr
-            owned.append((target, arguments))
+            bootstrap_owned(owned, receipt, output, domain, target, arguments, plist)
         environment = dict(os.environ)
         for name in ("DYLD_INSERT_LIBRARIES", "REAP_INTERNAL_CONFIG_SNAPSHOT",
                      "REAP_NATIVE_CONTROL_SERVICE", "REAP_NATIVE_CONTROL_PROBE"):
             environment.pop(name, None)
         environment.update({
             "REAP_INSTALLED_INGRESS_PROBE": str(runtime),
+            "REAP_INSTALLED_INGRESS_BINARY": str(installed),
             "REAP_INSTALLED_INGRESS_EXPECT_CWD": str(cwd),
             "REAP_INSTALLED_INGRESS_EXPECT_FILE_ID": f"{cwd.stat().st_ino:016x}",
             "REAP_INSTALLED_INGRESS_EXPECT_CONFIG_SHA256": hashlib.sha256(config).hexdigest(),
@@ -107,7 +188,7 @@ def main():
         })
         with (runtime / "client.log").open("wb") as log:
             run = subprocess.run([str(client), "--exact", "service::tests::native::server_process", "--nocapture"],
-                                 env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=6)
+                                 env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=20)
         receipt["native_exit"] = run.returncode
         if run.returncode != 0:
             # inspect only this verifier's still-registered, agentless resolver before cleanup.
@@ -121,34 +202,26 @@ def main():
                 receipt["resolver_sample_exit"] = sample.returncode
         assert run.returncode == 0, "installed ingress client failed"
         evidence = json.loads((runtime / "client-receipt.json").read_text())
-        assert evidence["metadata_only"] and not evidence["cleanup_granted"]
-        assert evidence["raw_admission_refused"] and evidence["expired_ticket_exact_replay"]
-        assert evidence["admission_elapsed_ns"] < 1_000_000_000
         records = list((runtime / "writer-state/reap/admission").glob("j*.json"))
         assert len(records) == 1, "only one exact durable intent may exist"
+        terminal = validate_execution(evidence, records[0].read_bytes(),
+                                      (runtime / "check-project/valuable").read_bytes())
         receipt["admission_elapsed_ns"] = evidence["admission_elapsed_ns"]
         receipt["durable_jobs"] = len(records)
+        receipt["read_only_execution"] = True
+        receipt["terminal_exit_code"] = terminal["job"]["result"]["exit_code"]
+        receipt["terminal_effects"] = terminal["job"]["result"]["effects"]
+        receipt["released_bulk_launch"] = True
+        receipt["protected_survivor"] = True
+        receipt["job_cli_completed"] = True
+        receipt["unknown_job_cli_not_success"] = True
         result = 0
     except Exception as reason:
         receipt["failure"] = str(reason)
     finally:
-        safe_to_remove = True
-        for target, arguments in reversed(owned):
-            state = launchctl("print", target)
-            if state.returncode == 0:
-                match = re.search(r"arguments = \{\n(.*?)\n\s*\}", state.stdout, re.S)
-                actual = [line.strip() for line in match[1].splitlines()] if match else []
-                if actual != arguments:
-                    safe_to_remove = False
-                    continue
-                launchctl("bootout", target)
-            for _ in range(100):
-                if launchctl("print", target).returncode == 113:
-                    receipt["labels_absent"].append(target)
-                    break
-                time.sleep(0.01)
-            else:
-                safe_to_remove = False
+        # a failed execution proof can retain an owned child and its recovery records.
+        safe_to_remove = result == 0
+        safe_to_remove = cleanup_owned(owned, receipt) and safe_to_remove
         for parent, directories, files in os.walk(runtime, followlinks=False):
             for name in files:
                 path = pathlib.Path(parent) / name
