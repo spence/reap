@@ -1,0 +1,171 @@
+{
+  "boundary": "native SQLite online-backup operation and custody integration; no live provider or source-release activation",
+  "fleet": {
+    "catalyst": {
+      "artifacts": {
+        "fault": {
+          "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-faults",
+          "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap",
+          "sha256": "31c31976245c1a454bc4c3ea414c19efab98d4d80fa31a753156efe75dc35105",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-tests",
+          "sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b",
+          "team": "35A87BDK48"
+        }
+      },
+      "idempotent_cohort_unchanged": true,
+      "installed_public_cases": 5,
+      "internal_data_device": 16777232,
+      "managed_ingress": {
+        "client_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b",
+        "installed_sha256": "31c31976245c1a454bc4c3ea414c19efab98d4d80fa31a753156efe75dc35105",
+        "managed_services_preserved": true,
+        "runtime_removed": true,
+        "terminal_effects": 0,
+        "verification_exit": 0
+      },
+      "native": {
+        "custody": {
+          "ignored": 0,
+          "log_sha256": "1651484de3909de9e58fa1955ea5ebe5f7339784ae70b304d9912195ca47cc59",
+          "passed": 20,
+          "receipt_sha256": "d46e8efb5d0d75b8caea5171d479fded73083f901135be6a9182d60d64963f3e",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        },
+        "launch": {
+          "ignored": 0,
+          "log_sha256": "8bae155896f98b909dd41c83a7c0eec65d69abda7634215e654da3e4e8ebbe56",
+          "passed": 13,
+          "receipt_sha256": "e670b4177ae380b85770c8b4e6bc718b8afa851422034f59580ad0ceaffc3069",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        },
+        "service": {
+          "ignored": 0,
+          "log_sha256": "739781393a55802233672227e9e5f33614512abcc6105dba38508c29d0a2bb88",
+          "passed": 13,
+          "receipt_sha256": "37b8f6af12bbf81b8e54322d8ed8cd8b870cf114d80e9cc332410c1d28bf08e8",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        },
+        "sqlite": {
+          "ignored": 0,
+          "log_sha256": "2a7e8da78240541ca062bab17842c08c9cf39e5a3735f1ac73d4362d28b95ea6",
+          "passed": 11,
+          "receipt_sha256": "d76cd9541e560301a6022299245f237b4e7a28bf5a269e881089cc247b7ab323",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        }
+      },
+      "public_log_sha256": "3d0b7b163fb74dbb43add80ea4704c4af24e51bc6fa162ca07a9156f34938b37"
+    },
+    "catalyst-mini": {
+      "artifacts": {
+        "fault": {
+          "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-faults",
+          "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap",
+          "sha256": "31c31976245c1a454bc4c3ea414c19efab98d4d80fa31a753156efe75dc35105",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "authority": "Developer ID Application: MICRO LABS, INC (35A87BDK48)",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-tests",
+          "sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b",
+          "team": "35A87BDK48"
+        }
+      },
+      "idempotent_cohort_unchanged": true,
+      "installed_public_cases": 5,
+      "internal_data_device": 16777234,
+      "managed_ingress": {
+        "client_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b",
+        "installed_sha256": "31c31976245c1a454bc4c3ea414c19efab98d4d80fa31a753156efe75dc35105",
+        "managed_services_preserved": true,
+        "runtime_removed": true,
+        "terminal_effects": 0,
+        "verification_exit": 0
+      },
+      "native": {
+        "custody": {
+          "ignored": 0,
+          "log_sha256": "349e5ba6171f37018bac2f568576b4c44e846c935eeef532d8f490f0a216603e",
+          "passed": 20,
+          "receipt_sha256": "88f48fffb3cf96d284fd6a0c2c271d0d23f1e1502c3b04cff8198981c74fc15d",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        },
+        "launch": {
+          "ignored": 0,
+          "log_sha256": "2180685485c931e15dc031e8784ccf95bb0d1d9975e4c579f1b7dd7d05ce91f7",
+          "passed": 13,
+          "receipt_sha256": "f0f3ec8c8fafd9fd1650726d0578efcb5e9d513b9bf64b022f9200b3a2aff374",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        },
+        "service": {
+          "ignored": 0,
+          "log_sha256": "ae6daad0b239d4a51527028a4cd1ab78d7143074e10f1a76ec15527db5d600ad",
+          "passed": 13,
+          "receipt_sha256": "9420135b1db6d1ed17f832ed1d7de141598d196b7db43a73749b20c6ea5e0050",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        },
+        "sqlite": {
+          "ignored": 0,
+          "log_sha256": "1a3bfdef5f4c8ef155c7055f44e9194a74eaedf8ccc1e10c9381a625b623bb6a",
+          "passed": 11,
+          "receipt_sha256": "d687234875100d608da6083dc006933a1ab30481039787a389fb69ced1ae94b9",
+          "runtime_removed": true,
+          "unit_sha256": "b85275062fa6b12961ddb10a3e1a02ffcdaccb3fae37f33c0df9b904a51a8e5b"
+        }
+      },
+      "public_log_sha256": "0ace908f96a09337f5bd212524ba0e0cb28c5bfe9a6db675dd25ef7f7e2c27c7"
+    }
+  },
+  "python": {
+    "ingress_verifier_cases": 15,
+    "service_installer_cases": 23,
+    "signing_publication_cases": 19
+  },
+  "rust": {
+    "declaration": 21,
+    "default_ignored": 5,
+    "explicit_native_fault_cases": 5,
+    "lifecycle": 57,
+    "log_sha256": "f667182f36a5522a626781af630938b10ded6a8cfb201a52976bb2ec64308849",
+    "regular_unit": 228,
+    "unexecuted_cases": 0,
+    "unique_cases": 311
+  },
+  "source_revision": "c84377867d04df93592c795c2c239e35f3238d04",
+  "source_sha256": {
+    "README.md": "fe35822a4cd115ae32473d3375d6293eb7188a5a7b6ddb127e1b51e629df5481",
+    "docs/specs/archive-custody.md": "3e9f054351a043400e0a56b28d1faadf7e395838b808e4a257fb200fd47a026a",
+    "src/archive.rs": "4ee670e800731441d59f7b34c52be00f2504fa93d08336708d4236951c606d58",
+    "src/archive/sqlite.rs": "177ae3bc6faa252ea01a32adca4c51a6aa34f246b6b1f0363139d1941fcad29f",
+    "src/archive/tests.rs": "4e32ec0469e5ca34e15a6a5084deda738b334995dbc3b905602a0fc477e00668",
+    "tools/verify_control_macos.py": "2f244baef3de0475a6807f0877ac735a6fced3fd5c4e13d8dbf859ec363f8d18"
+  }
+}
