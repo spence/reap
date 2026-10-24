@@ -34,15 +34,3 @@ them as Burn assets.
   repository owns fleet operator guides. Execute and verify with: `python3 tests/install_signing.py`,
   `./install.sh && reap --version`, `codesign --verify --strict ~/.cargo/bin/reap`, and
   `codesign -d -r- ~/.cargo/bin/reap` on each configured Mac.
-- **Audit exclusions stay outside project decisions** — Applies when: changing audit import,
-  reconciliation, or audit cleanup tools. Complete when: the committed exclusion list governs
-  imports and cleanup guards, excluded records are absent from the supported live audit, and
-  unrelated approvals and personal directories survive. Execute and verify with:
-  `python3 -m unittest discover -s tests -p 'test_audit_exclusions.py'` and
-  `python3 tools/audit_exclusions.py <audit.sqlite>` reporting zero pending exclusions.
-- **Audit handoffs deliver final rulings** — Applies when: reviewing project storage or changing
-  audit guidance. Complete when: current SQLite records give exact keep/delete permission and
-  verified required preservation, not disposable-content recommendations for another review.
-  Execution support and live safety checks remain the Reap coordinator's responsibility.
-  Execute and verify with: current SQLite permission/scope readback against
-  `docs/project-storage-review-closeout.md`; coverage counts alone do not pass.
