@@ -79,12 +79,16 @@ def main():
                     if arguments.filter == "control::tests" else [
                         "native_admission_survives_control_restart_and_writer_process_death",
                         "native_alias_writer_cannot_replace_the_locked_owner",
-                        "malformed_native_requests_do_not_poison_the_writer"])
+                        "malformed_native_requests_do_not_poison_the_writer",
+                        "native_resolved_admission_binds_caller_namespace_and_replays_after_ticket_expiry",
+                        "native_invalid_namespaces_and_untrusted_receipts_never_create_jobs",
+                        "native_prepare_capacity_recovers_after_idle_ticket_expiry"])
         if not all(case in content for case in required) or "test result: ok." not in content:
             result = 1
         if arguments.fault_library and (
                 "native_blocked_sync_does_not_ack_early_or_replace_the_writer" not in content or
                 "native_recovery_flushes_an_unacknowledged_pending_record_before_publication" not in content or
+                "native_blocked_context_open_preserves_resolver_slot_and_abandons_late_capture" not in content or
                 "ignored;" not in content or "0 ignored;" not in content):
             result = 1
         caller_root = output / "caller-directories"

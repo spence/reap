@@ -1,0 +1,250 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T13",
+  "observed_utc": "2026-10-24T10:52:46.865035+00:00",
+  "base_revision": "0eef6ac78c95e0559d3c4c7def04e281d53ae64c",
+  "scope": "Native preparation and durable metadata admission at installed Mac service paths; not target execution or public CLI cutover",
+  "source_sha256": {
+    "AGENTS.md": "47140d2c194aee2df73b460a99437b978cd46782812544f41b3ed56e42970820",
+    "src/invocation.rs": "ff82cd3a7fec2445330bf69de9b087ab3b54d9a6b8e2f77fc8c56f384c751a1f",
+    "src/journal.rs": "6b1151ec397d2911ae871fd4669273d6423991fe364dc547dc3cf49aaf1e8b32",
+    "src/service.rs": "fb27ce1c03d4bcda1033dcf00e6f072a94c8919d23eef5bd177eed4f8f933ef6",
+    "src/service/tests.rs": "2057da782e2a4d3f383b745b03c61781ccac7c4c4153aaafa031a88011c01bf0",
+    "tests/fault_fullsync_macos.c": "8c076a7a3826e4a8902b6fc1e5ee511190ab255fb08096a87ab0facb7429d2de",
+    "tools/verify_control_macos.py": "1f87ec94ef9cb265c9ac52986b1cdf1e6bbb072977f2111c4af50713e68ce0ad",
+    "tools/verify_ingress_macos.py": "ef0f96475099b10c35c4603dd34519de435aeae108ac5b7456a5a1f06a4e3f41"
+  },
+  "fleet": {
+    "catalyst": {
+      "installed": {
+        "receipt": {
+          "host": "catalyst.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-azdwmi67",
+          "cwd": "/Users/spencer/src/reap",
+          "labels_absent": [
+            "user/501/dev.micro.reap.proof.ingress.40506.1792837437905979000.control",
+            "user/501/dev.micro.reap.proof.ingress.40506.1792837437905979000.context-resolver",
+            "user/501/dev.micro.reap.proof.ingress.40506.1792837437905979000.state-writer"
+          ],
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "07bfe109c4ac97bdc5b1b7fc17f045682153ebb04d372ffc6c94b5a298e91eb3",
+          "client_sha256": "33da13314c3b5bd0bcc5ba463f3749e2d979a9c1fe8abafd32f1935c3691c94e",
+          "admission_elapsed_ns": 163829958,
+          "durable_jobs": 1,
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "receipt_sha256": "29806d80e982a1b31ca00231f08bfe587530a6455663afdbc1cf6cf2e9420dac",
+        "log_sha256": "9533aca16ebb1051809e11ff8dd420d6559ee359e1aecf2ebca7ac50bc46a380"
+      },
+      "service": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-96u4fy8l",
+          "labels_absent": [
+            "user/501/dev.micro.reap.admit.43743.1792838096749449000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838096749449000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838091332221000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838091332221000.resolver",
+            "user/501/dev.micro.reap.admit.43743.1792838091332221000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838095692440000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838095692440000.resolver",
+            "user/501/dev.micro.reap.admit.43743.1792838095692440000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838094268379000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838094268379000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838089675461000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838089675461000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838091010366000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838091010366000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838093117371000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838093117371000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838091158587000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838091158587000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838089526008000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838089526008000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838097950144000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838097950144000.resolver",
+            "user/501/dev.micro.reap.admit.43743.1792838097950144000.control",
+            "user/501/dev.micro.reap.admit.43743.1792838095432485000.writer",
+            "user/501/dev.micro.reap.admit.43743.1792838095432485000.resolver",
+            "user/501/dev.micro.reap.admit.43743.1792838095432485000.control"
+          ],
+          "native_exit": 0,
+          "binary_sha256": "33da13314c3b5bd0bcc5ba463f3749e2d979a9c1fe8abafd32f1935c3691c94e",
+          "fault_library_sha256": "d8d8e428ad17856393d81909aafd98673582e823a6a710547984a65ffc465023",
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "receipt_sha256": "ced03fc1ca23d47f232c578f9e19cf5a73db4404b07a77270845b2b0c54a44c6",
+        "log_sha256": "40aebe84a1a8d159017f838bf130fe5a75eb2e5094a59b81ea64049d8bce9818"
+      },
+      "transport": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-mdppgd8a",
+          "labels_absent": [
+            "user/501/dev.micro.reap.test.44204.1792838102543724000",
+            "user/501/dev.micro.reap.test.44204.1792838100749491000",
+            "user/501/dev.micro.reap.test.44204.1792838101824526000",
+            "user/501/dev.micro.reap.test.44204.1792838099642101000",
+            "user/501/dev.micro.reap.test.44204.1792838100156793000",
+            "user/501/dev.micro.reap.test.44204.1792838100257923000",
+            "user/501/dev.micro.reap.test.44204.1792838102148053000"
+          ],
+          "native_exit": 0,
+          "binary_sha256": "33da13314c3b5bd0bcc5ba463f3749e2d979a9c1fe8abafd32f1935c3691c94e",
+          "caller_directory_root": "/Users/spencer/src/reap/target/control-t13/ingress-control-catalyst-final/caller-directories",
+          "caller_directory_device": 16777232,
+          "runtime_device": 16777232,
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "receipt_sha256": "ca28e3021da7dd80c7e4a7c3cd8d860445ce207ed12ce2796ba04755ff73ed11",
+        "log_sha256": "7fa20d8403226d7ef608d6ef93e5b221222cac204c1e3f812544f8f560ac7ece"
+      }
+    },
+    "mini": {
+      "installed": {
+        "receipt": {
+          "host": "catalyst-mini.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-4fcyvlx8",
+          "cwd": "/Volumes/kytos/src/reap/target/control-t13/context-mini-final/caller-directories/dev.micro.reap.test.45487.1792832298145098000/actual",
+          "labels_absent": [
+            "user/501/dev.micro.reap.proof.ingress.64437.1792837667380660000.control",
+            "user/501/dev.micro.reap.proof.ingress.64437.1792837667380660000.context-resolver",
+            "user/501/dev.micro.reap.proof.ingress.64437.1792837667380660000.state-writer"
+          ],
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "07bfe109c4ac97bdc5b1b7fc17f045682153ebb04d372ffc6c94b5a298e91eb3",
+          "client_sha256": "33da13314c3b5bd0bcc5ba463f3749e2d979a9c1fe8abafd32f1935c3691c94e",
+          "admission_elapsed_ns": 132854625,
+          "durable_jobs": 1,
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "receipt_sha256": "0e171ea4a1c4b9ec5345cc10092e3051b40e5a5ddb48a089ccfcc642733a8f46",
+        "log_sha256": "d270e81a6162eebb173f797daddf2157a6fd4d09dd49875c2fa2f910efc4f45f"
+      },
+      "service": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-u4lhpjrm",
+          "labels_absent": [
+            "user/501/dev.micro.reap.admit.78863.1792838096470272000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838096470272000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838090138356000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838090138356000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838097880797000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838097880797000.resolver",
+            "user/501/dev.micro.reap.admit.78863.1792838097880797000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838095462537000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838095462537000.resolver",
+            "user/501/dev.micro.reap.admit.78863.1792838095462537000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838091633511000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838091633511000.resolver",
+            "user/501/dev.micro.reap.admit.78863.1792838091633511000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838091450180000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838091450180000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838094208492000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838094208492000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838090013518000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838090013518000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838091522329000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838091522329000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838093138817000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838093138817000.control",
+            "user/501/dev.micro.reap.admit.78863.1792838095318615000.writer",
+            "user/501/dev.micro.reap.admit.78863.1792838095318615000.resolver",
+            "user/501/dev.micro.reap.admit.78863.1792838095318615000.control"
+          ],
+          "native_exit": 0,
+          "binary_sha256": "33da13314c3b5bd0bcc5ba463f3749e2d979a9c1fe8abafd32f1935c3691c94e",
+          "fault_library_sha256": "d8d8e428ad17856393d81909aafd98673582e823a6a710547984a65ffc465023",
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "receipt_sha256": "ebf0705e43bb14e218a7f61fe933345b12ad845bdd1a423f2fdd05005a312eab",
+        "log_sha256": "856c6bcc610f5d2e8b6904d81e7710a435e301a3a3eed6866e05674a4ba7cb48"
+      },
+      "transport": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-2p7qc0gr",
+          "labels_absent": [
+            "user/501/dev.micro.reap.test.86898.1792838102514953000",
+            "user/501/dev.micro.reap.test.86898.1792838100294866000",
+            "user/501/dev.micro.reap.test.86898.1792838100377273000",
+            "user/501/dev.micro.reap.test.86898.1792838102179074000",
+            "user/501/dev.micro.reap.test.86898.1792838100805797000",
+            "user/501/dev.micro.reap.test.86898.1792838101890639000",
+            "user/501/dev.micro.reap.test.86898.1792838099522165000"
+          ],
+          "native_exit": 0,
+          "binary_sha256": "33da13314c3b5bd0bcc5ba463f3749e2d979a9c1fe8abafd32f1935c3691c94e",
+          "caller_directory_root": "/private/tmp/reap-ingress-stage.ae87Lm/native-control-final/caller-directories",
+          "caller_directory_device": 16777234,
+          "runtime_device": 16777234,
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "receipt_sha256": "655a98839d840f8f7cd140e37c1b0df2d77b8e2cd65c83b44620737242c3beec",
+        "log_sha256": "88a7b110b60e06f6f2957feafa6ae73136ea96526bfe4561982657483b9a9193"
+      }
+    }
+  },
+  "full_suite": {
+    "exit": 0,
+    "unit": 96,
+    "lifecycle": 57,
+    "declaration": 21,
+    "total": 174,
+    "ignored": 0,
+    "log_sha256": "ed0189aab8d01ed2dee72ac4942b5415e4d8ff0a6b499263957cefce3667838a"
+  },
+  "installer": {
+    "cases": 17,
+    "log_sha256": "2f865c25cb556cfd0b279e24671aadcc5cdfe2ea6e4a43b9ec39dc55dcb5bb34",
+    "installer_changed": false,
+    "bundled_guide_sha256": "f727f4466846ae87e79ba21b0a1468c30f4d689b6d7e6e3ab4b0a8be70d18e5c"
+  },
+  "negative_capacity": {
+    "issue": "ISS-RECLAIM-EXPIRED-PREPARATION-METADATA-BEF",
+    "failed_full_runs": 2,
+    "diagnostic_log_sha256": "7f127110a641601c41e484e8a9fe2ced8d47e86e6234dca4ec68c20e62e12776",
+    "fixed_without_changing_caps_or_deadlines": true
+  },
+  "kytos": {
+    "issue": "ISS-RESOLVE-MINI-KYTOS-FILE-OPEN-STALLS-BEFO",
+    "new_installed_capture_pass": true,
+    "temporary_executable_access_fixed": false,
+    "os_privacy_changed": false
+  },
+  "linux": {
+    "cross_compile_exit": 0,
+    "runtime_pass": false,
+    "native_capture_implemented": false,
+    "log_sha256": "9cf871ab2b69e5390c709d66ba8e7129f30ce85462708ae0025236da872f1fba"
+  },
+  "preservation": {
+    "persistent_service_registration_added": false,
+    "effectful_executor_activated": false,
+    "ordinary_cli_routing_changed": false,
+    "native_history_changed": false,
+    "credential_changed": false,
+    "foreign_process_stopped": false,
+    "cleanup_authority_changed": false,
+    "mini_outer_cleanup": {
+      "outer_stage_removed": true,
+      "owned_labels_absent": 36
+    },
+    "mini_outer_cleanup_sha256": "68a87e8c5050e29b94304633b09e620bfa9f51e582ec755521d9f9d7507cd305"
+  },
+  "remaining": [
+    "Target grants, launch intents and physical reservations",
+    "Unified legacy executor and old-reader fences",
+    "Public command/exit migration and efficient discovery",
+    "Portable lifetime authority and lease/store conversion",
+    "Permanent native archive, independent retrieval and separate source release",
+    "Operator guide migration and final full-scope fleet proof",
+    "Native Linux runtime/capture gate"
+  ]
+}

@@ -234,19 +234,32 @@ impl Journal {
 
   /// Persist prepared intent before acceptance. Exact replay does not create another job.
   pub fn admit(&mut self, key: Key, input: Prepared, now: u64) -> io::Result<Decision> {
-    validate_key(&key)?;
-    validate_input(&input)?;
+    match self.replay(&key, &input)? {
+      Decision::NotAccepted => {}
+      decision => return Ok(decision),
+    }
+    self.insert(key, input, now)
+  }
+
+  /// Assess an exact retained request without permission to create a new job.
+  pub fn replay(&self, key: &Key, input: &Prepared) -> io::Result<Decision> {
+    validate_key(key)?;
+    validate_input(input)?;
     self.bindings()?;
-    if let Some(job) = self.job(&key)? {
-      return Ok(if job.input == input {
+    if let Some(job) = self.job(key)? {
+      return Ok(if &job.input == input {
         Decision::Present { job: job.view }
       } else {
         Decision::Conflict
       });
     }
-    if !self.admissible(&key) {
+    if !self.admissible(key) {
       return Ok(Decision::Unknown);
     }
+    Ok(Decision::NotAccepted)
+  }
+
+  fn insert(&mut self, key: Key, input: Prepared, now: u64) -> io::Result<Decision> {
     let volume_set = if input.volumes.is_empty() {
       vec!["<unresolved>".to_string()]
     } else {

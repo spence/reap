@@ -1,6 +1,6 @@
 # Native caller-directory capture
 
-- Status: component implementation; production admission integration remains open.
+- Status: native preparation/admission integration; public routing and target execution remain open.
 - Consumers: the fixed resolver and control admission pipeline.
 - Grounds: owner-authorized `DEC-LIFETIME-AUTHORITY`, section 8.
 - Bindings: `src/invocation.rs`, the native transport, and owned native fixtures.
@@ -34,6 +34,27 @@ Confirmation does not reset the original client deadline or reserve another work
 Linux capture and connection confirmation remain unavailable. They fail closed; cross-compilation
 is not native conformance. This component performs no process control and grants no cleanup authority.
 
+## Native preparation and admission
+
+The fixed context-resolver role receives the original client directly. It captures directory and
+namespace/configuration evidence before it confirms that connection. The returned receipt binds the
+complete argv, explicit exceptions in argv, supplied provenance, HOME, XDG state-home selection,
+native directory identities, existing state-directory anchor, and configuration digest.
+No service-environment path is substituted. Relative or malformed namespaces are invalid.
+Raw config-snapshot overrides are not accepted through public preparation.
+
+Configuration is at most 64 KiB, regular, single-linked, user-owned, and not group/world-writable.
+Its components do not follow symlinks. Type, complete input, schema, and stable metadata are required.
+An unreadable, malformed, changed, oversized, or special input cannot select defaults.
+Defaults require proven absence at a held parent. Existing namespace aliases retain physical identity;
+a dangling state-directory alias is not proof of absence.
+
+The receipt grants no cleanup permission. The writer first resolves retained exact requests.
+For a fresh key, it validates the complete receipt through the resolver's memory-only endpoint before
+it persists the job. Invalid or expired proof cannot create a job. Ticket expiry does not erase a
+retained job's native caller identity. Workers must retain its containment guard and validate native
+identity again before target or namespace effects; serialized context is not an execution grant.
+
 ## Executable bindings and limits
 
 | Clauses | Binding |
@@ -42,9 +63,11 @@ is not native conformance. This component performs no process control and grants
 | C3, C4 | `native_confirmation_requires_the_original_live_client` |
 | C4 | `native_control_survives_a_real_filesystem_worker_stall`; memory-only handler and fixed fixture worker |
 
-These cases run through `tools/verify_control_macos.py`. The fixture's single resolver task is
-test integration, not the production fixed resolver service. Native directory capture does not
-establish configuration namespace, policy, attribution, explicit exception, durable admission,
-execution-grant, or legacy-fence proof. Those integration gates remain required.
+These cases run through `tools/verify_control_macos.py`. The production resolver and state writer
+also run through `tools/verify_ingress_macos.py` at the installed signed executable path.
+Native preparation does not establish target policy, execution-grant, or legacy-fence proof.
+Public command migration and those execution gates remain required.
 
 The [component evidence](../proof/CALLER-CONTEXT-T13.md) states actual host coverage and unavailable gates.
+The later [installed ingress evidence](../proof/NATIVE-INGRESS-T13.md) proves the production resolver
+and writer on both Macs and resolves the earlier Kytos fixture limitation at the actual runtime path.

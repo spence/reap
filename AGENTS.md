@@ -16,23 +16,22 @@ them as Burn assets.
 <!-- Durable project-specific completion contracts only. -->
 
 - **Safety invariants stay tested** — Applies when: changing candidate selection, guards,
-  retention, retire validation, or any deletion/move executor. Complete when: an invariant test
-  covers both what is removed/moved and what must survive, and the whole suite is green.
-  Execute and verify with: `cargo test`.
+  admission, retention, retire validation, control, or a deletion/move executor. Complete when:
+  invariant tests cover allowed effects and protected survivors, the whole suite is green,
+  and control/admission changes pass native fault and installed-path proof on both configured Macs.
+  Execute and verify with: `cargo test`, `tools/verify_control_macos.py`, and
+  `tools/verify_ingress_macos.py`.
 - **Docs and skill match the binary** — Applies when: changing the CLI surface, a safety claim,
   or a config/manifest schema. Complete when: `README.md` and `skill/SKILL.md` describe the
   shipped behavior and claim no more safety than the code enforces. Execute and verify with:
   `cargo run -- --help` compared against both documents. For Git workspace lifecycle guidance,
   also run `python3 tests/skill_workspaces.py` against the installed binary.
-- **Binary and skill ship together** — Applies when: any change lands that alters behavior or
-  the bundled skill. Complete when: the bundled guide describes the shipped binary, and
-  `install.sh` installs that binary on each configured machine without replacing an existing
-  operator guide. The Skills repository owns updates to fleet operator guides. Execute and
-  verify with: `python3 tests/install_signing.py` and `./install.sh && reap --version`.
-- **macOS identity survives installs** — Applies when: changing the installer or signing setup.
-  Complete when: installer failure/downgrade tests pass and certificate-signed fleet binaries
-  verify natively with the same designated requirement. Execute and verify with:
-  `python3 tests/install_signing.py`, `codesign --verify --strict ~/.cargo/bin/reap`, and
+- **Binary, guide, and macOS identity ship together** — Applies when: changing behavior, the
+  bundled skill, installer, or signing setup. Complete when: the guide describes the shipped binary,
+  installation preserves existing operator guides, installer failure/downgrade cases pass, and
+  configured Mac binaries retain their certificate-backed designated requirement. The Skills
+  repository owns fleet operator guides. Execute and verify with: `python3 tests/install_signing.py`,
+  `./install.sh && reap --version`, `codesign --verify --strict ~/.cargo/bin/reap`, and
   `codesign -d -r- ~/.cargo/bin/reap` on each configured Mac.
 - **Audit exclusions stay outside project decisions** — Applies when: changing audit import,
   reconciliation, or audit cleanup tools. Complete when: the committed exclusion list governs

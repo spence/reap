@@ -1044,7 +1044,7 @@ src/coverage.rs   shallow external-root and registration audit
 src/control.rs    bounded native byte transport
 src/invocation.rs native caller-directory capture and connection confirmation
 src/journal.rs    durable admission metadata and replay protection
-src/service.rs    separate control and state-writer backends
+src/service.rs    fixed control, context-resolver, and state-writer backends
 src/util.rs       tree stats, verified cross-device moves, state paths
 ```
 
@@ -1055,9 +1055,9 @@ both what is removed and what must survive.
 The control and admission backends are not yet the ordinary CLI execution path.
 Their component contracts are [transport](docs/specs/control-transport.md) and
 [admission](docs/specs/admission.md). Native admission proof does not establish
-cleanup, migration, a complete caller-context producer, or worker execution grants.
-The separate [caller-directory component](docs/specs/invocation.md) retains a confirmed native
-directory handle. Public command routing and the fixed resolver service remain open.
+cleanup, migration, target policy permission, or worker execution grants.
+The [native preparation pipeline](docs/specs/invocation.md) binds caller directory, namespace,
+and configuration evidence before new metadata admission. Public command routing remains open.
 
 ## license
 

@@ -1,4 +1,4 @@
-// native test interposition; only an owned writer fixture receives this library.
+// native test interposition; only owned I/O fixtures receive this library.
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -7,6 +7,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+static void pause_gate(const char *gate) {
+  char armed[PATH_MAX], entered[PATH_MAX], fifo[PATH_MAX];
+  if (snprintf(armed, sizeof(armed), "%s/armed", gate) >= (int)sizeof(armed) ||
+      snprintf(entered, sizeof(entered), "%s/entered", gate) >= (int)sizeof(entered) ||
+      snprintf(fifo, sizeof(fifo), "%s/fifo", gate) >= (int)sizeof(fifo)) _exit(97);
+  if (unlink(armed) != 0) return;
+  int marker = open(entered, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+  if (marker < 0 || write(marker, "1", 1) != 1) _exit(97);
+  close(marker);
+  int reader = open(fifo, O_RDONLY | O_CLOEXEC);
+  if (reader < 0) _exit(97);
+  char byte;
+  ssize_t count;
+  do { count = read(reader, &byte, 1); } while (count < 0 && errno == EINTR);
+  close(reader);
+  if (count != 1) _exit(97);
+}
 
 static void pause_sync(int descriptor) {
   const char *target = getenv("REAP_SYNC_FAULT_TARGET");
@@ -31,21 +49,24 @@ static void pause_sync(int descriptor) {
     document[length] = '\0';
     if (!strstr(document, "\"document\":\"Job\"")) return;
   }
-  char armed[PATH_MAX], entered[PATH_MAX], fifo[PATH_MAX];
-  if (snprintf(armed, sizeof(armed), "%s/armed", gate) >= (int)sizeof(armed) ||
-      snprintf(entered, sizeof(entered), "%s/entered", gate) >= (int)sizeof(entered) ||
-      snprintf(fifo, sizeof(fifo), "%s/fifo", gate) >= (int)sizeof(fifo)) _exit(97);
-  if (unlink(armed) != 0) return;
-  int marker = open(entered, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-  if (marker < 0 || write(marker, "1", 1) != 1) _exit(97);
-  close(marker);
-  int reader = open(fifo, O_RDONLY | O_CLOEXEC);
-  if (reader < 0) _exit(97);
-  char byte;
-  ssize_t count;
-  do { count = read(reader, &byte, 1); } while (count < 0 && errno == EINTR);
-  close(reader);
-  if (count != 1) _exit(97);
+  pause_gate(gate);
+}
+
+static int gated_openat(int descriptor, const char *name, int flags, ...) {
+  if (flags & O_CREAT) {
+    va_list arguments;
+    va_start(arguments, flags);
+    int mode = va_arg(arguments, int);
+    va_end(arguments);
+    return openat(descriptor, name, flags, mode);
+  }
+  const char *gate = getenv("REAP_CONTEXT_FAULT_GATE");
+  const char *target = getenv("REAP_CONTEXT_FAULT_CONFIG_PARENT");
+  char parent[PATH_MAX];
+  if (gate && target && strcmp(name, "config.json") == 0 &&
+      fcntl(descriptor, F_GETPATH, parent) == 0 && strcmp(parent, target) == 0)
+    pause_gate(gate);
+  return openat(descriptor, name, flags);
 }
 
 static int gated_fcntl(int descriptor, int command, ...) {
@@ -81,4 +102,9 @@ static int gated_fcntl(int descriptor, int command, ...) {
 __attribute__((used, section("__DATA,__interpose")))
 static const struct { const void *replacement; const void *original; } interposition = {
   (const void *)gated_fcntl, (const void *)fcntl
+};
+
+__attribute__((used, section("__DATA,__interpose")))
+static const struct { const void *replacement; const void *original; } context_interposition = {
+  (const void *)gated_openat, (const void *)openat
 };

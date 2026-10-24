@@ -26,21 +26,35 @@
 - **C7** — State transactions have stable identity and recovery rules.
   A control timeout or restart cannot create a second writer or repeat admitted intent.
   An unconfirmed writer or worker retains its slot.
+- **C8** — New admission requires an exact live native preparation receipt. The receipt binds
+  key, argv, provenance, caller directory, namespace evidence, and configuration generation.
+  An unknown, expired, or changed receipt cannot create work. A retained exact durable request
+  can be returned after ticket expiry without creating another job.
 
 ## Boundary
 
-The admission journal preserves supplied prepared context. It does not prove native caller context,
-policy permission, target safety, or an execution grant. The control pipeline must obtain those proofs
-at the boundaries required by the combined design. No public command or worker can bypass them.
+The journal alone preserves supplied bytes. Its production service requires a native resolver receipt
+before fresh admission. The raw prepared-input operation exists only in backend fault-test builds.
+Native preparation does not establish target policy permission, target safety, or an execution grant.
+Those proofs remain required before execution. No public command or worker can bypass them.
 This contract activates no migration, source pruning, or new disposal policy.
 
 ## Backend format and service lifecycle
 
-The private startup entries are `reap __service control` and `reap __service state-writer`.
+The private startup entries are `reap __service control`, `reap __service state-writer`, and
+`reap __service context-resolver`.
 The platform supplies one advertised service per host user and role. The CLI does not spawn a fallback.
+Production filesystem roles use the installed signed executable path. A temporary copy, even with
+the same designated requirement, is not proof of that runtime's OS access. Native acceptance must
+run at the actual installed path without changing OS privacy settings to make a fixture pass.
 The fixed endpoint names include protocol version and effective UID; kernel credentials remain required.
 Control has one bounded relay task. The writer has one state-I/O task and a stable locked file.
-Both response loops answer memory requests while those tasks are unavailable or blocked.
+The resolver has one I/O task. All response loops answer memory requests while I/O is blocked.
+Its fixed UID endpoint is independent of client namespaces. Different namespace paths do not create workers.
+Preparation returns a receipt, not an admitted job. Its ticket expires at the preparation deadline.
+At most 32 preparation reservations include queued, active, and retained tickets. Reservation reclaims
+expired ticket metadata with memory-only operations. Directory handles close only in the fixed I/O task.
+Ticket expiry cannot remove a durable active job or its recorded caller-directory identity.
 Queued work has a 750 ms budget. This leaves room inside the client's one-second response deadline.
 Expiry before task start prevents dispatch. An already-started write can still complete after client timeout.
 
@@ -57,7 +71,8 @@ Missing header state behind an existing lock cannot initialize a fresh history.
 These are cited executable bindings, not an automated spec-registration or fixture-file parser.
 Use `tools/verify_control_macos.py --filter service::tests --fault-library <native-library>`
 with the same laptop-built unit executable and fault library on each Mac.
-`tests/fault_fullsync_macos.c` interposes the actual macOS `F_FULLFSYNC` call only in owned test writers.
+`tests/fault_fullsync_macos.c` interposes actual macOS `F_FULLFSYNC` and configuration `openat`
+calls only in owned test I/O roles.
 No production fault switch or injected library is installed.
 
 | Clauses | Executable binding |
@@ -68,5 +83,10 @@ No production fault switch or injected library is installed.
 | C3, C4 | `acknowledged_admission_and_exact_retries_survive_writer_restart`; `retired_epochs_forget_complete_jobs_but_keep_active_keys_and_reject_reuse` |
 | C5 | Corrupt/oversized/symlink/FIFO, missing-header, changed-record, stable-lock, and writable-directory unit cases |
 | C6 | `completion_reservations_stop_admission_without_eviction_of_active_epochs`; per-volume capacity case |
+| C1, C7, C8 | `native_blocked_context_open_preserves_resolver_slot_and_abandons_late_capture` |
+| C8 | `native_resolved_admission_binds_caller_namespace_and_replays_after_ticket_expiry`; `native_invalid_namespaces_and_untrusted_receipts_never_create_jobs` |
+| C8 | `native_prepare_capacity_recovers_after_idle_ticket_expiry`; `tools/verify_ingress_macos.py` at the actual installed executable |
 
 The [T13 evidence](../proof/ADMISSION-T13.md) identifies completed component proof and remaining gates.
+The later [native ingress evidence](../proof/NATIVE-INGRESS-T13.md) proves preparation and admission
+at the installed path on both Macs, including the Mini Kytos caller scope.
