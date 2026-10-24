@@ -234,6 +234,77 @@ fn ndjson<T: Serialize>(records: &[T]) -> Vec<u8> {
   bytes
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn real_sqlite_snapshot_evidence_survives_custody_and_private_retrieval() {
+  use std::process::Command;
+  use std::time::{Duration, Instant};
+
+  let mut fixture = Fixture::new();
+  let original = fixture.base.join("original.sqlite");
+  let snapshot = fixture.snapshot.root.join("native/home/state.sqlite");
+  fs::set_permissions(
+    snapshot.parent().unwrap(),
+    fs::Permissions::from_mode(0o700),
+  )
+  .unwrap();
+  let created = Command::new("/usr/bin/sqlite3")
+    .args(["-batch", "-init", "/dev/null"])
+    .env("SQLITE_TMPDIR", &fixture.base)
+    .env("TMPDIR", &fixture.base)
+    .arg(&original)
+    .arg("CREATE TABLE history(id TEXT PRIMARY KEY, value TEXT); INSERT INTO history VALUES('parent','retained native SQLite bytes');")
+    .output()
+    .unwrap();
+  assert!(created.status.success(), "{created:?}");
+  let before = fs::read(&original).unwrap();
+  let facts = super::sqlite::backup(
+    &original,
+    &snapshot,
+    "closed-fixture-v1",
+    Instant::now() + Duration::from_secs(2),
+    1024 * 1024,
+  )
+  .unwrap();
+  assert_eq!(facts.step_result, 101);
+  assert_eq!(facts.finish_result, 0);
+  assert_eq!(facts.integrity_result, "ok");
+  let source = open_absolute_dir(&fixture.snapshot.root).unwrap();
+  let mut entries: Vec<_> = fixture
+    .entries()
+    .iter()
+    .map(|entry| fixture_entry(&source, &entry.path, None).unwrap())
+    .collect();
+  entries.push(fixture_entry(&source, "native/home/state.sqlite", Some(facts)).unwrap());
+  entries.sort_by(|a, b| a.path.cmp(&b.path));
+  fixture.set_files(&entries);
+  let receipt = fixture.commit().unwrap();
+  let capture = fixture.archive.get(&fixture.plan.key).unwrap();
+  assert_eq!(capture.receipt, receipt);
+  let target = fixture.base.join("retrieval/native-copy");
+  capture
+    .restore_private(
+      target.parent().unwrap(),
+      "native-copy",
+      &fixture.capacity,
+      &FixtureAuthority::new(),
+    )
+    .unwrap();
+  let retrieved = Command::new("/usr/bin/sqlite3")
+    .args(["-batch", "-readonly", "-init", "/dev/null"])
+    .env("SQLITE_TMPDIR", &fixture.base)
+    .env("TMPDIR", &fixture.base)
+    .arg(target.join("native/home/state.sqlite"))
+    .arg("SELECT value FROM history WHERE id='parent';")
+    .output()
+    .unwrap();
+  assert!(retrieved.status.success(), "{retrieved:?}");
+  assert_eq!(retrieved.stdout, b"retained native SQLite bytes\n");
+  assert_eq!(fs::read(&original).unwrap(), before);
+  assert!(fixture.final_path().join("capture.complete").is_file());
+  assert!(target.join(".reap").is_file());
+}
+
 struct FixtureAuthority {
   calls: Cell<usize>,
   refuse_at: Option<usize>,

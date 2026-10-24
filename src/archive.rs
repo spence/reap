@@ -4,6 +4,8 @@
 //! The coordinator supplies held reservations and fresh destination/restore authorization.
 //! This module never launches a native client, copies credentials, or releases a source.
 
+pub mod sqlite;
+
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::{File, Metadata};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};

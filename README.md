@@ -1098,6 +1098,9 @@ The [native physical resolver](docs/specs/physical-resources.md) identifies admi
 without a helper. Unknown topologies refuse. Native boot evidence also governs launch recovery.
 The [portable lifetime core](docs/specs/lifetime-v2.md) returns retained-by-default proposals.
 The [permanent custody core](docs/specs/archive-custody.md) stores immutable captures with independent retrieval.
+Its SQLite snapshot operation uses native online backup, including committed WAL data, with finite
+work and byte limits. It requires backup completion, finalization, and integrity verification.
+This library operation does not establish complete conversation dependencies or source-release permission.
 Native prepared jobs now have a [read-only check execution path](docs/specs/job-execution.md)
 through owned resolver/bulk workers and durable terminal results. Ordinary `check` uses this path;
 applying operations are not activated.

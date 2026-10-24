@@ -199,11 +199,46 @@ All names below belong to `src/archive/tests.rs`. Bindings are same-change, not 
 | C5 | `payload_paths_reject_escape_and_preserve_filename_bytes`; `unsafe_links_link_ancestors_and_unsupported_units_cannot_escape`; `missing_dependencies_and_omitted_snapshot_units_cannot_publish` | Met |
 | C6 | `capacity_and_lost_reservations_preserve_sources_and_previous_captures`; `incomplete_staging_remains_protected_and_never_counts_as_a_capture` | Core met; real reservation/volume authority remains external |
 | C7 | `large_payload_streams_and_archive_inventory_rejects_unlisted_files`; `unsorted_duplicate_and_oversized_inventory_refuses_without_omission`; `ordered_inventory_lookup_has_no_missing_ids_at_variable_record_boundaries`; `growing_inventory_is_bounded_and_refused_instead_of_chased_or_truncated` | Bounded core met; no worker-level RSS certification claimed |
-| C8 | `sqlite_requires_done_finalize_integrity_and_explicit_native_evidence`; `incomplete_staging_remains_protected_and_never_counts_as_a_capture`; `durable_commit_replay_and_independent_retrieval_preserve_sources_and_identity` | Evidence boundary met; actual native SQLite snapshot proof remains external |
+| C8 | `sqlite_requires_done_finalize_integrity_and_explicit_native_evidence`; `real_sqlite_snapshot_evidence_survives_custody_and_private_retrieval`; native SQLite checks below | Native operation and custody boundary implemented; provider closure remains external |
 
 Synchronization fault injection covers each synchronization point until the first complete execution.
 It includes the post-rename parent-flush failure and subsequent independent reconciliation.
 These are filesystem/fault regressions, not native provider compatibility evidence.
+
+## Native SQLite snapshot operation
+
+The native SQLite snapshot operation is `archive::sqlite::backup`. It runs outside response loops.
+It opens a read-only source and an exclusively created private destination. Committed WAL data
+belongs to the snapshot. A source read transaction binds the database view used for capacity and
+backup. Caller-selected time and byte bounds apply; implicit unbounded busy waits are not allowed.
+Success requires `SQLITE_DONE`, successful backup finalization, complete integrity verification,
+and successful statement/connection closure. Incomplete operations retain their owned staging
+without source removal or a successful snapshot receipt. Existing destinations are not overwritten.
+The supplied component token remains the provider profile's responsibility. Database consistency
+alone does not establish cross-file conversation closure or permission to release a source.
+The caller must exclude same-user namespace changes throughout the operation.
+Deadlines bound SQLite work between native calls and through its VM progress callback.
+They cannot interrupt stalled kernel I/O; the operation belongs in an owned filesystem worker, outside response loops.
+
+Run the native checks in `src/archive/sqlite.rs` with:
+
+```sh
+CARGO_BUILD_JOBS=1 cargo test --bin reap archive::sqlite::tests -- --test-threads=1
+```
+
+`committed_wal_and_concurrent_commits_use_one_pinned_snapshot` covers committed WAL state and a writer between page steps.
+`exclusive_source_lock_fails_without_wait_or_source_change` covers native lock contention.
+`actual_finish_ok_without_done_is_not_completion` covers incomplete backup with successful finalization.
+`allowance_is_enforced_before_backup_writes_and_exact_size_succeeds` covers byte bounds and surviving sources.
+`expired_and_interrupted_budgets_never_acknowledge_a_snapshot` covers incomplete retained staging.
+`unsafe_existing_and_link_paths_preserve_original_bytes` covers existing destinations and unsafe paths.
+`replaced_source_and_destination_names_fail_and_preserve_survivors` covers pathname substitution.
+`corrupt_page_and_vm_allowance_fail_closed` covers corrupt pages and VM progress limits.
+`native_readonly_and_statement_failure_preserve_source_and_finalize_handles` covers native read-only mode and statement release.
+The custody integration uses a synthetic conversation profile and a real database, not a native provider compatibility claim.
+
+These requirements follow SQLite's [online-backup contract](https://sqlite.org/c3ref/backup_finish.html)
+and [connection-open contract](https://sqlite.org/c3ref/open.html).
 
 ## External acceptance gates
 

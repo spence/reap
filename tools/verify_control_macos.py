@@ -26,7 +26,7 @@ def main():
     parser.add_argument("test_executable", type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--filter", choices=["control::tests", "service::tests", "launch::tests",
-                                            "lifetime::tests", "archive::tests",
+                                            "lifetime::tests", "archive::tests", "archive::sqlite::tests",
                                             "quarantine::tests", "util::tests", "worker::tests",
                                             "journal::tests", "volumes::", "dispatch::tests",
                                             "client::tests", "preservation::tests"], default="control::tests")
@@ -113,7 +113,14 @@ def main():
                                 "honored_children_leave_group_accounting_and_unbound_children_block_caps"],
             "archive::tests": ["durable_commit_replay_and_independent_retrieval_preserve_sources_and_identity",
                                "synchronization_faults_never_acknowledge_an_incomplete_commit",
-                               "missing_dependencies_and_omitted_snapshot_units_cannot_publish"],
+                               "missing_dependencies_and_omitted_snapshot_units_cannot_publish",
+                               "real_sqlite_snapshot_evidence_survives_custody_and_private_retrieval"],
+            "archive::sqlite::tests": ["committed_wal_and_concurrent_commits_use_one_pinned_snapshot",
+                                      "exclusive_source_lock_fails_without_wait_or_source_change",
+                                      "actual_finish_ok_without_done_is_not_completion",
+                                      "allowance_is_enforced_before_backup_writes_and_exact_size_succeeds",
+                                      "expired_and_interrupted_budgets_never_acknowledge_a_snapshot",
+                                      "unsafe_existing_and_link_paths_preserve_original_bytes"],
             "quarantine::tests": ["activity_stream_retains_a_late_protection_path_without_retaining_host_wide_output",
                                   "activity_stream_requires_complete_valid_bounded_fields_before_a_negative_guard",
                                   "scratch_retire_moves_to_quarantine_with_owner"],
