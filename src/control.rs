@@ -66,26 +66,54 @@ pub struct Response {
 }
 
 /// Exactly one reply capability. Dropping it returns an internal transport error.
-pub struct Reply(platform::Reply);
+pub struct Reply {
+  inner: platform::Reply,
+  peer: Peer,
+}
 
 impl Reply {
   pub fn send(self, body: &[u8]) {
-    self.0.send(body);
+    self.inner.send(body);
   }
 
   /// Reserve one bounded asynchronous slot before moving a reply to a worker.
   /// Capacity failure sends a transport error and does not return a capability.
   pub fn defer(self) -> Result<DeferredReply, Error> {
-    self.0.defer().map(DeferredReply)
+    self.inner.defer().map(|inner| DeferredReply {
+      inner,
+      peer: self.peer,
+      confirmation_attempted: false,
+    })
   }
 }
 
 /// A reply retained outside the response loop. Sending or dropping it releases its slot.
-pub struct DeferredReply(platform::DeferredReply);
+pub struct DeferredReply {
+  inner: platform::DeferredReply,
+  peer: Peer,
+  confirmation_attempted: bool,
+}
 
 impl DeferredReply {
   pub fn send(self, body: &[u8]) {
-    self.0.send(body);
+    self.inner.send(body);
+  }
+
+  pub(crate) fn peer(&self) -> Peer {
+    self.peer
+  }
+
+  /// Confirm the original IPC client after resolver work, within the same response deadline.
+  /// This waits outside the response loop. It is not process-control or cleanup authority.
+  pub(crate) fn confirm(&mut self, deadline: Instant) -> bool {
+    if self.confirmation_attempted {
+      return false;
+    }
+    self.confirmation_attempted = true;
+    let remaining = deadline
+      .saturating_duration_since(Instant::now())
+      .min(RESPONSE_BUDGET);
+    !remaining.is_zero() && self.inner.confirm(remaining) && Instant::now() < deadline
   }
 }
 

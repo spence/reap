@@ -37,6 +37,7 @@ extern "C" {
   fn reap_xpc_server_stop(server: *mut c_void);
   fn reap_xpc_reply(reply: *mut c_void, body: *const u8, length: usize, status: c_int);
   fn reap_xpc_reply_defer(reply: *mut c_void) -> bool;
+  fn reap_xpc_reply_confirm(reply: *mut c_void, timeout_ns: u64) -> bool;
   #[cfg(test)]
   fn reap_xpc_live_handles(clients: *mut usize, replies: *mut usize, authenticated: *mut usize);
   #[cfg(test)]
@@ -74,6 +75,11 @@ unsafe impl Send for DeferredReply {}
 impl DeferredReply {
   pub(super) fn send(self, body: &[u8]) {
     self.0.send(body);
+  }
+
+  pub(super) fn confirm(&mut self, budget: Duration) -> bool {
+    // SAFETY: this unique deferred capability remains live throughout the bounded native wait.
+    unsafe { reap_xpc_reply_confirm(self.0 .0.expect("live reply"), budget.as_nanos() as u64) }
   }
 }
 
@@ -152,7 +158,10 @@ extern "C" fn receive(
   reply: *mut c_void,
   context: *mut c_void,
 ) {
-  let capability = super::Reply(Reply(Some(reply)));
+  let capability = super::Reply {
+    inner: Reply(Some(reply)),
+    peer: Peer { uid, pid },
+  };
   // SAFETY: start receives this boxed Handler. Native shared ownership keeps it alive for
   // every callback; native request storage remains valid until this function returns.
   let handler = unsafe { &*context.cast::<Handler>() };
@@ -228,6 +237,11 @@ fn decode_error(status: c_int) -> ErrorKind {
 
 #[cfg(test)]
 pub(super) fn fault_exchange(name: &str, fault: i32) -> Error {
+  fault_response(name, fault).expect_err("malformed wire request succeeded")
+}
+
+#[cfg(test)]
+pub(super) fn fault_response(name: &str, fault: i32) -> Result<Response, Error> {
   let name = CString::new(name).unwrap();
   let mut output = vec![0; MAX_BODY];
   let (mut length, mut uid, mut pid, mut sent) = (0, 0, 0, false);
@@ -246,8 +260,17 @@ pub(super) fn fault_exchange(name: &str, fault: i32) -> Error {
       &mut sent,
     )
   };
-  assert_ne!(status, 0, "malformed wire request succeeded");
-  error(decode_error(status), sent)
+  if status != 0 {
+    return Err(error(decode_error(status), sent));
+  }
+  if length > output.len() || uid != super::current_uid() {
+    return Err(error(ErrorKind::Protocol, sent));
+  }
+  output.truncate(length);
+  Ok(Response {
+    peer: Peer { uid, pid },
+    body: output,
+  })
 }
 
 #[cfg(test)]

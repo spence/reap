@@ -175,6 +175,15 @@ mod native {
 
   #[test]
   fn server_process() {
+    if let Ok(name) = std::env::var("REAP_NATIVE_CAPTURE_CLIENT") {
+      let response = exchange(&name, b"capture", Instant::now() + RESPONSE_BUDGET).unwrap();
+      fs::write(
+        std::env::var_os("REAP_NATIVE_CAPTURE_RESULT").unwrap(),
+        response.body,
+      )
+      .unwrap();
+      return;
+    }
     if let Ok(name) = std::env::var("REAP_NATIVE_CONTROL_PROBE") {
       let started = Instant::now();
       let reply = exchange(&name, b"ping", started + RESPONSE_BUDGET);
@@ -189,14 +198,52 @@ mod native {
     let Ok(name) = std::env::var("REAP_NATIVE_CONTROL_SERVICE") else {
       return;
     };
-    let (sender, receiver) = mpsc::sync_channel::<DeferredReply>(1);
+    let (sender, receiver) = mpsc::sync_channel::<(String, DeferredReply)>(1);
     let finished = Arc::new(AtomicUsize::new(0));
     let finished_worker = finished.clone();
     thread::spawn(move || {
-      while let Ok(reply) = receiver.recv() {
-        let code = crate::status::run();
-        finished_worker.fetch_add(1, Ordering::SeqCst);
-        reply.send(format!("status:{code}").as_bytes());
+      let mut captured: Option<crate::invocation::Captured> = None;
+      let mut captures = 0u64;
+      while let Ok((operation, mut reply)) = receiver.recv() {
+        match operation.as_str() {
+          "status" => {
+            let code = crate::status::run();
+            finished_worker.fetch_add(1, Ordering::SeqCst);
+            reply.send(format!("status:{code}").as_bytes());
+          }
+          "confirm" => {
+            let confirmed = reply.confirm(Instant::now() + Duration::from_millis(150));
+            let repeated = reply.confirm(Instant::now() + Duration::from_millis(150));
+            assert!(!repeated);
+            reply.send(if confirmed {
+              b"confirmed"
+            } else {
+              b"unconfirmed"
+            });
+          }
+          "capture" | "late-capture" => {
+            let deadline = Instant::now() + Duration::from_millis(700);
+            if operation == "late-capture" {
+              thread::sleep(Duration::from_millis(250));
+            }
+            match crate::invocation::capture(&mut reply, deadline) {
+              Ok(context) => {
+                let body = serde_json::to_vec(context.context()).unwrap();
+                captured = Some(context);
+                captures += 1;
+                reply.send(&body);
+              }
+              Err(_) => reply.send(b"unavailable-context"),
+            }
+          }
+          "capture-count" => reply.send(captures.to_string().as_bytes()),
+          "pinned-capture" => {
+            let context = captured.as_ref().unwrap();
+            let identity = crate::identity::ObjectIdentity::read(context.directory()).unwrap();
+            reply.send(&serde_json::to_vec(&identity).unwrap());
+          }
+          _ => panic!("unexpected fixture operation"),
+        }
       }
     });
     let held = Mutex::new(Vec::<DeferredReply>::new());
@@ -207,9 +254,10 @@ mod native {
       let invocation = invocations.fetch_add(1, Ordering::Relaxed);
       match body {
         b"ping" => reply.send(b"pong"),
-        b"status" => {
+        b"status" | b"confirm" | b"capture" | b"late-capture" | b"capture-count"
+        | b"pinned-capture" => {
           if let Ok(deferred) = reply.defer() {
-            let _ = sender.try_send(deferred);
+            let _ = sender.try_send((String::from_utf8(body.to_vec()).unwrap(), deferred));
           }
         }
         b"finished" => reply.send(finished.load(Ordering::SeqCst).to_string().as_bytes()),
@@ -324,6 +372,93 @@ mod native {
   }
 
   #[test]
+  fn native_confirmation_requires_the_original_live_client() {
+    let fixture = Fixture::new();
+    assert_eq!(fixture.call(b"confirm").unwrap().body, b"confirmed");
+    for fault in [4, 5] {
+      let response = platform::fault_response(&fixture.name, fault).unwrap();
+      assert_eq!(response.body, b"unconfirmed");
+    }
+    assert_eq!(fixture.call(b"ping").unwrap().body, b"pong");
+    let name = fixture.name.clone();
+    let late = thread::spawn(move || {
+      exchange(
+        &name,
+        b"late-capture",
+        Instant::now() + Duration::from_millis(60),
+      )
+    });
+    thread::sleep(Duration::from_millis(30));
+    let start = Instant::now();
+    assert_eq!(fixture.call(b"ping").unwrap().body, b"pong");
+    assert!(start.elapsed() < Duration::from_millis(250));
+    assert!(late.join().unwrap().is_err());
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(fixture.call(b"capture-count").unwrap().body, b"0");
+    assert_eq!(fixture.call(b"confirm").unwrap().body, b"confirmed");
+    println!("native context: silent/wrong confirmation refused; late capture discarded");
+  }
+
+  #[test]
+  fn native_capture_pins_actual_cwd_after_client_exit_and_path_replacement() {
+    let fixture = Fixture::new();
+    let caller = std::env::var_os("REAP_NATIVE_CAPTURE_CWD_ROOT")
+      .map(|base| PathBuf::from(base).join(&fixture.name))
+      .unwrap_or_else(|| fixture.root.clone());
+    fs::create_dir_all(caller.join("actual")).unwrap();
+    let actual = fs::canonicalize(caller.join("actual")).unwrap();
+    let original = fs::File::open(&actual).unwrap();
+    let identity = crate::identity::ObjectIdentity::read(&original).unwrap();
+    let result = fixture.root.join("caller-context.json");
+    let mut client = Command::new(std::env::current_exe().unwrap())
+      .args([
+        "--exact",
+        "control::tests::native::server_process",
+        "--nocapture",
+      ])
+      .env_remove("REAP_NATIVE_CONTROL_SERVICE")
+      .env_remove("REAP_NATIVE_CONTROL_PROBE")
+      .env("REAP_NATIVE_CAPTURE_CLIENT", &fixture.name)
+      .env("REAP_NATIVE_CAPTURE_RESULT", &result)
+      .env("PWD", "/not-the-caller-directory")
+      .current_dir(&actual)
+      .spawn()
+      .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+      if let Some(status) = client.try_wait().unwrap() {
+        assert!(status.success());
+        break;
+      }
+      if Instant::now() >= deadline {
+        // this exact child is this test's agentless native client.
+        client.kill().unwrap();
+        client.wait().unwrap();
+        panic!("native context client exceeded its deadline");
+      }
+      thread::sleep(Duration::from_millis(10));
+    }
+    let context: serde_json::Value = serde_json::from_slice(&fs::read(result).unwrap()).unwrap();
+    assert_eq!(context["base"], actual.to_str().unwrap());
+    assert_eq!(
+      context["directory"],
+      serde_json::to_value(&identity).unwrap()
+    );
+    assert_eq!(context["uid"], current_uid());
+    fs::rename(&actual, caller.join("moved-directory")).unwrap();
+    fs::create_dir(&actual).unwrap();
+    assert_ne!(
+      identity,
+      crate::identity::ObjectIdentity::read(&fs::File::open(&actual).unwrap()).unwrap()
+    );
+    let pinned: serde_json::Value =
+      serde_json::from_slice(&fixture.call(b"pinned-capture").unwrap().body).unwrap();
+    assert_eq!(pinned, serde_json::to_value(identity).unwrap());
+    assert_eq!(fixture.call(b"capture-count").unwrap().body, b"1");
+    println!("native context: false PWD ignored; original directory retained after client exit and replacement");
+  }
+
+  #[test]
   fn native_capacity_does_not_consume_the_memory_reply_path() {
     let fixture = Fixture::new();
     fixture.call(b"ping").unwrap();
@@ -406,6 +541,7 @@ mod native {
   #[test]
   fn native_listener_stop_releases_replies_held_by_its_handler() {
     let fixture = Fixture::new();
+    assert_eq!(fixture.call(b"ping").unwrap().body, b"pong");
     let failure = exchange(
       &fixture.name,
       b"hold",
@@ -414,6 +550,7 @@ mod native {
     .unwrap_err();
     assert_eq!(failure.kind, ErrorKind::Timeout);
     assert!(failure.may_have_sent);
+    assert_eq!(fixture.call(b"held").unwrap().body, b"1");
     let _ = fixture.call(b"stop");
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {

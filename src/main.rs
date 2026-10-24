@@ -22,6 +22,7 @@ mod doctor;
 mod files;
 pub mod identity;
 mod inventory;
+pub mod invocation;
 pub mod journal;
 mod lease;
 mod maintenance;

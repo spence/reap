@@ -51,11 +51,13 @@ def main():
         environment = dict(os.environ)
         for name in (
             "REAP_NATIVE_CONTROL_PROBE", "REAP_NATIVE_CONTROL_SERVICE",
+            "REAP_NATIVE_CAPTURE_CLIENT", "REAP_NATIVE_CAPTURE_RESULT",
             "REAP_INTERNAL_CONFIG_SNAPSHOT",
             "DYLD_INSERT_LIBRARIES",
         ):
             environment.pop(name, None)
         environment["REAP_NATIVE_CONTROL_FIXTURE_ROOT"] = str(runtime / "fixtures")
+        environment["REAP_NATIVE_CAPTURE_CWD_ROOT"] = str(output / "caller-directories")
         selection = [str(executable), arguments.filter, "--test-threads=1", "--nocapture"]
         if arguments.fault_library:
             library = runtime / "fault_fullsync.dylib"
@@ -71,7 +73,9 @@ def main():
         receipt["native_exit"] = run.returncode
         result = run.returncode
         content = (output / "native.log").read_text()
-        required = (["native_control_survives_a_real_filesystem_worker_stall"]
+        required = (["native_control_survives_a_real_filesystem_worker_stall",
+                     "native_confirmation_requires_the_original_live_client",
+                     "native_capture_pins_actual_cwd_after_client_exit_and_path_replacement"]
                     if arguments.filter == "control::tests" else [
                         "native_admission_survives_control_restart_and_writer_process_death",
                         "native_alias_writer_cannot_replace_the_locked_owner",
@@ -83,6 +87,11 @@ def main():
                 "native_recovery_flushes_an_unacknowledged_pending_record_before_publication" not in content or
                 "ignored;" not in content or "0 ignored;" not in content):
             result = 1
+        caller_root = output / "caller-directories"
+        if caller_root.exists():
+            receipt["caller_directory_root"] = str(caller_root.resolve())
+            receipt["caller_directory_device"] = caller_root.stat().st_dev
+            receipt["runtime_device"] = runtime.stat().st_dev
     finally:
         safe_to_remove = True
         for path in runtime.glob("fixtures/*/*.plist"):

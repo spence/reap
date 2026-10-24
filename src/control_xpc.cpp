@@ -29,6 +29,7 @@ struct Client {
   bool done = false;
   bool sent = false;
   bool authenticated = false;
+  bool challenged = false;
   int status = unavailable;
   uint32_t uid = 0;
   uint32_t pid = 0;
@@ -107,9 +108,25 @@ int exchange(const char *name, const uint8_t *request, size_t length, uint64_t t
     if (!client->connection) return unavailable;
     std::weak_ptr<Client> weak = client;
     xpc_connection_set_event_handler(client->connection, ^(xpc_object_t event) {
-      if (xpc_get_type(event) == XPC_TYPE_ERROR) {
-        if (auto live = weak.lock()) finish(live, unavailable);
-      }
+      auto live = weak.lock();
+      if (!live) return;
+      if (xpc_get_type(event) == XPC_TYPE_ERROR) { finish(live, unavailable); return; }
+      // a resolver can confirm this exact live connection after capturing its caller context.
+      if (xpc_get_type(event) != XPC_TYPE_DICTIONARY ||
+          xpc_dictionary_get_count(event) != 1) return;
+      auto challenge = xpc_dictionary_get_value(event, "context_challenge");
+      if (!challenge || xpc_get_type(challenge) != XPC_TYPE_UINT64 || fault == 4) return;
+      std::lock_guard<std::mutex> lock(live->mutex);
+      if (live->done || !live->authenticated || live->challenged ||
+          std::chrono::steady_clock::now() >= live->deadline ||
+          xpc_connection_get_euid(live->connection) != expected_uid) return;
+      live->challenged = true;
+      auto response = xpc_dictionary_create_reply(event);
+      if (!response) return;
+      if (fault == 5) xpc_dictionary_set_bool(response, "context_challenge", true);
+      else xpc_dictionary_set_value(response, "context_challenge", challenge);
+      xpc_connection_send_message(live->connection, response);
+      xpc_release(response);
     });
     xpc_connection_activate(client->connection);
 
@@ -220,6 +237,7 @@ struct Pending {
   xpc_connection_t peer;
   xpc_object_t response;
   bool deferred = false;
+  bool confirmation_attempted = false;
 
   Pending(std::shared_ptr<Service> state, xpc_connection_t connection, xpc_object_t message)
       : service(std::move(state)), peer(connection), response(message) {
@@ -298,7 +316,8 @@ extern "C" int reap_xpc_exchange(
 extern "C" int reap_xpc_fault_exchange(
     const char *name, int fault, uint64_t timeout_ns, uint32_t uid, uint8_t *output,
     size_t output_capacity, size_t *output_length, uint32_t *peer_uid, uint32_t *peer_pid, bool *sent) {
-  return exchange(name, nullptr, 0, timeout_ns, uid, output, output_capacity,
+  const auto body = reinterpret_cast<const uint8_t *>("confirm");
+  return exchange(name, fault >= 4 ? body : nullptr, fault >= 4 ? 7 : 0, timeout_ns, uid, output, output_capacity,
                   output_length, peer_uid, peer_pid, sent, fault);
 }
 
@@ -414,6 +433,42 @@ extern "C" bool reap_xpc_reply_defer(void *opaque) {
   }
   pending->deferred = true;
   return true;
+}
+
+extern "C" bool reap_xpc_reply_confirm(void *opaque, uint64_t timeout_ns) {
+  auto pending = static_cast<Pending *>(opaque);
+  if (!pending->deferred || pending->confirmation_attempted || !pending->service->alive ||
+      timeout_ns == 0 || timeout_ns > NSEC_PER_SEC) return false;
+  pending->confirmation_attempted = true;
+  struct Confirmation {
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool done = false;
+    bool valid = false;
+  };
+  try {
+    auto state = std::make_shared<Confirmation>();
+    auto message = xpc_dictionary_create(nullptr, nullptr, 0);
+    // the reply capability, rather than a recyclable PID or caller-supplied path, binds this round trip.
+    xpc_dictionary_set_uint64(message, "context_challenge", 1);
+    xpc_connection_send_message_with_reply(pending->peer, message, pending->service->queue,
+      ^(xpc_object_t reply) {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (state->done) return;
+        auto value = xpc_get_type(reply) == XPC_TYPE_DICTIONARY ?
+          xpc_dictionary_get_value(reply, "context_challenge") : nullptr;
+        state->valid = value && xpc_dictionary_get_count(reply) == 1 &&
+          xpc_get_type(value) == XPC_TYPE_UINT64 && xpc_uint64_get_value(value) == 1;
+        state->done = true;
+        state->changed.notify_one();
+      });
+    xpc_release(message);
+    std::unique_lock<std::mutex> lock(state->mutex);
+    const bool completed = state->changed.wait_for(lock, std::chrono::nanoseconds(timeout_ns),
+                                                  [&] { return state->done; });
+    state->done = true;
+    return completed && state->valid && pending->service->alive;
+  } catch (...) { return false; }
 }
 
 // these counters expose native ownership to conformance probes, not cleanup policy.

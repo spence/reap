@@ -62,6 +62,11 @@ impl DeferredReply {
   pub(super) fn send(self, body: &[u8]) {
     self.0.send(body);
   }
+
+  pub(super) fn confirm(&mut self, _budget: Duration) -> bool {
+    // Linux caller capture remains unavailable until its native confirmation gate is proved.
+    false
+  }
 }
 
 impl Reply {
@@ -322,7 +327,14 @@ fn serve(listener: OwnedFd, uid: u32, handler: Handler, shared: Arc<Shared>) {
           };
           client.state = Phase::Waiting(receiver);
           let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handler(body, client.peer, super::Reply(reply));
+            handler(
+              body,
+              client.peer,
+              super::Reply {
+                inner: reply,
+                peer: client.peer,
+              },
+            );
           }));
         }
         Phase::Response(bytes) if flags & libc::POLLOUT != 0 => {
