@@ -19,6 +19,7 @@ mod create;
 mod discover;
 mod doctor;
 mod files;
+pub mod identity;
 mod inventory;
 mod lease;
 mod maintenance;

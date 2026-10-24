@@ -1,0 +1,84 @@
+{
+  "schema": "reap.identity-feasibility-evidence/v1",
+  "work": "MS-LIFETIME-AUTHORITY.T6",
+  "source_base": "11b073d6e07116f051050d0bf395bcf0883e87f1",
+  "source_sha256": {
+    "Cargo.toml": "c3dcb08c34b8875a6670039cd1cc76e84db11a652bb5e24468bf7409798cc97d",
+    "src/main.rs": "a56140d5ac030fbf7bf56a6f6a0da5ed409a4ba53a9c35380bf1ec9c79801d79",
+    "src/identity.rs": "c5591a60e4918493667adda05ea888dd8f6ebb330370c97bb23ffd308b1d5ca6",
+    "tools/probe_persistent_identity.py": "00a6f82da69c703d1140d6ae239e2fe87f0fc4687d353c9d68de089ae350324d"
+  },
+  "native_contract": "https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/attr.h",
+  "capabilities": {
+    "schema": "reap.identity-capability/v1",
+    "local": [
+      {
+        "host": "catalyst.local",
+        "os": "macOS-26.5-arm64-arm-64bit-Mach-O",
+        "path": "/System/Volumes/Data",
+        "format_capabilities": "0x19b6edf",
+        "format_valid": "0x7ffffff",
+        "persistent_ids": true,
+        "persistent_nonrecycled_ids": true,
+        "64bit_ids": true,
+        "volume_uuid": "25720426-c2c9-4e24-8df3-33202c541082",
+        "capability_pass": true
+      }
+    ],
+    "mini": [
+      {
+        "host": "catalyst-mini.local",
+        "os": "macOS-26.5-arm64-arm-64bit",
+        "path": "/System/Volumes/Data",
+        "format_capabilities": "0x19b6edf",
+        "format_valid": "0x7ffffff",
+        "persistent_ids": true,
+        "persistent_nonrecycled_ids": true,
+        "64bit_ids": true,
+        "volume_uuid": "0c2deb86-0e7e-4936-9d05-2f310550442b",
+        "capability_pass": true
+      },
+      {
+        "host": "catalyst-mini.local",
+        "os": "macOS-26.5-arm64-arm-64bit",
+        "path": "/Volumes/kytos",
+        "format_capabilities": "0x9b6edf",
+        "format_valid": "0x7ffffff",
+        "persistent_ids": true,
+        "persistent_nonrecycled_ids": true,
+        "64bit_ids": true,
+        "volume_uuid": "c93fb694-fb72-429c-9bbb-f8bd365444da",
+        "capability_pass": true
+      }
+    ]
+  },
+  "native_mini": {
+    "binary_sha256": "5defbf7e5560e6eb8fd83161ab7ac3d98fd146dbdb9f905fe1020813164ca87c",
+    "elapsed_seconds": 0.207284917,
+    "exit_code": 0,
+    "stdout": "\nrunning 4 tests\ntest identity::tests::held_descriptor_cannot_switch_to_a_replacement ... ok\ntest identity::tests::invalid_types_and_symlink_descriptors_refuse ... ok\ntest identity::tests::native_clone_does_not_inherit_declaration_identity ... ok\ntest identity::tests::native_rename_copy_replacement_and_recreation ... native identity fixture: {\"directory\":{\"volume_uuid\":\"c93fb694-fb72-429c-9bbb-f8bd365444da\",\"file_id\":\"00000000104f5240\"},\"declaration\":{\"volume_uuid\":\"c93fb694-fb72-429c-9bbb-f8bd365444da\",\"file_id\":\"00000000104f5241\"}}\nok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out; finished in 0.01s\n\n",
+    "stderr": ""
+  },
+  "local_full_suite": {
+    "command": [
+      "cargo",
+      "test",
+      "--",
+      "--test-threads=2"
+    ],
+    "environment": {
+      "CARGO_BUILD_JOBS": "2"
+    },
+    "exit_code": 0,
+    "stdout_and_stderr": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s\n     Running unittests src/main.rs (target/debug/deps/reap-26bf8b35b23c4f56)\n\nrunning 64 tests\ntest discover::tests::exclusion_suppresses ... ok\ntest discover::tests::manifest_discovery ... ok\ntest discover::tests::discovery_prunes_and_skips ... ok\ntest discover::tests::marker_verification ... ok\ntest discover::tests::symlinks_not_followed ... ok\ntest doctor::tests::gone_requires_the_recorded_volume ... ok\ntest doctor::tests::remount_requires_marker_inode_and_live_mount ... ok\ntest identity::native::tests::full_width_object_ids_require_complete_returned_attributes ... ok\ntest identity::native::tests::missing_nonreuse_or_invalid_attributes_cannot_supply_identity ... ok\ntest identity::tests::held_descriptor_cannot_switch_to_a_replacement ... ok\ntest identity::tests::invalid_types_and_symlink_descriptors_refuse ... ok\ntest identity::tests::native_clone_does_not_inherit_declaration_identity ... ok\ntest doctor::tests::replacement_and_symlink_remain_blocked ... ok\ntest identity::tests::native_rename_copy_replacement_and_recreation ... ok\ntest lease::tests::guarded_creation_state_is_readable_here_and_rejected_by_old_numeric_readers ... ok\ntest lease::tests::lease_lifecycle ... ok\ntest lease::tests::release_does_not_remove_a_replaced_directory_marker ... ok\ntest lease::tests::unsafe_roots_refused ... ok\ntest manifest::tests::store_path_safety ... ok\ntest manifest::tests::stores_parse_and_version_gate ... ok\ntest plan::tests::apply_count_excludes_failed_removal_and_preserves_unselected_data ... ok\ntest plan::tests::cargo_lock_refuses_symlinked_profile ... ok\ntest plan::tests::dedup_minage_incremental_protection ... ok\ntest plan::tests::only_profile_never_wiped ... ok\ntest plan::tests::stale_profile_wipes_debug_keeps_release ... ok\ntest quarantine::tests::interrupted_retirement_and_restore_leave_data_or_a_recoverable_entry ... ok\ntest quarantine::tests::kernel_probe_health_distinguishes_pending_from_transient_io_and_other_processes ... ok\ntest quarantine::tests::legacy_unindexed_slot_is_visible_but_not_rebuilt ... ok\ntest inventory::tests::scan_finds_and_classifies_projects ... ok\ntest quarantine::tests::purge_deletes_entry_dir ... ok\ntest quarantine::tests::purge_refuses_ids_and_symlinked_entry_roots_outside_quarantine ... ok\ntest quarantine::tests::purge_selection_honors_machine_policy ... ok\ntest quarantine::tests::retire_pass_trusts_only_the_planned_child_removal ... ok\ntest quarantine::tests::retire_refusals ... ok\ntest quarantine::tests::scratch_retire_moves_to_quarantine_with_owner ... ok\ntest quarantine::tests::unindexed_recovery_requires_matching_marker_and_lease ... ok\ntest quarantine::tests::worktree_retire_prunes_main_repo_record ... ok\ntest reapfile::tests::parses_times ... ok\ntest reapfile::tests::spec_fixtures ... ok\ntest store_bindings::tests::mount_root_cannot_be_bound_as_a_store ... ok\ntest stores::tests::age_trigger_with_protections_and_marker ... ok\ntest stores::tests::ambiguous_series_match_fails_the_whole_store_closed ... ok\ntest stores::tests::changed_authority_or_identity_blocks_stale_store_plan ... ok\ntest stores::tests::changed_candidate_survives_while_unchanged_older_candidate_is_removed ... ok\ntest stores::tests::changing_disposition_after_planning_preserves_the_run ... ok\ntest stores::tests::init_creates_and_arms ... ok\ntest stores::tests::keep_last_floor_beats_age ... ok\ntest stores::tests::mount_guard_refuses_foreign_devices ... ok\ntest stores::tests::named_series_keep_their_own_newest_run ... ok\ntest stores::tests::nested_replacement_with_restored_mtime_survives ... ok\ntest stores::tests::series_size_budget_excludes_unclaimed_children ... ok\ntest stores::tests::size_trigger_trims_oldest_first ... ok\ntest stores::tests::special_files_are_never_deleted_from_stores ... ok\ntest stores::tests::symlinked_store_component_and_replaced_candidate_cannot_escape ... ok\ntest stores::tests::symlinked_store_refused_and_missing_reported ... ok\ntest util::tests::guard_probe_bounds_a_helper_that_keeps_pipes_after_parent_exit ... ok\ntest util::tests::guard_probe_drains_output_larger_than_a_pipe ... ok\ntest util::tests::guard_probe_timeout_cancels_helpers_without_waiting_on_pipes ... ok\ntest util::tests::move_refuses_existing_dst ... ok\ntest util::tests::state_lock_deadline_preserves_identity_and_allows_retry ... ok\ntest util::tests::stats_and_copy_roundtrip ... ok\ntest util::tests::store_unit_move_preserves_files_and_symlinks_without_following ... ok\ntest util::tests::ttl_parsing ... ok\ntest quarantine::tests::nonscratch_requires_recoverable_git ... ok\n\ntest result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.41s\n\n     Running tests/lifecycle_state.rs (target/debug/deps/lifecycle_state-0f2308328608a79f)\n\nrunning 57 tests\ntest active_nested_child_keeps_expired_parent_in_place ... ok\ntest active_cargo_build_keeps_an_old_cleanup_candidate ... ok\ntest blocked_nested_child_keeps_parent_after_sibling_retires ... ok\ntest automatic_maintenance_preserves_held_and_marker_protected_quarantine_entries ... ok\ntest concurrent_nested_renewal_never_moves_an_active_child_inside_its_parent ... ok\ntest concurrent_restore_and_purge_keep_both_index_updates ... ok\ntest coverage_is_shallow_and_never_authorizes_unregistered_children ... ok\ntest create_scratch_clone_and_copy_record_a_lease_at_creation ... ok\ntest created_worktree_stays_usable_and_git_policy_blocks_dirty_retirement ... ok\ntest cross_device_creation_leases_a_copy_and_worktree_on_kytos ... ok\ntest cross_device_store_quarantine_restores_without_erasing_a_staging_directory ... ok\ntest disposable_cargo_permission_handles_nested_and_quoted_git_paths ... ok\ntest concurrent_leases_and_retirements_keep_every_record_and_directory ... ok\ntest disposable_cargo_permission_preserves_a_cache_with_an_open_file ... ok\ntest disposable_cargo_permission_honors_protections_and_invalid_manifests ... ok\ntest disposable_cargo_permission_preserves_other_ignored_and_dirty_data ... ok\ntest disposable_cargo_permission_requires_each_target_to_be_approved ... ok\ntest disposable_cargo_permission_requires_one_explicit_lease ... ok\ntest doctor_dry_run_bounds_details ... ok\ntest doctor_rebinds_a_mounted_volume_without_touching_the_directory ... ok\ntest doctor_repairs_only_proved_index_entries_and_retire_preserves_unavailable_leases ... ok\ntest explicit_lease_adopts_a_reviewed_partial_creation ... ok\ntest external_binding_refuses_symlinks_overlaps_and_changed_identity ... ok\ntest external_store_requires_local_binding_and_matching_marker ... ok\ntest failed_creation_never_arms_a_partial_or_replaces_existing_data ... ok\ntest ignored_checkout_data_blocks_normal_retire_but_explicit_scratch_moves ... ok\ntest index_write_failures_roll_back_moves_without_losing_data ... ok\ntest disposable_cargo_permission_rejects_unsafe_paths_and_false_cache_markers ... ok\ntest lease_provenance_survives_retirement_and_legacy_records_show_unknowns ... ok\ntest lease_write_failure_after_retire_keeps_an_indexed_copy ... ok\ntest lock_and_lease_write_failures_preserve_the_source ... ok\ntest maintenance_apply_diagnoses_broken_leases_without_repairing_them ... ok\ntest maintenance_failure_receipt_names_next_step_without_touching_data ... ok\ntest maintenance_lock_refuses_overlap_without_replacing_the_receipt ... ok\ntest maintenance_records_all_stages_and_preserves_active_and_unknown_data ... ok\ntest managed_parent_blocks_broad_leases_and_fails_closed_on_changed_identity ... ok\ntest managed_parent_blocks_store_eviction_of_its_tree ... ok\ntest managed_parent_can_track_a_separate_volume_without_touching_live_state ... ok\ntest managed_parent_reports_external_worktrees_without_retiring_unleased_children ... ok\ntest nested_retire_plans_and_moves_indirect_child_before_parent ... ok\ntest normal_worktree_retires_approved_cargo_output_without_cleaning_it ... ok\ntest pending_child_prevents_retirement_of_a_leased_parent ... ok\ntest quarantine_doctor_rebuilds_only_valid_interrupted_entries ... ok\ntest quarantined_store_files_and_dirs_restore_only_to_explicit_safe_paths ... ok\ntest quarantined_store_symlink_never_moves_its_target ... ok\ntest retire_dry_run_accounts_for_destination_cost_across_volumes ... ok\ntest retire_dry_run_separates_moved_bytes_from_same_volume_free_space ... ok\ntest retire_preserves_a_quiet_expired_scratch_tree_with_an_open_file ... ok\ntest status_is_metadata_only_and_reports_unknown_and_actionable_blocks ... ok\ntest store_apply_preserves_a_leased_run_until_its_lease_is_released ... ok\ntest store_provenance_is_visible_but_does_not_arm_an_unbound_or_unmarked_store ... ok\ntest store_quarantine_purge_requires_machine_policy_or_explicit_selection ... ok\ntest stores_cli_keeps_the_newest_unit_of_each_declared_series ... ok\ntest stores_cli_removes_only_a_still_eligible_older_run ... ok\ntest sweep_returns_failure_for_invalid_manifest_and_preserves_target ... ok\ntest unindexed_store_output_stays_blocked_for_manual_review ... ok\ntest lease_renewal_returns_on_a_stuck_state_lock_without_changing_the_lease ... ok\n\ntest result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 51.71s\n\n     Running tests/reap_files.rs (target/debug/deps/reap_files-2edc64d076f01106)\n\nrunning 15 tests\ntest copies_outside_the_root_and_symlinks_inside_are_never_touched ... ok\ntest default_governed_root_removes_only_declared_projects ... ok\ntest child_rules_keep_newest_and_cap_count ... ok\ntest expired_declaration_is_quarantined_with_provenance ... ok\ntest git_tracked_declaration_is_set_aside ... ok\ntest invalid_declaration_protects_and_future_expiry_waits ... ok\ntest kept_child_survives_expired_parent ... ok\ntest lease_overlap_blocks_removal ... ok\ntest low_disk_gate_skips_above_and_runs_below_the_threshold ... ok\ntest new_declaration_waits_out_the_grace_period ... ok\ntest open_files_block_removal ... ok\ntest recent_writes_block_removal ... ok\ntest git_work_survives_unless_scratch ... ok\ntest undeclared_targets_are_reported_and_declared_ones_are_not ... ok\ntest symlink_unit_is_removed_without_touching_its_target ... ok\n\ntest result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.96s\n\n"
+  },
+  "limits": [
+    "Capability and primitive proof only; no adoption, migration, archive, service, or fleet release is complete.",
+    "Experimental copy/recreate cases supplement the explicit non-reuse contract; they do not prove it by repetition.",
+    "Mounted-image uniqueness, scope, policy digest, grace and current-path validation remain adoption responsibilities."
+  ],
+  "native_mini_cleanup": {
+    "owned_native_binary_removed": "/Users/spencer/src/reap/target/identity-t6-native/probe",
+    "owned_fixture_directory_absent": true
+  }
+}
