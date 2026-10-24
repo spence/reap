@@ -68,8 +68,15 @@ internal-volume staging remained available. OS access logs contain an All Files 
 denial for the exact owned signed fixture, but this does not prove the full cause of the
 blocked open or establish that Full Disk Access is the required remedy.
 
-The issue is `ISS-RESOLVE-MINI-KYTOS-FILE-OPEN-STALLS-BEFO`. Its current conclusion is
-that the file-open stall is not specific to Reap; its underlying cause remains unproved.
+The installed, signed T8 Reap then completed an isolated read-only `files` run against the
+same owned Kytos caller-directory scope in 25.321 ms, with zero declarations and no removals.
+The Data control completed in 3.691 ms. Both used private config/state and no apply flag;
+their runtime directory is absent. This is actual installed CLI proof, not a new-service test.
+
+The issue is `ISS-RESOLVE-MINI-KYTOS-FILE-OPEN-STALLS-BEFO`. The evidence does not show
+a blanket Kytos outage: installed Reap can read this scope, while the new executable/access
+contexts fail. The underlying access-context cause remains unproved. The new capture code
+still requires actual installed-service proof; the T8 dry-run does not establish that proof.
 No OS privacy setting, credential, ownership, or permission was changed. The failed
 event-only and GUI fixture alternatives are absent from the component implementation.
 

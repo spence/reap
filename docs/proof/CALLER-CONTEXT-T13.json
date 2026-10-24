@@ -160,7 +160,20 @@
     "owned_os_access_observation_sha256": "c5cd4a989cfa64d2153ef7da229f72a8d0eec9a7543077cccebe5fc079bf3c92",
     "full_disk_access_remedy_proved": false,
     "protected_remote_evidence": "/Users/spencer/src/reap/target/control-t13/context-diagnostic",
-    "remote_evidence_readback_unavailable": true
+    "remote_evidence_readback_unavailable": true,
+    "installed_t8_files_probe": {
+      "binary": "/Users/spencer/.cargo/bin/reap",
+      "binary_sha256": "04fce1daaba52f410faa9f497e558237487030a8c36c4ff1df6e11f057b9a67d",
+      "data_elapsed_seconds": 0.003690958000000001,
+      "kytos_elapsed_seconds": 0.025320749999999996,
+      "data_stdout": "reap files /private/tmp/reap-installed-files-80onfbpt/data -- DRY-RUN (nothing moved)\n  declarations: 0 found, 0 honoured\n  nothing to remove\n",
+      "kytos_stdout": "reap files /Volumes/kytos/src/reap/target/control-t13/context-mini-final/caller-directories -- DRY-RUN (nothing moved)\n  declarations: 0 found, 0 honoured\n  UNDECLARED /Volumes/kytos/src/reap/target/control-t13/context-mini-final/caller-directories/dev.micro.reap.test.45487.1792832298145098000/actual  (project dev.micro.reap.test.45487.1792832298145098000; add a .reap)\n  nothing to remove\n",
+      "probe_sha256": "7028a8203e5c90f81ff5d89344ae139d52e90bf4dd0e4cf19c2be0ebde992849",
+      "runtime_removed": true,
+      "new_capture_or_service_proved": false
+    },
+    "blanket_volume_outage_supported": false,
+    "next_gate": "Verify new capture at the actual installed service path; existing T8 files success does not prove it"
   },
   "preservation": {
     "production_service_activated": false,
