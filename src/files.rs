@@ -510,7 +510,7 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
       None
     };
     let leases = match load_leases(&state_dir()) {
-      Ok(l) => l.leases,
+      Ok(leases) => leases,
       Err(e) => {
         eprintln!("  {e}");
         failed = true;
@@ -520,6 +520,13 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
     let mut index = None;
     let (mut moved, mut bytes) = (0u64, 0u64);
     for r in &ev.removals {
+      if leases.overlaps_creation(&r.path) {
+        println!(
+          "  blocked    {}  (overlaps pending creation)",
+          r.path.display()
+        );
+        continue;
+      }
       let size = unit_stats(&r.path).map(|(_, b, _)| b).unwrap_or(0);
       let verb = match r.disposition {
         Disposition::Quarantine => "quarantine",
@@ -534,7 +541,7 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
       });
       if let Some(why) = coverage_error
         .or(preservation_error)
-        .or_else(|| blocked(r, scratch, &scan.root, &qdir, &leases, now, min_age))
+        .or_else(|| blocked(r, scratch, &scan.root, &qdir, &leases.leases, now, min_age))
       {
         println!("  blocked    {}  ({why})", r.path.display());
         failed |= apply && preservation_refused;

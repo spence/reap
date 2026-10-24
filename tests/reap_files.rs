@@ -179,6 +179,54 @@ fn kept_child_survives_expired_parent() {
 }
 
 #[test]
+fn pending_creation_protects_each_overlap_without_blocking_unrelated_cleanup() {
+  for disposition in ["delete", "quarantine"] {
+    for overlap in ["exact", "ancestor", "descendant"] {
+      let env = Env::new(0.0);
+      let candidate = env.projects().join("reserved/work");
+      let unrelated = env.projects().join("unrelated/work");
+      for path in [&candidate, &unrelated] {
+        declare(
+          path,
+          json!({"version": 1, "expires": PAST, "scratch": true,
+            "disposition": disposition}),
+        );
+        file(&path.join("data"));
+      }
+      let reservation = match overlap {
+        "exact" => candidate.clone(),
+        "ancestor" => candidate.parent().unwrap().to_path_buf(),
+        _ => candidate.join("incoming"),
+      };
+      let state = env.root.join("state/reap/leases.json");
+      let mut leases = json!({"version": "2", "leases": [], "creating": [{
+        "id": "pending-creation", "path": reservation, "owner": "absent-creator",
+        "purpose": "unfinished producer", "ttl_secs": 0, "scratch": true,
+        "started_unix": 1, "provenance": {}
+      }]});
+      let bytes = serde_json::to_vec(&leases).unwrap();
+      fs::write(&state, &bytes).unwrap();
+      age(&env.projects(), 2.0);
+      let out = env.apply();
+      assert!(
+        candidate.join("data").is_file(),
+        "{disposition}/{overlap}: {out}"
+      );
+      assert!(!unrelated.exists(), "{disposition}/{overlap}: {out}");
+      assert_eq!(fs::read(&state).unwrap(), bytes);
+      assert!(out.contains("creation"), "{out}");
+      leases["creating"] = json!([]);
+      fs::write(&state, serde_json::to_vec(&leases).unwrap()).unwrap();
+      let out = env.apply();
+      assert!(
+        !candidate.exists(),
+        "released {disposition}/{overlap}: {out}"
+      );
+    }
+  }
+}
+
+#[test]
 fn child_rules_keep_newest_and_cap_count() {
   let env = Env::new(0.0);
   let bench = env.projects().join("p/bench");

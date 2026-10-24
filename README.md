@@ -689,7 +689,9 @@ the intent nor age permits retirement. Inspect the partial directory before
 using `reap lease add` to adopt it. On ordinary failure with no directory,
 Reap clears the intent; a killed process can leave a missing-path intent for
 manual review.
-Pending creations also block overlapping lease retirement and store eviction.
+Pending creations also block overlapping declaration cleanup, lease retirement, and store eviction.
+Declaration cleanup preserves the reserved path, its ancestors, and its descendants without an expiry.
+Unrelated declared cleanup remains available. A creator's absence does not release its reservation.
 The first `create` or `parents arm` on a machine writes guarded lease-state version `"2"`;
 current Reap still reads legacy numeric version 1, while an older binary
 refuses the guarded file instead of silently dropping creation intents or

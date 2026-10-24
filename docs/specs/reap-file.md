@@ -105,11 +105,17 @@ reap's existing behavior and are governed by its own documentation, not by this 
 - **C13** — `owner` and `purpose` are informational and never change what is removed.
   · Binding: `fixture:build-output-expired` (`purpose` present) · Conformance: `met`
 
+- **C15** — Pending creation reservations veto exact, ancestor, and descendant declaration removals.
+  Both delete and quarantine preserve the reservation and affected bytes, including when its creator is absent.
+  Age and scratch permission do not release this veto. Unrelated authorized cleanup remains available.
+  Clearing the reservation restores ordinary evaluation; it does not itself grant disposal permission.
+  Binding: `pending_creation_protects_each_overlap_without_blocking_unrelated_cleanup` in `tests/reap_files.rs`.
+
 ## Conformance
 
 | Clauses | Check | State |
 |---|---|---|
-| C1–C3, C11, C14 | `cargo test --test reap_files` | 21 cases pass locally |
+| C1–C3, C11, C14–C15 | `cargo test --test reap_files` | 22 cases pass locally |
 | C14, native workspace lifecycle | `REAP_BIN=<verified-binary> python3 tests/skill_workspaces.py` | 5 cases pass locally |
 | C4–C10, C12–C13 | `cargo test reapfile::tests::spec_fixtures` (reads the fixture path) | recorded passing model proof |
 | C1–C13 (reference) | `python3 prototypes/lifetime-authority/scenarios.py`, `python3 prototypes/lifetime-format/evaluate.py` | pass |
