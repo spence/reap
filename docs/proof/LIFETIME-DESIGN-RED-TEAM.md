@@ -1,6 +1,8 @@
 # Combined lifetime and responsiveness design: adversarial review
 
 Work: `MS-LIFETIME-AUTHORITY.T4`. Date: 2026-10-23.
+This records the T4 design. The later [T5 review](CONVERSATION-DESIGN-RED-TEAM.md) covers the
+archive-integrated design; its verdict does not replace these historical replies.
 Stage: design and source review only. No production code, configuration, lease, policy, service,
 or installed guide changed. Native proof below means retained earlier evidence, not a new run.
 
