@@ -1041,12 +1041,20 @@ src/quarantine.rs retirement validation, moves, restore, and purge
 src/inventory.rs  read-only project survey
 src/status.rs     metadata-only capacity and lifecycle snapshot
 src/coverage.rs   shallow external-root and registration audit
+src/control.rs    bounded native byte transport
+src/journal.rs    durable admission metadata and replay protection
+src/service.rs    separate control and state-writer backends
 src/util.rs       tree stats, verified cross-device moves, state paths
 ```
 
 Safety behavior is covered with synthetic target-tree tests. Changes to artifact
 classification or deletion boundaries should include an invariant test showing
 both what is removed and what must survive.
+
+The control and admission backends are not yet the ordinary CLI execution path.
+Their component contracts are [transport](docs/specs/control-transport.md) and
+[admission](docs/specs/admission.md). Native admission proof does not establish
+cleanup, migration, caller-context capture, or worker execution grants.
 
 ## license
 

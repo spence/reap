@@ -1,0 +1,123 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T13",
+  "recorded_utc": "2026-10-24T08:38:43.191807+00:00",
+  "scope": "native metadata admission backend; no public command routing, caller-context proof, execution grants, v2 activation, archives or source release",
+  "base_git_revision": "157e205053afd142184194c0b56d32ff5b33214c",
+  "reviewed_source_sha256": {
+    "Cargo.toml": "a8c4e3ad06fe29aea648146d51643a3613b165b4db8dfd815558e80c0969592f",
+    "Cargo.lock": "7a9ee365858c2330cda29845270c96f7c173507fd04b7b7f51a872c6364dbc45",
+    "src/main.rs": "f6b96fef87468a63e50cf4babbc5c09628ea147c6dd4c252eef473781165e2df",
+    "src/journal.rs": "5c208da3d1ae67a5fec13d5407665e35597bf781b9ce6eefaa523b22a896b5f4",
+    "src/journal/tests.rs": "e54bf43fb5401f7aa8d4320384cfc8ae5f046a80c81311d40968310600040c81",
+    "src/service.rs": "ed0baee32b0874f4ac1359645a97b39e13f86038ed39921297688a0dc91c8340",
+    "src/service/tests.rs": "8af6663b8b7cb9ba8e528cdf1e03edb8fbdf5ed9a885b507d6c3ab5eb18b1fd6",
+    "tests/fault_fullsync_macos.c": "e1ef06a6392c66ede64afe9f7b11ef255c8ba2b7ca98aac422964c2fc8ffc0ac",
+    "tools/verify_control_macos.py": "58916d375cc55a0213718dbecc7b26a1e2d46128880a8749817b1afc0e653318"
+  },
+  "full_rust_suite": {
+    "command": "REAP_NATIVE_CONTROL_FAULT_LIBRARY=<owned library> CARGO_BUILD_JOBS=2 cargo test -- --test-threads=1 --include-ignored",
+    "exit_code": 0,
+    "results": [
+      "test result: ok. 90 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.53s",
+      "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 84.46s",
+      "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.80s"
+    ],
+    "log_sha256": "d665b1d07149089a8c4f8df58e04b7cabdfe43c32a34a49fbd23624b9d3980bb"
+  },
+  "fleet": {
+    "catalyst": {
+      "runtime": "/private/tmp/reap-control-runtime-ti_h4y17",
+      "labels_absent": [
+        "user/501/dev.micro.reap.admit.90926.1792830650709547000.writer",
+        "user/501/dev.micro.reap.admit.90926.1792830650709547000.control",
+        "user/501/dev.micro.reap.admit.90926.1792830652018440000.writer",
+        "user/501/dev.micro.reap.admit.90926.1792830652018440000.control",
+        "user/501/dev.micro.reap.admit.90926.1792830652121039000.writer",
+        "user/501/dev.micro.reap.admit.90926.1792830652121039000.control",
+        "user/501/dev.micro.reap.admit.90926.1792830652262388000.writer",
+        "user/501/dev.micro.reap.admit.90926.1792830652262388000.control",
+        "user/501/dev.micro.reap.admit.90926.1792830655112802000.writer",
+        "user/501/dev.micro.reap.admit.90926.1792830655112802000.control",
+        "user/501/dev.micro.reap.admit.90926.1792830650514389000.writer",
+        "user/501/dev.micro.reap.admit.90926.1792830650514389000.control",
+        "user/501/dev.micro.reap.admit.90926.1792830653859634000.writer",
+        "user/501/dev.micro.reap.admit.90926.1792830653859634000.control"
+      ],
+      "native_exit": 0,
+      "binary_sha256": "e5777694ec4f779a61223df7bbb5d3113514ebe2ed85d27278dc6157d4a18ff6",
+      "fault_library_sha256": "f2e23e369b799c7297115eaa5fa04c11582b8d4e5a3ac99b2505defdcaaa2c85",
+      "runtime_removed": true,
+      "verification_exit": 0,
+      "results": [
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 84 filtered out; finished in 5.87s"
+      ],
+      "measurements": [
+        "native admission: cold control 19.893917ms; control restart retained writer; writer recovery retained one job",
+        "native file full-sync stall: p99 2.821375ms; no early acknowledgement; same writer after control restart",
+        "native directory full-sync stall: p99 1.830083ms; no early acknowledgement; same writer after control restart"
+      ],
+      "log_sha256": "c6a673a51bc189a8080b80b7358af75c6b581e76e0f6299f19f045fc7a33d7da"
+    },
+    "catalyst-mini": {
+      "runtime": "/private/tmp/reap-control-runtime-_cbil6tg",
+      "labels_absent": [
+        "user/501/dev.micro.reap.admit.33693.1792830661956446000.writer",
+        "user/501/dev.micro.reap.admit.33693.1792830661956446000.control",
+        "user/501/dev.micro.reap.admit.33693.1792830658406803000.writer",
+        "user/501/dev.micro.reap.admit.33693.1792830658406803000.control",
+        "user/501/dev.micro.reap.admit.33693.1792830659779483000.writer",
+        "user/501/dev.micro.reap.admit.33693.1792830659779483000.control",
+        "user/501/dev.micro.reap.admit.33693.1792830659697907000.writer",
+        "user/501/dev.micro.reap.admit.33693.1792830659697907000.control",
+        "user/501/dev.micro.reap.admit.33693.1792830659631976000.writer",
+        "user/501/dev.micro.reap.admit.33693.1792830659631976000.control",
+        "user/501/dev.micro.reap.admit.33693.1792830658285687000.writer",
+        "user/501/dev.micro.reap.admit.33693.1792830658285687000.control",
+        "user/501/dev.micro.reap.admit.33693.1792830660940193000.writer",
+        "user/501/dev.micro.reap.admit.33693.1792830660940193000.control"
+      ],
+      "native_exit": 0,
+      "binary_sha256": "e5777694ec4f779a61223df7bbb5d3113514ebe2ed85d27278dc6157d4a18ff6",
+      "fault_library_sha256": "f2e23e369b799c7297115eaa5fa04c11582b8d4e5a3ac99b2505defdcaaa2c85",
+      "runtime_removed": true,
+      "verification_exit": 0,
+      "results": [
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 84 filtered out; finished in 5.77s"
+      ],
+      "measurements": [
+        "native admission: cold control 16.133167ms; control restart retained writer; writer recovery retained one job",
+        "native file full-sync stall: p99 496.584\u00b5s; no early acknowledgement; same writer after control restart",
+        "native directory full-sync stall: p99 560.583\u00b5s; no early acknowledgement; same writer after control restart"
+      ],
+      "log_sha256": "06feb5a8cfb819d9fa81df50fea6f05b04784a39f8cbbbe07df38b74c4c5604d"
+    }
+  },
+  "recovery_regression": {
+    "native_exit": 101,
+    "results": [
+      "test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 81 filtered out; finished in 9.94s"
+    ],
+    "log_sha256": "6952bc67ac87147fc60728ffc81d2745ac3b9381087b1d5177a03fedf8d346a1",
+    "correction": "Synchronize complete pending record data before recovery publication and directory synchronization."
+  },
+  "linux": {
+    "cross_compile_command": "CARGO_BUILD_JOBS=2 cargo check --target aarch64-unknown-linux-gnu --tests",
+    "exit_code": 0,
+    "log_sha256": "0b0d803dcaa6066dbd7ff0900821025d5954f105b5e89da4812012f03e415c3e",
+    "runtime_pass": false,
+    "runtime_status": "unrun; T12 native Linux gate remains open"
+  },
+  "foreground_execution_changed": false,
+  "production_services_installed": false,
+  "installed_binary_changed": false,
+  "live_authority_or_history_changed": false,
+  "foreign_agents_or_services_stopped": false,
+  "remaining": [
+    "Native caller-context capture and validated ingress",
+    "Worker launch grants, reservations and execution/recovery",
+    "Unified authority and legacy fences before public routing",
+    "Efficient discovery, portable .reap v2 and migration",
+    "Permanent native archives and separate source-release gates",
+    "Native Linux runtime and final installed fleet verification"
+  ]
+}

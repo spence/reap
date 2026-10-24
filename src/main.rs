@@ -22,6 +22,7 @@ mod doctor;
 mod files;
 pub mod identity;
 mod inventory;
+pub mod journal;
 mod lease;
 mod maintenance;
 mod manifest;
@@ -30,6 +31,7 @@ mod plan;
 mod provenance;
 mod quarantine;
 mod reapfile;
+mod service;
 mod status;
 mod store_bindings;
 mod stores;
@@ -103,6 +105,11 @@ struct PolicyArgs {
 
 #[derive(Subcommand)]
 enum Cmd {
+  #[command(name = "__service", hide = true)]
+  Service {
+    #[arg(value_enum)]
+    role: service::Role,
+  },
   /// Discover & dry-run every target dir under the configured roots (the default)
   Sweep {
     /// Actually delete
@@ -340,6 +347,7 @@ enum RunError {
 fn main() {
   let cli = Cli::parse();
   let code = match cli.cmd {
+    Some(Cmd::Service { role }) => service::run(role),
     // Bare `reap` == dry-run sweep.
     None => cmd_sweep(false, false, false, &PolicyArgs::default()),
     Some(Cmd::Sweep {
