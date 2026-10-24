@@ -3,6 +3,10 @@
 Status: proposed, awaiting owner ratification. Milestone: `MS-LIFETIME-FORMAT`.
 Builds on: `DEC-LIFETIME-AUTHORITY`. Specification: `docs/specs/reap-file.md`.
 
+The [combined design](DEC-LIFETIME-AUTHORITY.md) proposes a version 2 replacement, including
+instance adoption and exact store-retention groups. This earlier proposal records its original
+format rationale. The combined design is not ratified and does not change the shipped schema.
+
 ## Owner rulings recorded here (2026-09-30)
 
 - The directory's own reap file is the authority for what happens to its contents; no repository

@@ -1,166 +1,643 @@
-# DEC-LIFETIME-AUTHORITY — the directory's `.reap` file is the authority
+# DEC-LIFETIME-AUTHORITY — portable policy and prompt execution
 
-Status: proposed combined redesign and migration boundary, for owner review before implementation.
-Milestone: `MS-LIFETIME-AUTHORITY`. Draft Work: `MS-LIFETIME-AUTHORITY.T3`.
-Final ratification remains `MS-LIFETIME-AUTHORITY.T2`.
+Status: proposed design, not an implementation or an owner-ratified contract.
+Work: `MS-LIFETIME-AUTHORITY.T4`; final ratification remains `MS-LIFETIME-AUTHORITY.T2`.
+Date: 2026-10-23. This design supersedes the short ownership draft from T3.
 
-## Owner direction
+## 1. Decision and delivery boundary
 
-On 2026-10-23, the owner requested a combined responsiveness redesign and lifetime migration.
-The owner said: "the reap information should live alongside the directories so if they move it's
-not a problem."
-The owner requested the `.reap`/lease split before implementation and allowed leases where justified.
-This draft recommends that split. It does not record approval of the recommendation.
+Use the directory's `.reap` as its only lifetime policy. Replace renewable workspace lifetimes
+with explicit KEEP or disposal intent. Retain machine-local execution reservations, not another
+workspace expiry clock. Use one executor for declarations, converted leases, stores, and maintenance.
 
-## Recommendation
+Separate the response path from all filesystem work. A command returns a completed result,
+a pending job receipt, or an explicit failure within a bounded response period.
+Moving work to a service does not remove its cost. Reduce discovery and sizing in the same change.
 
-**One source of lifetime policy: the directory's `.reap` file.**
+The owner requested this combined design and adversarial review before implementation.
+This document does not authorize production edits, live conversion, root expansion, or rollout.
+The [review record](../proof/LIFETIME-DESIGN-RED-TEAM.md) gives findings, corrections, and limits.
+No production defect is marked fixed by this design.
 
-Retire directory-lifetime leases after safe conversion. Retain execution locks and reservations
-where needed for creation, cleanup, and recovery. Do not expose another agent-renewed lease that
-determines whether unfinished work survives.
+## 2. Requirements and evidence
 
-Current code still supports both lifetime mechanisms. No live lease, declaration, configuration,
-binary, or scheduled job changes as part of this review.
-
-## Ownership split
-
-| Information or decision | Proposed owner | Limit |
+| Requirement | Design mechanism | Implementation acceptance |
 | --- | --- | --- |
-| KEEP, review date, explicit expiry | `.reap` beside the directory | A review date is not an expiry; inactivity does not shorten retention |
-| Child age/count/byte rules, newest-unit protection, seals | `.reap` | Effective policy respects the existing ancestor and child rules |
-| Owner, purpose, and retained creation provenance | Directory-held metadata | Attribution never grants cleanup permission |
-| Permission to discard unrecoverable Git work | Explicit directory policy | No automatic conversion to scratch to defeat a guard |
-| Known current locations and discovery progress | Rebuildable machine-local index/cache | A stale path, index entry, or missing cache never grants removal permission |
-| Current directory identity, recoverability, activity and mount proof | Fresh executor validation | Neither cached validation nor a copied identifier is sufficient |
-| In-flight creation, conflicting operations and mutation reservations | Machine-local coordinator and execution journal | Reservations can block an operation; they cannot declare a directory disposable |
-| Request identity, progress, completion and cancellation | Machine-local job records | Accepted or completed work does not release retained artifacts |
-| Quarantine, restore and interrupted-move evidence | Durable recovery records | These are not disposable or freely rebuildable caches |
-| Existing unconverted lease authority | Legacy lease record and marker, temporarily | One authoritative cleanup path per target until conversion is complete |
+| Policy travels with a directory | Sections 3–5: co-located policy and instance evidence | Rename preserves intent; a copy cannot acquire permission |
+| Unfinished work survives an absent agent | Section 4: KEEP without renewal; review is not expiry | Creator exit, inactivity, merge, and missed review do not release KEEP |
+| Reap replies promptly during slow work | Sections 7–8: isolated control, bounded admission, honest exits | Native latency/resource tests under target, state, helper, and output stalls |
+| Reap still performs useful cleanup | Section 9: scoped work, shared discovery, fair service | Actual cleanup, protected survivors, coverage, lower measured work |
+| Existing lifetimes and recovery survive | Sections 6 and 11: exact representation and per-target cutover | Corrected-reference verdict parity; no protected path becomes eligible |
+| Agents use one clear workflow | Sections 4 and 8: retained work by default; admission differs from completion | Current recipes, scripts, and schedules use installed binaries |
+| Automatic discovery remains available | Section 9: hints are optional; full discovery remains | New declarations and undeclared artifacts appear without registration |
 
-The current `.reap` schema has `owner` and `purpose`, but not every structured lease-provenance
-field. The format design must preserve that information before originals are discarded.
-No new JSON fields are approved by this review draft.
+These requirements come from `OBJ-REAP-LIFETIME` P1–P6 and current operator workflows.
+The governed-root ruling is `~/projects`, not the objective's older `~/work` spelling.
+On the mini, `~/projects` points to `/Volumes/kytos/projects`.
 
-## What remains of leases
+The [native investigation](../proof/RESPONSIVENESS-INVESTIGATION.md) establishes the current cost.
+One installed `files` dry-run took 106.974 seconds. Discovery visited millions of entries.
+Cargo and stores repeated much of their discovery. A coordinator alone cannot remove that cost.
+The investigation also demonstrates unsafe proposals after unreadable-child and Git probe failures.
+Those defects need preservation regressions before conversion.
 
-There is no proposed permanent split where `.reap` owns KEEP but a separate lease owns expiry.
-Both lifetime decisions belong in `.reap`.
+## 3. Ownership split
 
-Execution reservations are justified for a narrower purpose: prevent a move during creation,
-serialize conflicting cleanup, and recover an interrupted operation. Prefer those names to
-"workspace lease" because their expiry has a different meaning.
+| Information | Owner | Authority limit |
+| --- | --- | --- |
+| KEEP, review, expiry, scratch, child retention, disposition, seal | `.reap` beside the directory | Only lifetime policy after conversion |
+| Owner, purpose, project, creator/session/host/method, source provenance | `.reap` | Attribution does not grant disposal permission |
+| Instance adoption evidence | `.reap`, generated by Reap | A copied record does not bind another physical instance |
+| Governed roots and exact conversion scopes | Machine configuration | Scope permits evaluation, not deletion; it cannot override KEEP |
+| Location hints, first-seen observations, discovery progress | Rebuildable machine cache | Loss or uncertainty adds protection; cached verdicts never authorize mutation |
+| Current identity, policy, recoverability, activity, mounts | Fresh executor assessment | Every required result must be known before mutation |
+| Creation, conflicts, in-flight mutation | Durable execution reservations and journal | Reservations can veto cleanup; expiry cannot authorize it |
+| Requests, idempotency, progress, results | Durable job records | Accepted or completed jobs do not release artifacts |
+| Quarantine, holds, restore data, interrupted moves | Durable recovery records | These are not caches or disposable job logs |
+| An unconverted target | Existing authority, through the unified executor | Temporary compatibility, not a permanent second lifetime model |
 
-If a reservation expires or its worker disappears, Reap has lost evidence of current activity.
-It has not gained evidence that the workspace is disposable. Recover or refuse an uncertain
-operation, then reevaluate directory policy and every required live guard.
-Do not release a reservation solely from a deadline while its mutation can still be running.
+Cleanup requires current policy permission, fresh safety proof, and no conflicting reservation.
+Missing evidence is not permission.
 
-Indexed lookup, creation intents, directory identity and stronger ignored-file validation remain
-useful. None requires a second expiry policy in `leases.json`.
+Cargo compaction remains a separate operation on regenerable build output.
+Its `.reap.json` protections remain. Workspace KEEP blocks retirement, not permitted Cargo compaction.
+Non-regenerable build data still needs those Cargo protections.
+A declaration does not prevent another program or an old independent executor from deletion.
 
-### Examples
+## 4. Agent lifetime workflow
 
-| Event | Result in the proposed model |
+Creation defaults to KEEP with a reason. Active source work, unknown retention, retained evidence,
+and interactive work must not receive an arbitrary seven-day expiry.
+KEEP needs no heartbeat. A review date requests review and never becomes expiry.
+Agent exit, task completion, clean checkout, pushed commit, and merge do not change policy.
+
+Interactive work needs explicit human archive approval before release.
+Other work follows its actual disposal authority; generated logs do not all need human closeout.
+Keep required evidence and inputs outside disposable units. Use sealed KEEP for preservation copies
+when descendant disposal rules must not apply.
+
+Expiry means that disposal after that time is acceptable, including an absent creator.
+It is not an expected completion date. Scratch additionally permits loss of unrecoverable contents.
+It does not waive identity, scope, mount, activity, nested protection, or execution guards.
+
+New `create` accepts KEEP or explicit expiry/TTL; no TTL means KEEP.
+Existing explicit TTL callers retain their intent through the compatibility adapter.
+Before producer start, creation verifies effective retention at its destination.
+Missing scope or an incompatible ancestor seal causes refusal, not a falsely protected workspace.
+A proposed `declare PATH` operation writes or adopts local policy through the same executor.
+It accepts KEEP with a reason, or expiry with a disposal reason.
+These are proposed CLI changes, not commands in the shipped release.
+
+Agents can still author `.reap` directly. Restrictive policy can protect immediately.
+New or more permissive policy cannot grant disposal authority without adoption and grace.
+For a concurrent change, use `declare` and require its completed receipt.
+Pending KEEP, renewal, hold, creation, or restore is not effective completion.
+
+Reap cannot infer human approval from an owner string. It is not an authorization system against
+another process with the same user's filesystem permissions. Agent instructions remain necessary.
+
+## 5. Portable policy without copied disposal authority
+
+### Version 2 and adoption
+
+Use numeric `version: 2`, which old declaration readers reject as invalid and protective.
+Retain existing lifetime fields. Add structured `provenance`, generated `instance` evidence,
+and the child-rule additions in section 6. Reject unknown fields and invalid values.
+Do not interpret version 2 as version 1.
+
+The instance record contains lineage, adoption time, policy digest, and native identity evidence
+for both the containing directory and declaration file. Use volume UUID and persistent file identifiers.
+Creation time can aid diagnosis, not replace identity. The digest excludes generated instance fields
+and includes all retention fields. Lineage is attribution, not proof: a copied UUID cannot arm a copy.
+
+The writer allocates a temporary declaration, obtains its identity, writes and flushes its complete
+record, then atomically publishes it. It also flushes the containing directory.
+The adopted record must match the published file and parent directory.
+Atomic policy replacement therefore needs adoption before it can grant disposal permission.
+
+Supported identity must survive remount and distinguish identifier reuse after object deletion.
+Require a documented non-reuse guarantee or an effective object-generation mechanism for both objects.
+Remount persistence alone is insufficient. Explicit adoption cannot manufacture a missing capability.
+Without it, persistent disposal adoption is unavailable; KEEP remains effective and conversion stays blocked.
+Do not add an automatic weaker fallback or a host expiry database.
+Prove this capability on the fleet's actual filesystems before substantial implementation.
+This design does not claim that APFS or another current volume has already passed that gate.
+Persistent identity support is not a guessed `st_dev` value.
+Apple distinguishes persistent and mount-local identifiers; attribute support differs by filesystem.
+Ordinary non-root callers cannot obtain its object-generation field.
+See [Apple's attribute contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getattrlist.2.html).
+Do not use a mutable creation timestamp as an object-generation substitute.
+Unsupported, duplicate-volume, restored-image, or ambiguous evidence cannot grant disposal permission.
+Adoption is possible only after the required capability and unambiguous volume identity exist.
+Native copy, replacement, remount, and restore cases supplement that capability proof.
+
+### Protection is immediate; permission is delayed
+
+KEEP, invalid or unreadable policy, unbound policy, grace, and unknown tracking state protect the
+affected subtree from inherited disposal. A new KEEP must not disappear from evaluation during grace.
+An honored ancestor seal remains the explicit exception: it suppresses descendant declarations.
+A tracked declaration remains inert. Only proven-untracked declarations can authorize disposal.
+Git failure, timeout, missing output, and unavailable Git mean unknown, not untracked.
+
+First-seen grace remains a separate protection. Its key includes instance evidence and disposal
+policy digest, not the current absolute path. Cache loss restarts grace; it never grants credit.
+Restrictive changes apply immediately. Permissive changes need fresh grace.
+Conversion can transfer credit only from verified original evidence. Adoption alone never waives grace.
+
+| Event | Required result |
 | --- | --- |
-| Agent stops while its workspace has KEEP | Workspace remains kept; no heartbeat or renewal is required |
-| KEEP reaches its review date | Review is due; the workspace does not become removable |
-| Explicitly disposable run expires during active use | Policy can select it, but activity/reservation guards still prevent cleanup |
-| That run becomes quiet and its reservation ends | Cleanup may proceed only after fresh authority and safety validation |
-| A build finishes or a branch is merged | No automatic lifetime change or human closeout is inferred |
-| A directory is renamed within the governed domain | Its `.reap` travels with it; stale location hints are corrected |
-| A previous job's path now names a replacement directory | Old identity proof cannot authorize cleanup of the replacement |
-| Machine-local discovery cache is lost | Directory policy remains; discovery and first-seen protection must recover safely |
-| A worker or coordinator restarts during a move | Durable recovery evidence governs recovery; missing progress is not successful completion |
+| Rename within the same governed volume | Policy and identities travel; stale location hints are harmless |
+| Move below a different ancestor | Reevaluate destination scope and policy; a seal can change protection |
+| Copy or filesystem clone within a root | New native identities leave copied disposal authority unbound indefinitely |
+| Copy outside allowed scopes | Inert; discovery does not expand scope |
+| Raw cross-volume move or backup restore | Intent stays readable; changed identity prevents disposal until adoption |
+| Reap-managed cross-volume move | Journal both instances, verify preservation, adopt destination, establish safe grace |
+| Replacement after an identity-bound request | Reject replacement; a stale request cannot adopt it |
+| Lost cache or uncertain identity | Retain data; rebuild observations or require adoption |
 
-## Moves, copies and scope
+`declare --adopt` and every permissive policy change require a completed inspection receipt.
+That receipt binds target identity, current policy digest, dependency fingerprint, and config generation.
+The caller supplies it before submission. First observation after queue delay is not adoption consent.
+At commit, the executor compares that receipt with the live instance and current dependencies.
+Replacement or policy change causes a conflict. KEEP needs no adoption receipt to protect.
+Creation binds the instance it exclusively creates; an existing destination is never an adoption fallback.
+Other scope-based cleanup selects current eligible instances when worker assessment starts.
+It does not promise the identity selected by an earlier pathname-only request.
+Exact-instance retirement and per-job recovery exceptions require an inspection receipt too.
 
-Do not bind lifetime policy to the directory's current absolute path or host.
-Same-volume renames preserve directory/file identity. Reap must rediscover their location without
-requiring a lease-path repair. A job still needs fresh identity proof before mutation.
+A child without a declaration can still enter an explicitly disposable series.
+That container policy intentionally covers matching direct children.
+Copying valuable work into that series is not preservation. A child's unbound declaration protects it.
 
-A cross-volume move changes physical identity. Preserve the policy, but reestablish safe identity
-and first-seen handling before cleanup. A move outside configured governed roots does not expand
-cleanup scope. A new sealed ancestor can also change the effective policy; report that policy.
+This model covers ordinary copies and accidental replacement, not deliberate identity forgery or
+an indistinguishable cloned filesystem image. Such images need explicit scope/adoption review.
+A live job retains open object handles and revalidates containment, not an old inode number alone.
+There is no atomic-snapshot claim against arbitrary external writers.
 
-Copies are not moves. The original prototype permits a copy inside the root to inherit expiry
-after grace. That is weaker than a legacy lease's binding to one physical instance.
-Do not claim copy-safety parity from grace alone. Before lease authority is retired, the combined
-design must resolve instance binding or explicit adoption without restoring a path-bound TTL index.
-Fail closed where that proof is unavailable. Intentional preservation copies retain sealed KEEP.
+## 6. Store representation and recovery parity
 
-Existing honor rules remain the baseline for evaluation: configured governed roots, no descendant
-symlink traversal, ignored tracked declarations, first-seen grace, and sealed-ancestor handling.
-The new review does not waive those rules or approve broad new governed roots.
+### Child retention groups
 
-## Relationship to the responsiveness redesign
+Version 2 child rules use a nonempty `patterns` list. Each pattern defines one series.
+One `*` matches a nonempty span. Literal text is required except for explicit all-child pattern `*`.
+Overlapping patterns within or between groups are invalid. `*` must be the group's only pattern.
 
-The coordinator answers requests and status without a synchronous target scan.
-Workers perform discovery and fresh execution validation. Cached policy views carry observation
-times and coverage; they never substitute for current cleanup authority.
+Each group has `keep_newest`, optional `min_age_hours`, and at least one of `max_age_days`,
+`max_count`, or `max_bytes`. Newest protection applies per pattern. Count and byte limits apply
+to the group's combined retained units. Minimum age protects every unit unconditionally.
+Age is the newest modification anywhere inside the unit, not its root directory mtime.
+Apply age eviction first, then oldest-first count/byte eviction. Never remove protected units to
+meet an impossible cap. Report the protected over-budget result.
 
-A scoped request starts from the selected directory and its policy dependencies.
-Ancestor rules or a sibling retention series can require additional work; return a job handle
-when that work cannot finish promptly. A missing index entry means unknown, not safe to delete.
-Share required discovery between maintenance stages and coalesce compatible requests.
+This preserves legacy stores with multiple series and one shared byte budget.
+Independent byte caps per pattern would not preserve them.
+A version 1 rule becomes a group with one pattern. An unnamed store uses the all-child pattern.
+An honored child declaration excludes that unit from parent retention and accounting.
+Invalid, provisional, or unknown child policy protects it; incomplete inputs block dependent caps.
 
-Do not require a permanent artifact catalog as a condition of this boundary decision.
-Known-location hints may accelerate requests, while automatic discovery remains supported.
-The [native investigation](../proof/RESPONSIVENESS-INVESTIGATION.md) supplies the measured reasons
-for scoped work, duplicate suppression, bounded workers and a separate response path.
+Store containers use KEEP plus groups. Preserve legacy newest floors, minimum age, triggers,
+series membership, and disposition explicitly. Legacy default `delete` must not become default
+`quarantine` through omission. Unarmed stores and unbound resources remain unarmed.
+Discovery must not adopt them. External resource policy moves beside the actual directory.
+Retain original project/resource attribution and restore metadata, including file and symlink units.
+A directory-only generic restore is insufficient. Cargo's non-lifetime `.reap.json` fields remain.
 
-## Migration boundary and required proof
+### Workspace recovery does not weaken
 
-Combine the work as one delivery, with one policy/execution model. Do not implement a permanent
-lease-specific job system and then repeat the redesign for `.reap`.
+Use the stricter retirement checks for non-scratch workspace disposal.
+Cover all local branches, detached HEAD, stashes, dirty/untracked data, and ignored data.
+Do not substitute `git log @{u}..` for all-branch recoverability.
+Probe failure is a refusal wherever recovery depends on that result.
 
-The existing conversion gate remains unchanged: matching keep/remove verdicts and no newly eligible
-protected paths. A lifetime-policy correction is a separate recorded change, not format conversion.
+The recovery subject is the enclosing checkout, even for partial removal below a kept descendant.
+Do not apply Git guards only when the removal unit contains `.git`.
+Find relevant nested checkouts without the current three-level cutoff.
+Unknown recovery state blocks affected removal. Do not remove Git metadata separately from a
+checkout whose remaining contents need it. Non-Git source work without recovery proof remains
+protected unless unrecoverable-content disposal was expressly authorized.
+Generated series retain their existing declared disposal intent.
 
-Before a target loses legacy lease authority:
+Keep `--disposable-cargo-target` as exact per-job permission through the unified retirement executor.
+Preserve real marker, containment, symlink, and manifest-protection checks.
+It does not permit unrelated ignored evidence or imply scratch authority.
+Cargo compaction can retain its newest build while retirement uses this separate explicit permission.
+Never use another command to bypass a refusal.
 
-1. Preserve its exact policy, provenance and required recovery data beside the target.
-2. Establish that the new policy is honored at its actual location. A file outside a governed
-   root, or inside grace, is not proof that conversion is complete.
-3. Demonstrate verdict parity and survival, including ignored data, mounts, activity, copies,
-   moved paths and interrupted creation. Preserve the stricter existing recovery guards.
-4. Use a protected cutover with one applying executor per target. Parallel comparison can be
-   read-only; neither authority gaps nor two independent applying mechanisms are acceptable.
-5. Retire the old authority only after that cutover is durable. Reuse or remove old CLI paths
-   according to real callers; a retained command must not retain a second lifetime database.
+## 7. Prompt response and bounded work
 
-The unreadable-KEEP and failed-Git defects recorded in the investigation must have fail-closed
-regressions before conversion can pass its safety gate. All other required lifecycle guards remain.
+### Control boundary
 
-Native delivery must prove both policy portability and prompt responses on both Macs.
-One passing test subset, a fast no-op, or a queued-only implementation does not satisfy delivery.
-Fresh safety validation, real authorized cleanup and retained data must survive the combined path.
-Existing scripts, fleet operator guides, CLI completion semantics and signing remain integration
-responsibilities. No implementation, CLI removal, live conversion, or fleet rollout is authorized
-by publication of this review draft.
+Use a small host-local control service with on-demand platform activation.
+On the Macs, use an advertised launchd Mach service and asynchronous XPC messages.
+Do not use a pathname Unix socket whose lookup adds filesystem work to the client path.
+This follows [Apple's Mach-service interface](https://developer.apple.com/documentation/xpc/xpc_connection_create_mach_service(_:_:_:)).
+On Linux, use a per-user abstract `AF_UNIX` endpoint with nonblocking I/O and deadline polling.
+Verify peer credentials in both directions; a name is not identity.
+Abstract addresses avoid filesystem pathname lookup, as specified by [Linux `unix(7)`](https://www.man7.org/linux/man-pages/man7/unix.7.html).
+Use one host user-service lifecycle for control and a fixed singleton state writer.
+[Systemd user socket/service units](https://www.freedesktop.org/software/systemd/man/latest/systemd.socket.html)
+provide on-demand activation. Without that supervisor, an explicitly started single-instance service
+can provide the same protocol. The CLI never spawns a synchronous fallback.
+Missing or unreachable service returns unavailable within the response budget.
+An isolated namespace must not start a second broker against shared managed targets.
+Initial support means one broker per host user, not separate container brokers over shared roots.
+Policy, CLI, and resource guarantees remain shared code. Neither platform gets a blocking fallback.
+The client parses arguments and uses bounded, nonblocking IPC, with no synchronous reply API.
+Before reply, it does not resolve targets, read config/state, open filesystem locks, or spawn helpers.
+The control loop uses bounded memory and messages. It performs no filesystem access, process
+creation, Git, capacity probe, configuration load, recovery read, or synchronous durable write.
+Isolated workers perform those operations. Workers never inherit client stdout/stderr descriptors.
 
-Legacy store retention also moves into local child rules. Cargo's `.reap.json` compaction protections
-are a different surface; this review does not remove them.
+The proposed ordinary-command budget is one second from application entry to final reply.
+The native target is p99 below 250 ms when control is ready. Cold activation counts in the budget.
+If activation or persistence cannot finish, return unavailable or acceptance-unknown.
+These limits assume a functioning OS, CPU scheduling, IPC, and writable output transport.
+A blocked shell reader or unscheduled process prevents an absolute user-space guarantee.
+Use bounded output and nonblocking transport where available; never wait for worker EOF.
+Explicit `--wait` permits completion waits, with a finite caller-selected deadline.
 
-## Evidence and limits
+The service can answer starting, unavailable, or unknown while its loader is blocked.
+Configuration loads fail closed. Defaults require proven absence, not unreadable or malformed configuration.
+Status uses memory snapshots with observation time, freshness, coverage, and generation.
+Fresh status requires a refresh job. No hidden synchronous filesystem fallback is allowed.
 
-- [Authority prototype](../proof/LIFETIME-AUTHORITY-T1.md): same-volume moves and honor-rule controls;
-  explicit limits for copied declarations and cross-volume moves.
-- [Format prototype](../proof/LIFETIME-FORMAT-T1.md): lifetime and child-retention semantics.
-- [Native responsiveness investigation](../proof/RESPONSIVENESS-INVESTIGATION.md): measured repeated
-  discovery, synchronous wait paths, and two demonstrated unsafe proposals.
+### Durable admission
 
-Those artifacts do not demonstrate the combined implementation. The format, copy/adoption proof,
-conversion, response guarantees and fleet delivery still need their own implementation evidence.
+Mutation recipes obtain and retain a caller-known request key before submission.
+Automatic-key mode is convenient but cannot promise safe retry after the caller loses all output.
+That case requires reconciliation, not a fresh-key repeat. Include the key in every available result.
+A durable transaction records key, exact payload,
+authority, invocation context, and job ID before the service reports accepted.
+Flush both journal data and its directory; atomic rename alone is insufficient.
 
-## Ratification
+| Reply | Meaning |
+| --- | --- |
+| Completed | Terminal durable result; outcome and effects are explicit |
+| Accepted/pending | Durable job exists; no completed policy change or cleanup is implied |
+| Not accepted/busy | Service proves it did not admit the request |
+| Acceptance unknown | Request might execute; query or retry the same key |
+| Conflict | Key has a different payload, or authority/identity no longer matches |
 
-Owner review of this split: _pending_. Co-location is owner direction; the complete split is a proposal.
-Final decision Work `MS-LIFETIME-AUTHORITY.T2` and its ratification criterion remain open.
+Same key and payload returns the same job; different payload is a conflict.
+Idempotent retry differs from compatible-job coalescing. Coalescing includes operation, scope, mode,
+policy/config generation, caller protection, recovery exceptions, and explicit authority.
+Dry-run and apply never coalesce. Different purge selectors never merge permissions.
+A fresh request cannot receive a historical completed result through semantic coalescing.
 
-## Governed root name
+Keys contain service protocol generation, a service-issued acceptance epoch, and a caller nonce.
+The bounded handshake advertises the current generation and epoch before submission.
+Initially retain completed results up to seven days, subject to the storage cap below.
+Compaction durably advances a retired-epoch frontier before it forgets any completed identities.
+It removes whole retired epochs, not selected keys within a still-admissible epoch.
+On capacity pressure, seal the current epoch and admit new intent only after a new epoch is durable.
+Lookup retained active/uncertain keys before applying the frontier; keep them until recovery ends.
+Reject unknown keys at or below that frontier. Generation rollover also rejects unknown old keys.
+Expired lookup means result unavailable and possible prior effects, not non-acceptance.
+A new key means new intent, not an ambiguous retry. Restart preserves the durable frontier.
 
-Owner ruling, 2026-10-08: use `~/projects` for the governed root on both Macs. On the mini,
-it points to `/Volumes/kytos/projects`. Renaming this root does not relocate existing primary
-repositories or grant cleanup authority for their contents. This naming ruling does not
-ratify the proposed replacement of leases and stores.
+### Finite resources and isolation
+
+Use one bulk worker slot per configured physical volume, one unknown-volume resolver slot, and
+one durable-state I/O slot. A bounded launcher performs process creation outside the control loop.
+Do not create a worker for every waiting client or timeout. Resolve physical volume and overlapping
+scope before mutation; aliases do not create capacity.
+
+Initial fixed limits: 16 pending jobs per volume, 32 admission waiters, 64 IPC clients,
+64 KiB per request/reply, and 512 KiB captured output per job. Page large results.
+These are protocol limits, not a tuning interface. Discard excess diagnostic logs during capture.
+Safety evidence is different: consume complete output through a bounded streaming parser, or refuse.
+Truncation, parser overflow, invalid records, and missing EOF can never establish a negative guard result.
+This applies to activity, Git, identity, and recovery probes, even when the child exits successfully.
+Allow at most two directly launched helpers per worker; unresolved helper groups retain their slots.
+Reject FIFO, device, symlink, and oversized state/policy inputs through
+safe open plus descriptor validation. A prior path metadata read does not prevent replacement races.
+
+Limit each worker's managed working set to 128 MiB. Stream traversal and result publication.
+Use bounded temporary runs for retention sorting when necessary; cap those runs at 256 MiB per worker.
+If complete inputs cannot fit, report capacity-incomplete and protect dependent units.
+Do not silently omit siblings, declarations, or coverage to meet a cap.
+Bound frontier depth and open descriptors; do not retain a vector for every visited entry.
+These are application allocation bounds, not a promise about all OS/library resident memory.
+
+Unconfirmed worker/helper exit consumes its slot, including after coordinator restart.
+Do not replace an old operation that can still mutate. Account for every owned descendant.
+Pipe inheritance cannot extend client response time. No retry storm or foreign-process termination.
+
+Bound completed job storage to 64 MiB plus the age limit.
+Cap job/journal metadata at 256 MiB, including a 16 MiB completion/recovery reserve.
+Before each unit, reserve enough space for its bounded intent and terminal/recovery records.
+If space cannot be reserved, do not start that unit. Large copy manifests use the bounded temporary runs.
+Quarantine payload and permanent entry evidence are separate retained data, not evictable logs.
+Stop admission before protected active data consumes the reserve. Do not evict active keys, reservations,
+quarantine evidence, or recovery journals for log space. Full state blocks new durable mutation
+and reports unavailable promptly.
+
+Worker launch uses a pre-execution handshake. Persist a launch intent and consume its slot before spawn.
+The child starts without permission for target or journal effects and waits at the handshake.
+Persist its process/start/reboot identity against that intent before issuing an execution grant.
+An unresolved launch retains its slot across restart; an ungranted child exits without effects.
+Use this protocol for launcher and bulk replacements. State-I/O transactions have stable transaction keys.
+Bootstrap the state writer as one fixed, platform-managed service per user, separate from the control service.
+The platform retains that exact worker slot while its process survives a control-service restart.
+The writer acquires its stable lock and records its identity/generation before it opens admission.
+It recovers pending transactions before it reports ready. There is no need to launch a writer to
+persist its own pre-launch intent. No second writer starts while the platform slot or lock is occupied.
+Ambiguous ownership leaves admission unavailable; the control loop still replies.
+
+A stalled volume blocks its work, not replies or available healthy-volume slots.
+One worker per volume does not guarantee progress elsewhere on that same stalled volume.
+A stalled common journal can prevent all new durable mutations, but cannot block control replies.
+No CPU-load or CPU-consumption threshold controls admission or cleanup.
+
+## 8. CLI outcomes and caller migration
+
+Make the response change an explicit CLI protocol break. Never redefine exit 0 as queue submission.
+
+| Invocation | Proposed behavior |
+| --- | --- |
+| Help/version | Static result, no state access |
+| Status/cached job views | Bounded snapshot, with age or explicit unavailable state |
+| Plans, files, inventory, coverage, check, doctor | Terminal result or pending read-job receipt |
+| Create, clean, apply, declare, retire, purge, hold, restore, legacy lifecycle changes | Terminal result or pending mutation-job receipt |
+| `job show ID` / lookup by key | Snapshot; unknown does not mean complete |
+| `job wait ID --timeout SECONDS` or operation `--wait` | Explicit completion wait; default 30 seconds, positive finite override |
+| `job cancel ID` | Cancellation request, not proof of exit or rollback |
+
+Exit 0 means completed success. Exit 75 means pending, including acceptance-unknown with a distinct
+machine-readable state. Exit 1 means terminal failure or partial effects; exit 2 means invalid invocation.
+A refused candidate is not successfully cleaned. Apply with no changes can succeed with zero counts.
+Receipts include key, job ID if known, state, operation/mode/scope, outcome, and next command.
+Wait timeout leaves the job running. Client interruption does not cancel it implicitly.
+`clean` remains applying. Existing dry-run defaults remain non-applying.
+
+Capture context before durable admission. IPC supplies authenticated caller process identity.
+A resolver reads and pins its actual directory while the client remains connected.
+The immutable context contains that directory identity/handle, resolved path base, overrides,
+attribution, and explicit exceptions. `$PWD` is only a hint, never identity proof.
+If capture cannot finish within the response budget, return not-accepted/unavailable-context.
+No late resolver completion can admit the abandoned handshake.
+Preserve the captured caller-directory containment guard, not the service's cwd.
+Client exit after capture does not lose that guard.
+
+Send `HOME`, `XDG_STATE_HOME`, and explicit config snapshot selection as request data.
+Reject relative namespace paths or malformed snapshots. Workers validate namespace identity and configuration.
+Do not substitute the service environment. Production defaults and isolated fixture namespaces stay distinct.
+All namespaces still share this per-user broker's physical-resource reservations and worker limits.
+Different state directories cannot create independent applying executors for overlapping targets.
+Public clients cannot use the internal snapshot variable to bypass configured scope or authority.
+
+Before activation, migrate agent recipes, scripts using `&& cd`, native fixtures, launchd maintenance,
+and both live operator guides. Await terminal receipts where the next action needs completion.
+Scheduled submission is not a successful cleanup receipt. Legacy names can remain adapters to the
+same policy and executor. Remove obsolete commands after their real callers migrate.
+Never retain a second lifetime database for an alias.
+
+The installer preserves existing operator guides. Bundled `skill/SKILL.md` alone cannot migrate agents.
+The Skills repository owns live guides; later delivery needs its own in-scope authorization.
+No operator guide changes occur during this design stage.
+
+## 9. Less work, complete coverage, fair progress
+
+`files PATH` accepts a workspace inside allowed scope, not only an entire governed root.
+Mutations stay inside the selected path. Reading ancestors or siblings never authorizes their removal.
+
+The dependency closure includes:
+
+1. Scope and ancestors through the governing boundary, including seals.
+2. Descendants that can protect a removal unit, including unknown regions.
+3. Siblings and measurements required by newest/count/byte rules.
+4. Enclosing/nested recovery subjects, mounts, activity, and operation conflicts.
+
+Unknown descendant coverage blocks a containing removal. Unknown sibling inputs block that group.
+Independent proven units can proceed. Incomplete coverage never means nothing eligible.
+Ordinary KEEP cannot justify pruning: nested expiry remains meaningful.
+Honored sealed KEEP can prune declaration discovery. Cargo/store exclusions cannot automatically
+prune declarations; names such as `target` and `node_modules` are not proof.
+
+Share maintenance discovery across consumers and overlapping canonical roots.
+Keep each consumer's exclusions explicit. Disjoint roots still need separate traversal.
+Do not size retained/unmatched content only for display. Report unknown bytes instead.
+Retention, quiet, newest protection, and mount checks still need their actual inputs.
+Directory mtime cannot replace descendant inspection.
+
+Creation/adoption provides optional location hints. Scoped commands use their local closure;
+a missing hint never starts a hidden global scan. Automatic broad discovery remains for new
+declarations and undeclared artifacts. No mandatory registration, watcher, permanent artifact catalog,
+or audit database is introduced. Broad traversal remains proportional to readable content where
+policy cannot prove safe pruning. Co-location alone cannot provide constant-time global discovery.
+
+Coalesce repeated maintenance into its compatible current pass, not another queued global scan.
+Between safe units, alternate waiting scoped jobs and broad maintenance.
+Read-only discovery yields after bounded directory batches. Mutation yields after journaled units.
+Use FIFO within each lane. Put unfinished jobs behind waiting jobs after a quantum.
+Release unit reservations after its durable safe boundary; reacquire and revalidate before the next unit.
+Never yield an uncertain mutation while releasing its conflict exclusion.
+Neither accepted jobs nor lanes starve while units finish. One stalled syscall remains the volume isolation limit.
+Progress identifies that condition without another scan.
+
+Reports separate coverage gaps, scanned locations, planned/blocked candidates, completed units,
+and affected bytes. Same-volume quarantine frees no content blocks at retirement.
+Report retired bytes separately from purged bytes. Free-space observations can include other writers;
+do not attribute them to Reap without proof.
+
+## 10. Exclusion, policy edits, cancellation, recovery
+
+### One mutation path
+
+Replace long global-lock ownership with short durable transactions and conflict reservations.
+Reserve ancestor/descendant scopes, creation source/destination, quarantine slots, retention groups,
+and shared Git/Cargo resources where operations conflict. Acquire the complete set in stable order
+or defer; never hold half the set while waiting. Cached plans never grant reservations.
+
+All applying paths use the coordinator/executor, including legacy adapters and schedules.
+Every bridge assessment applies converted KEEP, unknown-region, and descendant protections as vetoes,
+even when the candidate still uses legacy lease or store authority.
+Converting a child must not remove the nested-protection veto from an unconverted ancestor.
+Reserve the affected ancestor/descendant domain throughout cutover.
+Before a commit grant, verify current policy, dependencies, identity, recovery, quiet, activity,
+mounts, and config/executor generation. Revalidate after lengthy copy or wait stages.
+A queued snapshot is not continuing permission. An old caller cannot obtain an independent bypass.
+
+### Supported policy edits
+
+`declare` uses the same exclusion protocol. KEEP committed before a removal's commit grant invalidates
+that removal. After that point, `declare` reports the actual conflict or resulting location.
+It cannot claim protection at a path already moved. Config/executor changes invalidate incompatible work.
+
+External edits do not take reservations. The worker rereads policy before its commit grant,
+but cannot serialize an arbitrary write after its final read.
+The concurrent-edit guarantee therefore requires `declare` and its completed receipt.
+State this limit in agent recipes. It does not require a second policy database.
+Default KEEP removes the normal need to race cleanup when an agent stops unexpectedly.
+
+### Durable phases
+
+| Operation | Required phases and recovery |
+| --- | --- |
+| Creation | Intent/reservation → producer → verified identity/policy → complete; incomplete creation stays protected |
+| Same-volume quarantine | Prepared identity/entry evidence → rename intent → moved → indexed/complete; reconcile both locations |
+| Cross-volume move | Prepared → staged copy → verified destination → publication intent/published → source-removal intent/removed → complete |
+| Direct deletion | Prepared exact unit → deletion intent → effect progress → complete; interrupted recursion is partial, not atomic |
+| Restore | Reserved destination → verified copy/move → retained destination policy → recovery-index update → complete |
+| Policy/conversion | Expected old authority/identity → prepared replacement/fence → committed new authority → old authority retired |
+
+Before destruction, durable evidence identifies the exact objects and action.
+After an uncertain phase, inspect both locations through fresh identities.
+Retain either side when preservation is uncertain. Never delete a replacement to complete an old journal.
+Preserve file/symlink types and linked-worktree recovery data. Unindexed quarantine is not job output.
+
+Restart loads state outside the response loop. Reconcile surviving worker identity and phase before
+conflicting dispatch. Use ownership, process start identity, and reboot identity, not PID alone.
+An epoch change or deadline cannot stop an already-issued syscall. Retain reservations until the
+worker cannot mutate or recovery establishes a safe terminal state.
+If ownership is unknown, refuse conflict; do not signal the process.
+
+Queued cancellation can finish without effects. Read-only work stops at safe boundaries.
+Mutation records cancellation, completes or recovers its unit, then stops further units.
+Distinguish cancellation-pending, cancelled-without-effects, and partial-effects.
+Signal only established owned helpers when safe. Termination requested is not exit proved.
+Never stop agents, editors, builds, or foreign services to obtain cleanup progress.
+
+Preserve automatic purge grace, holds, explicit selector semantics, and final purge guards.
+Job success or missing cache cannot authorize purge.
+Restore requires an effectively retained destination, including its ancestor/seal rules.
+A file or symlink must restore inside an effectively kept recovery directory.
+If the requested path cannot meet that condition, refuse it or use an explicitly selected new kept directory.
+Never change a shared parent's policy or seal implicitly. Report the exact completed destination.
+Directory restore also verifies that KEEP is effective before releasing its reservation.
+Archive previous expiry as history, not rearmed policy. Verify this restore behavior separately
+from format conversion. Quarantine evidence remains durable after its source authority retires.
+
+## 11. Migration without gaps or forced relocation
+
+### Out-of-root targets
+
+Existing leases and external stores can sit outside `~/projects`.
+An inert `.reap` there does not complete conversion. Do not broaden all of `~/src`, relocate active
+work, or move session history merely to convert metadata.
+
+Propose exact conversion scopes in machine configuration:
+
+- Exact workspace: evaluate only that adopted directory and subtree, including its own retirement.
+  Its parent and siblings remain outside scope.
+- Exact store container: evaluate its adopted direct-child retention rules. The container remains
+  protected. Nearby stores do not become armed.
+
+Bind exact scope to native instance and current location. This is a scope allowlist, not a TTL
+database or repository list of host locations. Local policy still owns every lifetime.
+Lost scope configuration makes the target inert. Copies/replacements never inherit scope.
+A move outside scope stays inert until an explicit update or an existing governed root covers it.
+A Reap-managed move can include an explicit journaled scope update.
+Publishing this proposal changes no scope or root.
+
+### Cutover
+
+1. Correct demonstrated fail-open defects. Record safety-policy corrections separately from conversion.
+   Establish corrected-reference verdicts and stricter legacy guards.
+2. Deliver a bridge executor with old-state support and new reservations. Every applying caller
+   uses it before new state is armed. Lifetime policy stays unchanged in this phase.
+3. Fence older executors with schema/marker changes they demonstrably reject. Cover each applying
+   lifetime family, not only the lease reader. Use the drain barrier below before publication.
+4. Inventory each cohort's policy, arming, provenance, scope, overlaps, holds, and recovery dependencies.
+   Emit local policy and exact-scope diffs without applying either.
+5. Compare corrected-reference verdicts, boundaries, and disposition. Include child declarations,
+   ignored data, shared budgets, and minimum age. A mismatch blocks that target, not its protections.
+6. Reserve conversion durably. Verify identity/old policy again. Publish metadata and confirmed scope
+   while the bridge selects exactly one applying authority by journal phase.
+7. Establish honored policy and grace at the actual location. Transfer credit only with original
+   evidence. Confirm fresh guards/parity, then durably select new authority.
+8. Retire old authority after commit. Preserve originals needed for recovery, without live expiry.
+   Interrupted conversion stays reserved until recovery.
+9. When all live records and recovery dependencies are accounted for, remove old lifetime databases,
+   store arming/binding paths, and obsolete adapters. Retained aliases use only the new model.
+
+Version 1 `.reap` policies are also conversion cohorts. Do not silently treat their expiry as
+adopted version 2 policy. Unresolved targets stay on the bridge; final migration remains incomplete.
+Safety corrections can retain more data but need separate recorded acceptance.
+New and old policy may coexist on disk, never as independent applying paths.
+
+Mixed-version fencing is a release gate, not a version-number assumption.
+If a foreign old process can still apply, isolate its cohort. Do not stop it without authority.
+No new applying model activates until that cohort has one verified applying path.
+
+### Concrete old-executor barrier
+
+The bridge installer first switches every supported CLI and scheduled entry point to the bridge.
+It does not restart a host or kill an existing process. A conversion worker acquires the existing
+stable `state.lock` inode for every affected legacy namespace. Never unlink or replace those locks.
+Existing lifecycle apply holders must finish before acquisition can succeed.
+Keep the locks through fence publication and flush. The bridge recognizes the new fence formats;
+old readers must refuse them. The bridge can still execute unconverted records under its journal.
+
+| Old applying path | Persistent compatibility fence |
+| --- | --- |
+| Lease/create/parents/lease-doctor and declaration apply | `leases.json` version is string `coordinated-v3`; older numeric readers and current `1`/`"2"` readers refuse |
+| Project-relative stores | Retire the old `REAP-STORE.TAG` signature under the barrier; preserve its original evidence in the journal |
+| External stores | Fence `store-bindings.json` with a nonnumeric version and retire the old external marker; retain original binding evidence |
+| Quarantine/restore/purge/quarantine-doctor | `index.json` version is string `coordinated-v3`; an old `u32` parser must fail, not merely ignore a new number |
+| Declaration reader | Version 2 is invalid/protective to the old parser; its applying path also meets the lifecycle-state fence |
+
+Cargo compaction uses separate stable per-profile `.cargo-lock` inodes.
+Acquire affected profile locks for the drain; preserve them in new execution too.
+Switch supported Cargo entry points before release. Do not alter Cargo's standard cache marker.
+Some old Cargo callers cache manifests before lock acquisition. Therefore lock acquisition alone
+does not prove their exit. Before activation, use native process identity to confirm that prior
+Reap processes cannot resume against the affected cohort, including paused pre-lock processes.
+Unknown identity or an old surviving process blocks that cohort. Abort the cutover before new
+authority activates; release the drain locks without pretending conversion passed.
+This condition can remain blocked indefinitely; it never authorizes termination of a foreign process.
+
+Apply the same process drain to old callers from alternate state namespaces.
+Take reservations for the full overlapping domain; already converted descendants remain vetoes.
+Flush fence and phase records before releasing the barrier. Partial publication stays on the bridge
+and requires recovery, not an independent new executor.
+
+These are compatibility barriers for the supported fleet entry points and known old versions.
+They are not a security boundary against someone who invokes arbitrary historical source or binaries.
+No same-user policy file can constrain a program that ignores the protocol.
+
+## 12. Acceptance and design completion
+
+Before implementation, bind the proposed CLI/schema rules to executable contracts.
+This design does not change existing specification conformance.
+
+| Gate | Decisive positive and negative proof |
+| --- | --- |
+| Identity feasibility first | Documented non-reuse or effective generation for both bound objects on actual fleet filesystems; otherwise no disposal adoption or conversion |
+| Policy/identity | KEEP survives creator exit/review/merge; rename works; inspected identity rejects queued replacement; copies/clones/restores cannot inherit adoption; cache loss protects |
+| Current safety defects | Failed Git and unreadable nested KEEP preserve installed fixtures; no unsafe apply proposal |
+| Workspace recovery | All branches, detached HEAD, stashes, ignored data, partial subjects, deep nested repositories, exact Cargo exceptions |
+| Store parity | Shared series bytes, minimum age under pressure, all-child rules, newest/count floors, disposition, unarmed/unbound cases |
+| Prompt control | Native p99/one-second results during real scans and target/state/lock/FIFO/output/helper stalls; cold activation included |
+| Linux compatibility | Native transport, supervisor/manual singleton lifecycle, peer credentials, unavailable service, isolated namespace refuses a second executor |
+| Finite resources | Retry/output storms, large inputs, full state, blocked child/inherited pipes; bounded processes/FDs/memory/queues/storage |
+| Admission/recovery | Lost reply, duplicate/conflicting/expired keys, surviving worker, reboot/PID reuse, every journal phase, partial cancellation |
+| Scope/edits | Seals, pending KEEP, unknown children/siblings, caller cwd, replacement, policy/config changes, exact scopes exclude siblings |
+| Useful efficiency | Three paired native read-only runs: lower median child-inclusive CPU/elapsed time, equivalent inputs/coverage, fewer visits |
+| Real work | Authorized cleanup/purge occurs; protected identities survive; quarantine is not credited as freed space |
+| Conversion/callers | Corrected-reference parity, every cutover crash point, old lifetime readers refuse fences, stable-lock/process drain, cross-authority veto, no duplicate executor |
+| Fleet | Full `cargo test`, CLI/docs/skill agreement, workspace recipes, installer cases, installed behavior/native signing on both Macs |
+
+Measure under existing load without foreign-process control. Do not weaken coverage or retention
+when performance fails. Faster no-op, queued-only success, and internal proxies cannot pass runtime gates.
+The native investigation retains baseline measurements and eight failure controls.
+
+Design review ends when each requirement has a mechanism and each material counterexample has a
+resolved response, with no blocking finding on independent rereview. This is not runtime proof.
+Owner ratification, implementation, conversion, and fleet acceptance remain separate open stages.
+This design adds no agent heartbeat, watcher, audit catalog, CPU governor, recurring schedule,
+or automatic human-work closeout.
+
+## 13. Grounds and ratification
+
+The owner said on 2026-10-23: "the reap information should live alongside the directories so if
+they move it's not a problem." The owner allowed justified leases and requested the split first.
+This design retains execution reservations, not permanent lifetime leases.
+
+Owner review of the complete design: **pending**.
+The `~/projects` ruling does not approve proposed exact scopes or CLI/schema changes.
+
+Evidence: [authority prototype](../proof/LIFETIME-AUTHORITY-T1.md),
+[format prototype](../proof/LIFETIME-FORMAT-T1.md),
+[Cargo retirement](../proof/CARGO-RETIREMENT.md), and
+[combined adversarial review](../proof/LIFETIME-DESIGN-RED-TEAM.md).

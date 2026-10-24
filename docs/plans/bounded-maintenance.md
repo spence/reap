@@ -1,5 +1,9 @@
 # Reap maintenance efficiency redesign
 
+Current design candidate: [portable policy and prompt execution](../decisions/DEC-LIFETIME-AUTHORITY.md).
+It combines the lifetime migration with isolated job control and supersedes this proposal's
+execution architecture. This document retains the earlier evidence and efficiency criteria.
+
 Status: proposal for owner review · 2026-10-17. No implementation or operational change is
 authorized by this document. The implementation milestones below are proposed, not accepted Burn
 work. Register this proposal as an asset of `OBJ-REAP-LIFETIME`; promote the selected design into
