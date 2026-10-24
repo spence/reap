@@ -17,6 +17,10 @@ use crate::journal::{Journal, Key, Prepared, Terminal};
 use crate::launch::{Launch, Resources};
 use crate::worker::{self, Owned, Report, Start, Task};
 
+mod files_job;
+
+pub(crate) use files_job::{assess as assess_files, resolve as resolve_files};
+
 const MAX_PENDING: usize = 16;
 const MAX_OBJECTS: usize = 128;
 const MAX_INPUT: u64 = 64 * 1024;
@@ -27,8 +31,11 @@ const MAX_INPUT: u64 = 64 * 1024;
 pub enum Progress {
   Queued,
   Resolving,
+  ResolvingFiles,
   Resolved { scope: Scope },
+  FilesResolved { scope: Scope },
   Checking { scope: Scope },
+  PreviewingFiles { scope: Scope },
   Result { terminal: Terminal },
 }
 
@@ -36,10 +43,22 @@ impl Progress {
   pub(crate) fn successor(&self, next: &Self) -> bool {
     match (self, next) {
       (Self::Queued, Self::Resolving) | (Self::Resolving, Self::Resolved { .. }) => true,
-      (Self::Resolved { scope: previous }, Self::Checking { scope: next }) => previous == next,
-      (Self::Resolving | Self::Resolved { .. } | Self::Checking { .. }, Self::Result { .. }) => {
+      (Self::Queued, Self::ResolvingFiles) | (Self::ResolvingFiles, Self::FilesResolved { .. }) => {
         true
       }
+      (Self::Resolved { scope: previous }, Self::Checking { scope: next }) => previous == next,
+      (Self::FilesResolved { scope: previous }, Self::PreviewingFiles { scope: next }) => {
+        previous == next
+      }
+      (
+        Self::Resolving
+        | Self::ResolvingFiles
+        | Self::Resolved { .. }
+        | Self::FilesResolved { .. }
+        | Self::Checking { .. }
+        | Self::PreviewingFiles { .. },
+        Self::Result { .. },
+      ) => true,
       _ => false,
     }
   }
@@ -72,6 +91,7 @@ pub(crate) struct Scheduler {
 struct Job {
   key: Key,
   input: Prepared,
+  files: bool,
   progress: Progress,
   launch: Option<Launch>,
   owned: Option<Owned>,
@@ -100,6 +120,8 @@ impl Scheduler {
       return Err(invalid("execution queue exceeds its bound"));
     }
     self.jobs.push_back(Job {
+      files: matches!(journal.lookup(&key)?, crate::journal::Decision::Present { job }
+        if job.invocation.as_ref().is_some_and(|summary| summary.operation == "files")),
       key,
       input,
       progress,
@@ -145,6 +167,14 @@ impl Job {
         (Progress::Checking { .. }, Ok(Report::Checked { terminal })) if done.exit_code == 0 => {
           Progress::Result { terminal }
         }
+        (Progress::ResolvingFiles, Ok(Report::FilesResolved { scope })) if done.exit_code == 0 => {
+          Progress::FilesResolved { scope }
+        }
+        (Progress::PreviewingFiles { .. }, Ok(Report::FilesPreviewed { terminal }))
+          if done.exit_code == 0 =>
+        {
+          Progress::Result { terminal }
+        }
         (_, Ok(Report::Refused { reason })) => Progress::Result {
           terminal: refused(&reason),
         },
@@ -177,6 +207,12 @@ impl Job {
         journal.complete(&self.key, terminal, now)?;
         return Ok(true);
       }
+      Progress::Queued if self.files => {
+        self.persist(journal, Progress::ResolvingFiles)?;
+        Task::ResolveFiles {
+          input: self.input.clone(),
+        }
+      }
       Progress::Queued => {
         self.persist(journal, Progress::Resolving)?;
         Task::ResolveCheck {
@@ -186,6 +222,32 @@ impl Job {
       Progress::Resolving if self.launch.is_none() => Task::ResolveCheck {
         input: self.input.clone(),
       },
+      Progress::ResolvingFiles if self.launch.is_none() => Task::ResolveFiles {
+        input: self.input.clone(),
+      },
+      Progress::FilesResolved { scope } => {
+        self.persist(
+          journal,
+          Progress::PreviewingFiles {
+            scope: scope.clone(),
+          },
+        )?;
+        Task::PreviewFiles {
+          input: self.input.clone(),
+          scope,
+        }
+      }
+      Progress::PreviewingFiles { scope }
+        if self
+          .launch
+          .as_ref()
+          .is_none_or(|launch| matches!(launch.resources, Resources::Resolver)) =>
+      {
+        Task::PreviewFiles {
+          input: self.input.clone(),
+          scope,
+        }
+      }
       Progress::Resolved { scope } => {
         self.persist(
           journal,
@@ -235,6 +297,12 @@ impl Job {
       }
       Start::Retained(launch) => self.launch = Some(launch),
       Start::Busy => {}
+      Start::Rejected(reason) => self.persist(
+        journal,
+        Progress::Result {
+          terminal: refused(&format!("task rejected before launch: {reason}")),
+        },
+      )?,
     }
     Ok(false)
   }
@@ -348,6 +416,64 @@ impl Inspector<'_> {
       content,
       missing,
     });
+    Ok(())
+  }
+
+  /// Revalidate every recorded dependency after the complete target assessment.
+  fn revalidate(&self) -> io::Result<()> {
+    for object in &self.objects {
+      let path = if object.missing.is_empty() {
+        object.path.clone()
+      } else {
+        match std::fs::symlink_metadata(&object.path) {
+          Err(reason) if reason.kind() == io::ErrorKind::NotFound => {}
+          _ => return Err(invalid("dependency absence is no longer proved")),
+        }
+        let mut path = object.path.clone();
+        for _ in &object.missing {
+          path.pop();
+        }
+        path
+      };
+      let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(
+          libc::O_NONBLOCK
+            | libc::O_CLOEXEC
+            | if object.content.is_none() {
+              libc::O_DIRECTORY
+            } else {
+              0
+            }
+            | if object.content.is_some() || self.nofollow.contains(&path) {
+              libc::O_NOFOLLOW
+            } else {
+              0
+            },
+        )
+        .open(&path)?;
+      if ObjectIdentity::read(&file)? != object.identity
+        || crate::volumes::resolve(&file)? != object.physical_volumes
+      {
+        return Err(invalid("check dependency changed during assessment"));
+      }
+      if let Some(digest) = &object.content {
+        let mut confirmation = Inspector {
+          allowed: self.allowed,
+          objects: Vec::new(),
+          physical: BTreeSet::new(),
+          nofollow: BTreeSet::new(),
+        };
+        let bytes = confirmation
+          .bytes(&path)?
+          .ok_or_else(|| invalid("check input disappeared"))?;
+        if confirmation.objects.last().map(|read| &read.identity) != Some(&object.identity)
+          || format!("{:x}", Sha256::digest(bytes)) != *digest
+        {
+          return Err(invalid("check input content changed during assessment"));
+        }
+      }
+    }
     Ok(())
   }
 
@@ -777,60 +903,7 @@ fn inspect(input: &Prepared, allowed: Option<&[String]>) -> io::Result<(Scope, T
       "capacity-incomplete: complete check result exceeds the terminal bound",
     ));
   }
-  // detect path substitution and dependency edits across the complete assessment.
-  for object in &io.objects {
-    let path = if object.missing.is_empty() {
-      object.path.clone()
-    } else {
-      match std::fs::symlink_metadata(&object.path) {
-        Err(reason) if reason.kind() == io::ErrorKind::NotFound => {}
-        _ => return Err(invalid("dependency absence is no longer proved")),
-      }
-      let mut path = object.path.clone();
-      for _ in &object.missing {
-        path.pop();
-      }
-      path
-    };
-    let file = OpenOptions::new()
-      .read(true)
-      .custom_flags(
-        libc::O_NONBLOCK
-          | libc::O_CLOEXEC
-          | if object.content.is_none() {
-            libc::O_DIRECTORY
-          } else {
-            0
-          }
-          | if object.content.is_some() || io.nofollow.contains(&path) {
-            libc::O_NOFOLLOW
-          } else {
-            0
-          },
-      )
-      .open(&path)?;
-    if ObjectIdentity::read(&file)? != object.identity
-      || crate::volumes::resolve(&file)? != object.physical_volumes
-    {
-      return Err(invalid("check dependency changed during assessment"));
-    }
-    if let Some(digest) = &object.content {
-      let mut confirmation = Inspector {
-        allowed,
-        objects: Vec::new(),
-        physical: BTreeSet::new(),
-        nofollow: BTreeSet::new(),
-      };
-      let bytes = confirmation
-        .bytes(&path)?
-        .ok_or_else(|| invalid("check input disappeared"))?;
-      if confirmation.objects.last().map(|read| &read.identity) != Some(&object.identity)
-        || format!("{:x}", Sha256::digest(bytes)) != *digest
-      {
-        return Err(invalid("check input content changed during assessment"));
-      }
-    }
-  }
+  io.revalidate()?;
   crate::invocation::fresh(input)?;
   let scope = Scope {
     project,

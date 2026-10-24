@@ -44,7 +44,7 @@ pub struct Summary {
 impl Summary {
   /// Validate supported presentation metadata without treating it as execution permission.
   pub fn valid(&self) -> bool {
-    self.operation == "check"
+    matches!(self.operation.as_str(), "check" | "files")
       && self.mode == "read"
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
@@ -53,13 +53,23 @@ impl Summary {
 
 /// Summarize the supported read-only request without filesystem access.
 pub fn summary(input: &Intent) -> Option<Summary> {
-  if !valid_intent(input) || input.argv.first()?.as_str() != "check" || input.argv.len() > 2 {
+  if !valid_intent(input)
+    || !matches!(input.argv.first()?.as_str(), "check" | "files")
+    || input.argv.len() > 2
+    || (input.argv[0] == "files" && input.argv.get(1).is_some_and(|arg| arg.starts_with('-')))
+  {
     return None;
   }
   Some(Summary {
-    operation: "check".into(),
+    operation: input.argv[0].clone(),
     mode: "read".into(),
-    requested_scope: input.argv.get(1).cloned().unwrap_or_else(|| ".".into()),
+    requested_scope: input.argv.get(1).cloned().unwrap_or_else(|| {
+      if input.argv[0] == "files" {
+        "configured".into()
+      } else {
+        ".".into()
+      }
+    }),
   })
 }
 

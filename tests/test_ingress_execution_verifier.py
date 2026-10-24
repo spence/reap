@@ -27,14 +27,16 @@ def response(code=0, output=""):
 
 def execution_fixture():
     key = {"generation": "a" * 32, "epoch": 1, "nonce": "b" * 32}
-    result = {"exit_code": 0, "effects": 0, "detail": "complete read-only assessment"}
-    view = {"key": key, "created_at": 1, "completed_at": 2, "result": result}
-    job = {"document": "Job", "view": view,
+    result = {"exit_code": 0, "effects": 0, "detail": json.dumps({"command": "check"})}
+    payload = {"request": json.dumps({"argv": ["check", "/owned/project"]})}
+    view = {"key": key, "created_at": 1, "completed_at": 2, "result": result,
+            "invocation": {"operation": "check", "mode": "read"}}
+    job = {"document": "Job", "view": view, "input": payload,
            "execution": {"phase": "result", "terminal": result},
            "launch": {"resources": {"slot": "bulk"}, "helpers": [None, None],
                       "worker": {"state": {"phase": "exited"}}}}
     evidence = {"key": key, "prepared_key": key, "metadata_only": False,
-                "receipt": {"key": key},
+                "receipt": {"key": key, "input": payload},
                 "read_only_execution": True, "cleanup_granted": False,
                 "raw_admission_refused": True, "expired_ticket_exact_replay": True,
                 "admission_elapsed_ns": 100,
@@ -98,6 +100,42 @@ class Ownership(unittest.TestCase):
 
 
 class Evidence(unittest.TestCase):
+    def test_files_proof_requires_the_exact_operation_and_complete_read_only_report(self):
+        evidence, job = execution_fixture()
+        payload = {"request": json.dumps({"argv": ["files", "/owned/project"]})}
+        job["input"] = payload
+        evidence["receipt"]["input"] = payload
+        job["view"]["invocation"] = {"operation": "files", "mode": "read"}
+        detail = {"command": "files", "requested_roots": 1, "present_roots": 1,
+                  "reports": [{"exit_code": 0, "coverage_complete": True,
+                               "roots": 1, "declarations": 0, "honored": 0, "invalid": 0,
+                               "undeclared": 2, "planned_units": 0, "blocked_units": 0,
+                               "planned_bytes": 0, "completed_bytes": 0,
+                               "completed_units": 0, "unknown_residual_units": 0}]}
+        job["view"]["result"]["detail"] = json.dumps(detail)
+        evidence["terminal"]["job"] = job["view"]
+        evidence["job_cli"] = [copy.deepcopy(evidence["terminal"]), copy.deepcopy(evidence["terminal"])]
+        VERIFIER.validate_execution(evidence, frame(job), b"installed protected survivor", "files")
+        for change in ("operation", "coverage", "effects", "roots", "bytes", "discovery", "missing", "boolean"):
+            bad_evidence, bad_job = copy.deepcopy((evidence, job))
+            if change == "operation":
+                bad_job["input"]["request"] = json.dumps({"argv": ["check", "/owned/project"]})
+            else:
+                bad_detail = json.loads(bad_job["view"]["result"]["detail"])
+                report = bad_detail["reports"][0]
+                if change == "missing":
+                    del report["planned_bytes"]
+                else:
+                    name, value = {"coverage": ("coverage_complete", False),
+                                   "effects": ("unknown_residual_units", 1), "roots": ("roots", 0),
+                                   "bytes": ("completed_bytes", 99), "discovery": ("undeclared", 0),
+                                   "boolean": ("roots", True)}[change]
+                    report[name] = value
+                bad_job["view"]["result"]["detail"] = json.dumps(bad_detail)
+                bad_evidence["job_cli"] = [copy.deepcopy(bad_evidence["terminal"]), copy.deepcopy(bad_evidence["terminal"])]
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                VERIFIER.validate_execution(bad_evidence, frame(bad_job), b"installed protected survivor", "files")
+
     def test_terminal_and_preparation_must_match_the_original_key(self):
         evidence, job = execution_fixture()
         self.assertEqual(VERIFIER.validate_execution(evidence, frame(job), b"installed protected survivor")["state"], "completed")

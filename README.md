@@ -1106,6 +1106,8 @@ This library operation does not establish complete conversation dependencies or 
 Native prepared jobs now have a [read-only check execution path](docs/specs/job-execution.md)
 through owned resolver/bulk workers and durable terminal results. Ordinary `check` uses this path;
 applying operations are not activated.
+Internal declaration preview also has native resolver and worker phases with structured counters.
+Public `files` still uses its foreground route; its activation and caller-migration gates remain open.
 These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.
 

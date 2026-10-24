@@ -676,3 +676,47 @@ fn undeclared_targets_are_reported_and_declared_ones_are_not() {
   assert!(!out.contains("p/declared"), "{out}");
   assert!(!out.contains("q/run-1"), "{out}");
 }
+
+#[test]
+fn sealed_expiry_preserves_source_and_archive_roles_for_each_disposition() {
+  for disposition in ["delete", "quarantine"] {
+    let env = Env::new(0.0);
+    let parent = env.projects().join("p/expired");
+    declare(
+      &parent,
+      json!({"version":1,"expires":PAST,"seal":true,
+      "scratch":true,"disposition":disposition}),
+    );
+    for (name, role, seal) in [
+      ("source", "conversation_source", false),
+      ("archive", "permanent_archive", true),
+    ] {
+      declare(
+        &parent.join(name),
+        json!({"version":2,"role":role,
+        "keep":{"reason":"retained"},"seal":seal}),
+      );
+      file(&parent.join(name).join("sentinel"));
+    }
+    age(&env.projects(), 2.0);
+    let output = env.apply();
+    for name in ["source", "archive"] {
+      assert_eq!(
+        fs::read(parent.join(name).join("sentinel")).unwrap(),
+        b"x",
+        "{disposition}: {output}"
+      );
+      assert!(
+        parent.join(name).join(".reap").is_file(),
+        "{disposition}: {output}"
+      );
+    }
+    assert!(
+      env.quarantine_index()["entries"]
+        .as_array()
+        .unwrap()
+        .is_empty(),
+      "{disposition}: {output}"
+    );
+  }
+}

@@ -256,7 +256,10 @@ fn invalid_task_cannot_create_a_reservation_or_process() {
     PathBuf::from("/tmp/../other"),
     PathBuf::from("/invalid\0target"),
   ] {
-    assert!(start(&mut journal, &key, 1, Task::Resolve { directory }).is_err());
+    assert!(matches!(
+      start(&mut journal, &key, 1, Task::Resolve { directory }).unwrap(),
+      Start::Rejected(reason) if !reason.is_empty()
+    ));
     assert!(journal.launch(&key).unwrap().is_none());
   }
 }

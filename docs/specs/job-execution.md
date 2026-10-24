@@ -13,6 +13,8 @@ This contract covers the first read-only `check [path]` execution path.
 The public CLI uses the bounded job client. This path does not activate applying operations,
 legacy migration, archive policy, source pruning, or new cleanup authority.
 The unified legacy bridge, old-reader barriers, and commit guards remain required for effectful routes.
+Internal prepared `files [governed-root]` requests also use owned resolver and preview phases.
+The public `files` route is not activated by that internal adapter.
 
 ## Contract
 
@@ -40,6 +42,26 @@ The unified legacy bridge, old-reader barriers, and commit guards remain require
 - **C6** — Every successful terminal assessment has zero effects and survives lookup and exact replay.
   Protected target content remains unchanged.
   Binding: `native_check_pipeline_completes_once_with_local_store_and_protected_survivors` and the native client path.
+- **C7** — Deterministic task validation or combined-wire-capacity rejection fails only that job, before a new launch intent or process exists.
+  Journal and uncertain ownership failures remain service failures; they cannot become rejected-before-launch evidence.
+  Binding: `oversized_combined_task_fails_only_its_job_without_creating_a_bulk_process`.
+- **C8** — Internal files preview binds caller, namespace, configuration, governed roots, state inputs, and native physical resources.
+  It accepts only read mode. Proven absent roots differ from existing non-directories.
+  Changed configuration or namespace refuses assessment. It does not write targets or first-seen observations.
+  Binding: `native_files_distinguishes_missing_and_nondirectory_governed_roots`,
+  `native_files_changed_configuration_and_namespace_refuse_before_assessment`,
+  `native_files_rejects_applying_flags_without_poisoning_later_read_jobs`.
+- **C9** — Files preview consumes descriptor-bound complete inputs within its allocation budget.
+  Child symlinks remain leaves; ungranted devices, replaced objects, incomplete enumeration, unsafe declarations, and exhausted budgets cannot establish complete coverage.
+  Ancestor device evidence comes from the freshly validated native physical closure.
+  Unknown Git or activity evidence remains incomplete; preview does not start ungranted helpers.
+  Structured counters remain complete when diagnostic output is discarded. Large complete terminal reports refuse capacity rather than omit counters into success.
+  Binding: `files::tests::structured_preview_fixture`, native files pipeline tests, and installed ingress `--operation files`.
+- **C10** — Files phase and terminal publication retain exact operation identity through restart and replay.
+  A surviving bulk child retains its physical reservation. A lost result does not permit a duplicate launch or completed success.
+  Binding: `restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches`,
+  `durable_resolver_and_bulk_results_recover_across_each_publication_boundary`,
+  `native_files_pipeline_retains_operation_results_and_sources_without_cache_writes`.
 
 ## Bounds and supported closure
 
@@ -73,11 +95,22 @@ New native prepared admission records `queued` in the admission transaction.
 The phase path is `queued → resolving → resolved → checking → result → terminal`.
 `resolved` retains the complete scope. `checking` retains that scope through bulk execution.
 `result` retains the exact terminal summary before reservation release and terminal publication.
+Internal files execution uses `resolving_files → files_resolved → previewing_files → result` after the queued phase.
+Its retained invocation summary must name `files`; check and files phase records cannot substitute for each other.
 Worker launch sequences, native identity, boot identity, grants, and helper slots retain their existing contract.
 
 A crash before a launch intent can resume the queued read-only phase.
 A surviving recorded launch blocks conflict. A same-boot birth without exact process evidence remains occupied.
 After exact absence, a phase without durable result evidence returns incomplete, not successful replay.
+
+## Files activation boundary
+
+The shared engine supplies the current foreground CLI and internal native preview.
+Its report separates planned, blocked, completed, and unknown-residual units, known bytes, and coverage completeness.
+The native preview has zero effects. Unknown residual effects remain explicit in failed legacy applying reports.
+Native preview currently covers configured whole roots, not the design's full scoped dependency closure.
+Fresh owned Git/activity probes, paged large reports, first-seen observation publication, fair discovery quanta,
+legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.
 No recovery path reruns an uncertain mutating operation; none is supported by this dispatcher.
 

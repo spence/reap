@@ -1027,8 +1027,11 @@ mod native {
     fs::create_dir(&project).unwrap();
     fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
     fs::write(project.join("valuable"), b"installed protected survivor").unwrap();
+    let operation =
+      std::env::var("REAP_INSTALLED_INGRESS_OPERATION").unwrap_or_else(|_| "check".into());
+    assert!(matches!(operation.as_str(), "check" | "files"));
     let input = Intent {
-      argv: vec!["check".into(), project.to_str().unwrap().into()],
+      argv: vec![operation.clone(), project.to_str().unwrap().into()],
       namespace: invocation::Namespace {
         home: root.join("caller-home"),
         xdg_state_home: Some(root.join("caller-state")),
@@ -1183,7 +1186,7 @@ mod native {
       .unwrap(),
     )
     .unwrap();
-    println!("installed ingress: native context, namespace/config, actual read-only check, durable terminal and raw-admission refusal; admission elapsed {admission_elapsed_ns} ns");
+    println!("installed ingress: native context, namespace/config, actual read-only {operation}, durable terminal and raw-admission refusal; admission elapsed {admission_elapsed_ns} ns");
   }
 
   #[test]

@@ -157,7 +157,7 @@ def cleanup_owned(owned, receipt):
     return safe
 
 
-def validate_execution(evidence, frame, survivor):
+def validate_execution(evidence, frame, survivor, operation=None):
     """Bind actual terminal work to its original and prepared request key."""
     assert not evidence["metadata_only"] and evidence["read_only_execution"]
     assert not evidence["cleanup_granted"]
@@ -179,6 +179,26 @@ def validate_execution(evidence, frame, survivor):
     assert job["view"]["completed_at"] >= job["view"]["created_at"]
     assert job["execution"]["phase"] == "result"
     assert job["execution"]["terminal"] == job["view"]["result"]
+    if operation is not None:
+        assert job["input"] == evidence["receipt"]["input"]
+        request = json.loads(job["input"]["request"])
+        assert request["argv"][0] == operation
+        assert job["view"]["invocation"]["operation"] == operation
+        assert job["view"]["invocation"]["mode"] == "read"
+        detail = json.loads(terminal["job"]["result"]["detail"])
+        assert detail["command"] == operation
+        if operation == "files":
+            assert type(detail["requested_roots"]) is int and type(detail["present_roots"]) is int
+            assert detail["requested_roots"] == detail["present_roots"] == 1
+            assert len(detail["reports"]) == 1
+            report = detail["reports"][0]
+            expected = {"exit_code": 0, "roots": 1, "declarations": 0, "honored": 0,
+                        "invalid": 0, "undeclared": 2, "planned_units": 0, "blocked_units": 0,
+                        "completed_units": 0, "unknown_residual_units": 0, "planned_bytes": 0,
+                        "completed_bytes": 0, "coverage_complete": True}
+            assert report.keys() == expected.keys()
+            assert all(type(report[name]) is type(value) and report[name] == value
+                       for name, value in expected.items())
     launch = job["launch"]
     assert launch["resources"]["slot"] == "bulk"
     assert launch["worker"]["state"]["phase"] in ("exited", "boot_ended")
@@ -201,6 +221,7 @@ def main():
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--managed-services", action="store_true",
                         help="use the exact installed owned cohort without registration or shutdown")
+    parser.add_argument("--operation", choices=["check", "files"], default="check")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
@@ -222,7 +243,7 @@ def main():
     owned = []
     helper = None
     managed_before = None
-    receipt = {"host": platform.node(), "runtime": str(runtime), "cwd": str(cwd),
+    receipt = {"host": platform.node(), "runtime": str(runtime), "cwd": str(cwd), "operation": args.operation,
                "installed_binary": str(installed), "native_exit": None,
                "service_mode": "managed" if args.managed_services else "isolated"}
     if args.managed_services:
@@ -256,7 +277,8 @@ def main():
         receipt["client_sha256"] = sha256(client)
         home = runtime / "caller-home"
         (home / ".config/reap").mkdir(parents=True)
-        config = b'{"roots":["~/caller-only"],"governed_roots":[]}'
+        config = json.dumps({"roots": ["~/caller-only"], "governed_roots":
+                             [str(runtime / "check-project")] if args.operation == "files" else []}).encode()
         (home / ".config/reap/config.json").write_bytes(config)
         if not args.managed_services:
             service_home = runtime / "service-home"
@@ -285,6 +307,7 @@ def main():
         environment.update({
             "REAP_INSTALLED_INGRESS_PROBE": str(runtime),
             "REAP_INSTALLED_INGRESS_BINARY": str(installed),
+            "REAP_INSTALLED_INGRESS_OPERATION": args.operation,
             "REAP_INSTALLED_INGRESS_EXPECT_CWD": str(cwd),
             "REAP_INSTALLED_INGRESS_EXPECT_FILE_ID": f"{cwd.stat().st_ino:016x}",
             "REAP_INSTALLED_INGRESS_EXPECT_CONFIG_SHA256": hashlib.sha256(config).hexdigest(),
@@ -313,7 +336,7 @@ def main():
             receipt.update({"journal_scope": "exact_fixture_key", "journal_key": evidence["key"],
                             "journal_record": record_name, "journal_record_sha256": hashlib.sha256(frame).hexdigest()})
         terminal = validate_execution(evidence, frame,
-                                      (runtime / "check-project/valuable").read_bytes())
+                                      (runtime / "check-project/valuable").read_bytes(), args.operation)
         if args.managed_services:
             (output / "verified-job.json").write_bytes(frame)
             receipt["verified_job_records"] = 1

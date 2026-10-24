@@ -31,7 +31,14 @@ pub enum Task {
   ResolveCheck {
     input: crate::journal::Prepared,
   },
+  ResolveFiles {
+    input: crate::journal::Prepared,
+  },
   Check {
+    input: crate::journal::Prepared,
+    scope: crate::dispatch::Scope,
+  },
+  PreviewFiles {
     input: crate::journal::Prepared,
     scope: crate::dispatch::Scope,
   },
@@ -43,8 +50,10 @@ impl Task {
 
     let directory = match self {
       Self::Resolve { directory } => directory,
-      Self::ResolveCheck { input } => return crate::journal::validate_input(input),
-      Self::Check { input, scope } => {
+      Self::ResolveCheck { input } | Self::ResolveFiles { input } => {
+        return crate::journal::validate_input(input)
+      }
+      Self::Check { input, scope } | Self::PreviewFiles { input, scope } => {
         crate::journal::validate_input(input)?;
         return scope.validate();
       }
@@ -67,6 +76,9 @@ impl Task {
       Self::ResolveCheck { input } if grant.resources == Resources::Resolver => {
         return crate::dispatch::resolve(input).map(|scope| Report::CheckResolved { scope });
       }
+      Self::ResolveFiles { input } if grant.resources == Resources::Resolver => {
+        return crate::dispatch::resolve_files(input).map(|scope| Report::FilesResolved { scope });
+      }
       Self::Check { input, scope }
         if grant.resources
           == (Resources::Bulk {
@@ -74,6 +86,15 @@ impl Task {
           }) =>
       {
         return crate::dispatch::assess(input, scope).map(|terminal| Report::Checked { terminal });
+      }
+      Self::PreviewFiles { input, scope }
+        if grant.resources
+          == (Resources::Bulk {
+            physical_volumes: scope.physical_volumes.clone(),
+          }) =>
+      {
+        return crate::dispatch::assess_files(input, scope)
+          .map(|terminal| Report::FilesPreviewed { terminal });
       }
       Self::Resolve { .. } => {}
       _ => {
@@ -118,6 +139,12 @@ pub enum Report {
   Checked {
     terminal: crate::journal::Terminal,
   },
+  FilesResolved {
+    scope: crate::dispatch::Scope,
+  },
+  FilesPreviewed {
+    terminal: crate::journal::Terminal,
+  },
   Resolved {
     directory: ObjectIdentity,
     physical_volumes: Vec<String>,
@@ -132,6 +159,8 @@ pub enum Start {
   Spawned(Owned),
   Retained(Launch),
   Busy,
+  /// Deterministic task rejection before this call reads or changes launch ownership.
+  Rejected(String),
 }
 
 /// An owned process. Dropping this handle closes its pipe; it never kills or releases a slot.
@@ -157,18 +186,27 @@ pub struct Completion {
 /// Persist a new reservation before spawn. Retried or recovered intents never spawn again.
 /// Call only in the single owned launcher, outside response loops. Spawn can block in the OS.
 pub fn start(journal: &mut Journal, key: &Key, sequence: u64, task: Task) -> io::Result<Start> {
-  task.validate()?;
-  let bytes = serde_json::to_vec(&task)?;
-  if bytes.len() > MAX_PACKET {
-    return Err(invalid("worker task exceeds its bound"));
-  }
+  let bytes = match task.validate().and_then(|()| {
+    let bytes = serde_json::to_vec(&task)?;
+    if bytes.len() > MAX_PACKET {
+      return Err(invalid("worker task exceeds its bound"));
+    }
+    Ok(bytes)
+  }) {
+    Ok(bytes) => bytes,
+    Err(reason) => {
+      return Ok(Start::Rejected(
+        reason.to_string().chars().take(2048).collect(),
+      ))
+    }
+  };
   if let Some(previous) = journal.launch(key)? {
     if previous.sequence == sequence || !previous.released() {
       return Ok(Start::Retained(previous));
     }
   }
   let resources = match &task {
-    Task::Check { scope, .. } => Resources::Bulk {
+    Task::Check { scope, .. } | Task::PreviewFiles { scope, .. } => Resources::Bulk {
       physical_volumes: scope.physical_volumes.clone(),
     },
     _ => Resources::Resolver,
@@ -299,7 +337,7 @@ pub fn run(launch: &str, process: &str) -> i32 {
     let bytes = receive_packet(&mut pipe)?;
     let task: Task = serde_json::from_slice(&bytes)?;
     #[cfg(test)]
-    if matches!(task, Task::Check { .. }) {
+    if matches!(task, Task::Check { .. } | Task::PreviewFiles { .. }) {
       if let Some(gate) = std::env::var_os("REAP_NATIVE_EXECUTION_GATE") {
         let gate = PathBuf::from(gate);
         let mut fifo = OpenOptions::new()
@@ -414,11 +452,16 @@ fn decode_report(bytes: &[u8]) -> io::Result<Report> {
   }
   let report = serde_json::from_slice(&bytes[4..])?;
   match &report {
-    Report::CheckResolved { scope } => scope.validate()?,
+    Report::CheckResolved { scope } | Report::FilesResolved { scope } => scope.validate()?,
     Report::Checked { terminal }
       if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code != 0 =>
     {
       return Err(invalid("invalid read-only check result"));
+    }
+    Report::FilesPreviewed { terminal }
+      if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code == 75 =>
+    {
+      return Err(invalid("invalid read-only files result"));
     }
     _ => {}
   }

@@ -1102,8 +1102,31 @@ impl Job {
     }
     if let Some(progress) = &self.execution {
       use crate::dispatch::Progress;
+      let files = self
+        .view
+        .invocation
+        .as_ref()
+        .is_some_and(|summary| summary.operation == "files");
+      if (matches!(
+        progress,
+        Progress::ResolvingFiles
+          | Progress::FilesResolved { .. }
+          | Progress::PreviewingFiles { .. }
+      ) && !files)
+        || (matches!(
+          progress,
+          Progress::Resolving | Progress::Resolved { .. } | Progress::Checking { .. }
+        ) && files)
+      {
+        return Err(invalid(
+          "execution phase differs from its retained operation",
+        ));
+      }
       match progress {
-        Progress::Resolved { scope } | Progress::Checking { scope } => scope.validate()?,
+        Progress::Resolved { scope }
+        | Progress::Checking { scope }
+        | Progress::FilesResolved { scope }
+        | Progress::PreviewingFiles { scope } => scope.validate()?,
         Progress::Result { terminal }
           if terminal.detail.len() > 4096 || terminal.exit_code == 75 || terminal.effects != 0 =>
         {
@@ -1113,17 +1136,22 @@ impl Job {
       }
       let phase_matches = match progress {
         Progress::Queued => self.launch.is_none(),
-        Progress::Resolving | Progress::Resolved { .. } => self
+        Progress::Resolving
+        | Progress::Resolved { .. }
+        | Progress::ResolvingFiles
+        | Progress::FilesResolved { .. } => self
           .launch
           .as_ref()
           .is_none_or(|launch| launch.resources == Resources::Resolver),
-        Progress::Checking { scope } => self.launch.as_ref().is_some_and(|launch| {
-          (launch.resources == Resources::Resolver && launch.released())
-            || launch.resources
-              == (Resources::Bulk {
-                physical_volumes: scope.physical_volumes.clone(),
-              })
-        }),
+        Progress::Checking { scope } | Progress::PreviewingFiles { scope } => {
+          self.launch.as_ref().is_some_and(|launch| {
+            (launch.resources == Resources::Resolver && launch.released())
+              || launch.resources
+                == (Resources::Bulk {
+                  physical_volumes: scope.physical_volumes.clone(),
+                })
+          })
+        }
         Progress::Result { terminal } => {
           terminal.exit_code != 0
             || self
