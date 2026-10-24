@@ -1,0 +1,283 @@
+{
+  "applying_routes": "unchanged foreground execution",
+  "certificate_identities": {
+    "declaration-tests": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "fault.dylib": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "reap-release": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "reap-unit": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+  },
+  "fixture_qualification": {
+    "accepted_local_fixture": "internal /private/tmp; full fixture body passed without source changes",
+    "earlier_kytos_caller_timeouts": "not root-caused by these internal-storage results",
+    "rejected_repository_local_tmpdir_log_sha256": "bfcf7b09f6d7832d117f34390e72f5472e31aabaaf54c93ec17ca97d7ff75707",
+    "rejected_result": "eligibility counter assertion failed; fixture had an enclosing dirty checkout"
+  },
+  "fleet": {
+    "catalyst": {
+      "artifacts": {
+        "declarations": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "leaf_certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "sha256": "ee613b86d6627abd7d58c9b449ce508c6a87c696202e98b60a3877e57f8db401",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "leaf_certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "sha256": "6f15e46970cbb732086ebe9ab3a3f016fb6a99410f4d90ed0f8695730df3b6ec",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "leaf_certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "sha256": "b2fcb374b2c24dab233c2a7fb4a27ee83f9dcf0be7329f786023c6f562a9d506",
+          "team": "35A87BDK48"
+        }
+      },
+      "ingress": {
+        "check": {
+          "admission_elapsed_ns": 21974708,
+          "client_receipt_sha256": "aeea0421179131cb1437f869f5f8aa61763ccff4a01ae796dea80f886e58172a",
+          "job_frame_sha256": "d66061d616955fc3c4d1e341e1983650566c720f351d811a333c6278343bd68a",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "3646946cbbe46a3b50d814b1c4262934a5d5676b8732cebcea7d4ee2932c3f5e",
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        },
+        "files": {
+          "admission_elapsed_ns": 37068666,
+          "client_receipt_sha256": "65a49be103fa1e8a0fc4fdafa67dc51c621bbe5928ef31695856f1c63a12f98a",
+          "job_frame_sha256": "de4922f28eecfd28fe19c7f4bbd217ffbff3874435c7260da6c53a861511f1bb",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "8787934def701dba766dec0af1f94f9bd9e9027bb1a5dc256bd21dcdc476da82",
+          "report": {
+            "blocked_units": 0,
+            "completed_bytes": 0,
+            "completed_units": 0,
+            "coverage_complete": true,
+            "declarations": 0,
+            "exit_code": 0,
+            "honored": 0,
+            "invalid": 0,
+            "planned_bytes": 0,
+            "planned_units": 0,
+            "roots": 1,
+            "undeclared": 2,
+            "unknown_residual_units": 0
+          },
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        }
+      },
+      "installed": {
+        "declarations": {
+          "ignored": 0,
+          "log_sha256": "db6f5ccfae956c8f225338a8d35ddc58f2715424f55fa93db09562ebdde1c242",
+          "passed": 23
+        },
+        "help_sha256": "151c19743e4a7a39442f6722ade5bf12629ddc4d91ebfc287247f7ff70609b46",
+        "installer_log_sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+        "preservation": {
+          "log_sha256": "943b8187b0c38b71f11f4a884f96b176489931c42b2334c558f5d83af7d3aecd",
+          "passed": 14
+        },
+        "public": {
+          "log_sha256": "b6e7c1eed580142e4bf62916ff8ecdf53fadb380030ac608a694ee13cc742c3f",
+          "passed": 5
+        }
+      },
+      "internal_data_device": 16777232,
+      "native": {
+        "dispatch": {
+          "ignored": 0,
+          "log_sha256": "eb7d7c1b854cb95c8d5daf872540e2611101c1e26099d5cd11f02fed79961add",
+          "passed": 17,
+          "receipt_sha256": "4b405460c4be5726c8a10c1f6ee71d702d850c87ef977090fcbf3231628c9de7",
+          "runtime_removed": true
+        },
+        "files_engine": {
+          "ignored": 0,
+          "log_sha256": "a517204830339172ea8e54ad4557d71df17be1de4353805f539a2287a0c022b2",
+          "passed": 1
+        },
+        "launch": {
+          "ignored": 0,
+          "log_sha256": "5d98b572c83e2ee7c70c7bc63433302476bfadd3ebaefb5c3f5231a103dae26e",
+          "passed": 13,
+          "receipt_sha256": "3ea00abea8cab28e3c5720a6c7489bc3febf5ae6614fd75246e7f89f45fd5da6",
+          "runtime_removed": true
+        },
+        "service": {
+          "ignored": 0,
+          "log_sha256": "67c8440b5cfb2908f750b6453c0c5bd3a5d37cba79e385bed2982e1ee61d915f",
+          "passed": 13,
+          "receipt_sha256": "e70a185c9d9366902b711644971ffc0614e8d658535cca22c4f8fb8b7d029172",
+          "runtime_removed": true
+        }
+      },
+      "version": "reap 0.1.0"
+    },
+    "catalyst-mini": {
+      "artifacts": {
+        "declarations": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "leaf_certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "sha256": "ee613b86d6627abd7d58c9b449ce508c6a87c696202e98b60a3877e57f8db401",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "leaf_certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "sha256": "6f15e46970cbb732086ebe9ab3a3f016fb6a99410f4d90ed0f8695730df3b6ec",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "leaf_certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "sha256": "b2fcb374b2c24dab233c2a7fb4a27ee83f9dcf0be7329f786023c6f562a9d506",
+          "team": "35A87BDK48"
+        }
+      },
+      "ingress": {
+        "check": {
+          "admission_elapsed_ns": 43395166,
+          "client_receipt_sha256": "cde42c28a3fb8fef7050ab02c75486d725f8a1307dfb546b03050b01c594a3d5",
+          "job_frame_sha256": "acbae9e65e2ef8af77a58c70039d2532fa474685c08d3617226f76d8ab937ff1",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "199bb927c4f8f63e108a5921c4f7528878ee3e1b580381cd41b1ae2471274b24",
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        },
+        "files": {
+          "admission_elapsed_ns": 18866625,
+          "client_receipt_sha256": "48c5c421cfbe76b54fb36c4f9f7b60e1969702f749b3a355d23ee908a7858b5c",
+          "job_frame_sha256": "69367fe6b775eacc1ab6260a53d68507816cc7cca165fe2b47c9217ee412669c",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "4270bf4f07d68e082617ee20247bd5e01a8ea58f611437e152b9e577ed6f6584",
+          "report": {
+            "blocked_units": 0,
+            "completed_bytes": 0,
+            "completed_units": 0,
+            "coverage_complete": true,
+            "declarations": 0,
+            "exit_code": 0,
+            "honored": 0,
+            "invalid": 0,
+            "planned_bytes": 0,
+            "planned_units": 0,
+            "roots": 1,
+            "undeclared": 2,
+            "unknown_residual_units": 0
+          },
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        }
+      },
+      "installed": {
+        "declarations": {
+          "ignored": 0,
+          "log_sha256": "e5ca9a14f7d7305d7463ab69493afdc492c73093e607d79b58f3987bf943f1bd",
+          "passed": 23
+        },
+        "help_sha256": "151c19743e4a7a39442f6722ade5bf12629ddc4d91ebfc287247f7ff70609b46",
+        "installer_log_sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+        "preservation": {
+          "log_sha256": "f0d19ecd4fce9d155d6e217b6eff5c3a5dc3d0fbfa4039d06c932a112111ec33",
+          "passed": 14
+        },
+        "public": {
+          "log_sha256": "770e757d8763bac015aa12c7b54a362eae2b66d47b9df2a4ac90dc7cadb177c0",
+          "passed": 5
+        }
+      },
+      "internal_data_device": 16777234,
+      "native": {
+        "dispatch": {
+          "ignored": 0,
+          "log_sha256": "14eaa6ddddf84e9c34c54bf07ab7f1711305dd7dd82b1243cdfa3eda83d84804",
+          "passed": 17,
+          "receipt_sha256": "81688fab598451c43183e362ca0109bc3b9bbf998c2a1237c6d2b996720ec728",
+          "runtime_removed": true
+        },
+        "files_engine": {
+          "ignored": 0,
+          "log_sha256": "ccb334a59b0c92ed9f4ed4aac5b7e768a3fb6d461b1eaf4172e781964c5d723d",
+          "passed": 1
+        },
+        "launch": {
+          "ignored": 0,
+          "log_sha256": "baf92c96f071eeea7d3ff777fcd32757cc71f675f8893d6e38a27df5659d3284",
+          "passed": 13,
+          "receipt_sha256": "018c803aacb4729074d7f0231eaca0c10b195a4f0af1ae0a81c40400d8002ac6",
+          "runtime_removed": true
+        },
+        "service": {
+          "ignored": 0,
+          "log_sha256": "8cf37189fb1a03c04443814f6c495c530d4442bcf62e7ac04b7ec2e32d2a6e83",
+          "passed": 13,
+          "receipt_sha256": "772044bd49690828c45d6592b4d2c5a9b76f73e2f6b3265fca51c6c08a3daabb",
+          "runtime_removed": true
+        }
+      },
+      "version": "reap 0.1.0"
+    }
+  },
+  "production_conversion_or_archival_or_source_pruning": false,
+  "public_files_activation": false,
+  "python": {
+    "consumer_verifier": 16,
+    "service_installer": 23,
+    "signing_publication": 19
+  },
+  "rust": {
+    "cross_device_opt_in_bodies": 2,
+    "cross_device_opt_in_bodies_exercised": false,
+    "declaration": 23,
+    "explicit_native_fault_cases": 5,
+    "full_log_sha256": "4e5e1a3d8252758b27e0e811f0c7dc902349b9e4ab325d7eabfe150fb986e4af",
+    "lifecycle_entries": 57,
+    "regular_unit": 236
+  },
+  "source_review": {
+    "approval_sha256": "023155e5ced64a2c2f6c93388e10be824dc31f7b89408646729a72364f2c3c99",
+    "effort": "high",
+    "execution_profile": "host",
+    "freeze_helper_sha256": "23c997fc9a98d965e45e0cc57490f2e1264874df9137ae59ddd172f177a5c4ad",
+    "model": "gpt-6.1-sol",
+    "scope_sha256": "80268a4048f3564396b7a36a6c762cca1656e204c6a4f77ae3d16b78d0e8b259",
+    "verdict": "ACCEPT"
+  },
+  "source_revision": "6a8d7eee977cdcadcd7a98509b9e8b6985061b73",
+  "source_sha256": {
+    "README.md": "bd8965078dfdabe0753c8496c8e83683ba6a95dc26ccb9198dde2556d6a0cd09",
+    "docs/specs/job-execution.md": "1e581ff68bc7810e597808deacb8fefa31157c0091d8104cef35047e72cb3361",
+    "src/dispatch.rs": "17ce894d3de78d88bf690c57b7ffc7619935a408737cfc08c20f55238f12265f",
+    "src/dispatch/files_job.rs": "d7ec881bf4e8f67156408a338410728ad1bf26f82c2e1898e85d0bd9234d2ff0",
+    "src/dispatch/tests.rs": "e9a266ecbf42354e2e1cd2b525e7bcd8453ffee7673e2b7314eedafa514e7bef",
+    "src/files.rs": "b80a03d246d1b16fe0d01cc0953240f94999fe0fb60bf383d7fb0a604658b4db",
+    "src/invocation.rs": "52462922cdbcca4ac0fe9c8ef556e6e06f583ce4b6e3957452fc4c984bb02990",
+    "src/journal.rs": "ffbff599517603c747d34cacfe5446828cf489443de83620ec9ea6ef08f3e093",
+    "src/service/tests.rs": "953c5a286da8dfef03f309223c5d61d929d135daf4c3d1f63065c988f9f1530c",
+    "src/worker.rs": "6b879a9c83fbe99f9fcbfeb85233e996a134c639cb018df9cc326ee9207ea88d",
+    "src/worker/tests.rs": "da1cae89e6ab2ce76ef228ae98ae513cfc93cbbe1b2ee9746bccaf7564d531e1",
+    "tests/reap_files.rs": "0256d6db2bb16b6c3b93e497a4262ac6ddaeefa9522bf3ef9b6ec13d41f3f81c",
+    "tests/test_ingress_execution_verifier.py": "f9f95cf672add51ad93558d631bafd3cb8885d0f36b80937a137c0d9c230e0bb",
+    "tools/verify_ingress_macos.py": "c6d7f2e59e7eb47a9c4b4cc8b5ea74e4f6d42dcc2a4ad4ea4efd7a8997d894c8"
+  }
+}
