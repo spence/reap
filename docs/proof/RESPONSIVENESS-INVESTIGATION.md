@@ -6,6 +6,10 @@ Status: investigation and design recommendation. No production behavior, install
 scheduler, cleanup authority, or foreign process changed. Implementation and fleet rollout remain
 separate work. The numbers below do not establish a performance improvement.
 
+Subsequent owner direction combines the redesign with lifetime migration.
+The [authority-boundary draft](../decisions/DEC-LIFETIME-AUTHORITY.md) defines the proposed split
+between directory policy, legacy leases, discovery and execution state for review before implementation.
+
 ## Finding and recommendation
 
 The main measured cost is broad filesystem discovery. Reap also puts filesystem operations,
