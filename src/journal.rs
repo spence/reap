@@ -3,7 +3,7 @@
 //! Call these methods only in the isolated state writer. A failed transaction poisons that
 //! writer until recovery; an I/O error cannot become a fresh or empty admission history.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, Read, Write};
@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use crate::launch::{Grant, Launch, Process, ProcessIdentity, ProcessState, Resources};
 
 const SCHEMA: u32 = 1;
 const MAX_RECORD: u64 = 128 * 1024;
@@ -194,6 +196,28 @@ impl Journal {
       }
       journal.install(job)?;
     }
+    let mut occupied = BTreeSet::new();
+    for launch in journal
+      .index
+      .values()
+      .filter_map(|entry| entry.launch.as_ref())
+      .filter(|launch| !launch.released())
+    {
+      let resources: &[String] = match &launch.resources {
+        Resources::Resolver => {
+          if !occupied.insert("<resolver>") {
+            return Err(invalid("recovered resolver reservations conflict"));
+          }
+          continue;
+        }
+        Resources::Bulk { physical_volumes } => physical_volumes,
+      };
+      for resource in resources {
+        if !occupied.insert(resource.as_str()) {
+          return Err(invalid("recovered physical resource reservations conflict"));
+        }
+      }
+    }
     if !journal.capacity(0) {
       return Err(invalid("admission metadata exceeds its reserved capacity"));
     }
@@ -290,10 +314,232 @@ impl Journal {
         result: None,
       },
       input,
+      launch: None,
     };
     self.persist(Document::Job(job.clone()))?;
     self.install(job.clone())?;
     Ok(Decision::Present { job: job.view })
+  }
+
+  /// Reserve all physical resources in one durable transaction before process creation.
+  /// `None` means occupied capacity. A retained reservation is returned without replacement.
+  /// Only the native target resolver may supply physical-volume keys here.
+  pub fn reserve_launch(
+    &mut self,
+    key: &Key,
+    sequence: u64,
+    resources: Resources,
+  ) -> io::Result<Option<Launch>> {
+    resources.validate()?;
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("launch job is not retained"))?;
+    if job.view.result.is_some() {
+      return Err(invalid("completed job cannot launch"));
+    }
+    if let Some(launch) = &job.launch {
+      if launch.sequence == sequence {
+        return if launch.resources == resources {
+          Ok(Some(launch.clone()))
+        } else {
+          Err(invalid("retained launch has different resources"))
+        };
+      }
+      if !launch.released() || Some(sequence) != launch.sequence.checked_add(1) {
+        return Err(invalid(
+          "launch sequence is retired or its predecessor is unresolved",
+        ));
+      }
+    } else if sequence != 1 {
+      return Err(invalid("initial launch sequence must be one"));
+    }
+    if self
+      .index
+      .values()
+      .filter_map(|entry| entry.launch.as_ref())
+      .any(|launch| !launch.released() && launch.resources.conflicts(&resources))
+    {
+      return Ok(None);
+    }
+    let launch = Launch::new(sequence, resources)?;
+    job.launch = Some(launch.clone());
+    self.update(job)?;
+    Ok(Some(launch))
+  }
+
+  /// Read a retained launch without creating work or granting execution.
+  pub fn launch(&self, key: &Key) -> io::Result<Option<Launch>> {
+    self.bindings()?;
+    Ok(self.job(key)?.and_then(|job| job.launch))
+  }
+
+  /// Reserve one of the worker's two direct-helper slots before spawning that helper.
+  /// The caller fixes `token` before transmission; exact retries return the retained intent.
+  pub fn reserve_helper(
+    &mut self,
+    key: &Key,
+    launch_token: &str,
+    slot: usize,
+    sequence: u64,
+    token: &str,
+  ) -> io::Result<Process> {
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("helper job is not retained"))?;
+    let launch = job
+      .launch
+      .as_mut()
+      .ok_or_else(|| invalid("job has no launch intent"))?;
+    if launch.token != launch_token
+      || slot >= 2
+      || !matches!(launch.worker.state, ProcessState::Granted { .. })
+    {
+      return Err(invalid("helper has no current worker grant"));
+    }
+    if let Some(previous) = &launch.helpers[slot] {
+      if previous.sequence == sequence && previous.token == token {
+        return Ok(previous.clone());
+      }
+      if !matches!(previous.state, ProcessState::Exited { .. })
+        || Some(sequence) != previous.sequence.checked_add(1)
+      {
+        return Err(invalid("helper slot remains occupied"));
+      }
+    } else if sequence != 1 {
+      return Err(invalid("initial helper sequence must be one"));
+    }
+    let process = Process {
+      sequence,
+      token: token.to_string(),
+      state: ProcessState::Intent,
+    };
+    launch.helpers[slot] = Some(process.clone());
+    launch.validate()?;
+    self.update(job)?;
+    Ok(process)
+  }
+
+  /// Persist an exact native process/start/boot identity before returning its execution grant.
+  /// The isolated launcher, not an arbitrary client, supplies the owned child's identity.
+  pub fn grant_process(
+    &mut self,
+    key: &Key,
+    launch_token: &str,
+    process_token: &str,
+    identity: ProcessIdentity,
+  ) -> io::Result<Grant> {
+    self.bindings()?;
+    if ProcessIdentity::read(identity.pid)?.as_ref() != Some(&identity) {
+      return Err(invalid("owned process identity is no longer current"));
+    }
+    for (other_key, entry) in &self.index {
+      if let Some(launch) = &entry.launch {
+        for process in std::iter::once(&launch.worker).chain(launch.helpers.iter().flatten()) {
+          if (other_key != key || process.token != process_token)
+            && matches!(&process.state, ProcessState::Granted { identity: owned, .. } if owned == &identity)
+          {
+            return Err(invalid("native process already has another retained grant"));
+          }
+        }
+      }
+    }
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("grant job is not retained"))?;
+    let launch = job
+      .launch
+      .as_mut()
+      .ok_or_else(|| invalid("job has no launch intent"))?;
+    if launch.token != launch_token {
+      return Err(invalid("launch token does not match"));
+    }
+    let resources = launch.resources.clone();
+    let process = find_process(launch, process_token)?;
+    let nonce = match &process.state {
+      ProcessState::Intent => random_token()?,
+      ProcessState::Granted {
+        identity: previous,
+        grant,
+      } if previous == &identity => {
+        return Ok(Grant {
+          key: key.clone(),
+          launch: launch_token.to_string(),
+          process: process_token.to_string(),
+          identity,
+          nonce: grant.clone(),
+          resources,
+        });
+      }
+      _ => return Err(invalid("process intent cannot issue this grant")),
+    };
+    process.state = ProcessState::Granted {
+      identity: identity.clone(),
+      grant: nonce.clone(),
+    };
+    self.update(job)?;
+    Ok(Grant {
+      key: key.clone(),
+      launch: launch_token.to_string(),
+      process: process_token.to_string(),
+      identity,
+      nonce,
+      resources,
+    })
+  }
+
+  /// Release only an exact granted process after native proof that it can no longer execute.
+  /// A missing PID, changed start identity, or changed boot proves absence; an error does not.
+  /// A worker cannot release its volume slots while any helper remains unresolved.
+  pub fn observe_exit(
+    &mut self,
+    key: &Key,
+    launch_token: &str,
+    process_token: &str,
+  ) -> io::Result<bool> {
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("exit job is not retained"))?;
+    let launch = job
+      .launch
+      .as_mut()
+      .ok_or_else(|| invalid("job has no launch intent"))?;
+    if launch.token != launch_token {
+      return Err(invalid("launch token does not match"));
+    }
+    if launch.worker.token == process_token
+      && launch
+        .helpers
+        .iter()
+        .flatten()
+        .any(|p| !matches!(p.state, ProcessState::Exited { .. }))
+    {
+      return Ok(false);
+    }
+    let process = find_process(launch, process_token)?;
+    let (identity, grant) = match &process.state {
+      ProcessState::Intent => return Ok(false),
+      ProcessState::Exited { .. } => return Ok(true),
+      ProcessState::Granted { identity, grant } => (identity.clone(), grant.clone()),
+    };
+    if !identity.exited()? {
+      return Ok(false);
+    }
+    process.state = ProcessState::Exited { identity, grant };
+    self.update(job)?;
+    Ok(true)
+  }
+
+  fn update(&mut self, mut job: Job) -> io::Result<()> {
+    job.revision = job
+      .revision
+      .checked_add(1)
+      .ok_or_else(|| invalid("job revision overflow"))?;
+    job.validate()?;
+    self.persist(Document::Job(job.clone()))?;
+    self.install(job)
   }
 
   /// Record a worker's terminal summary. The caller must validate its durable execution grant.
@@ -311,6 +557,9 @@ impl Journal {
       } else {
         Decision::Conflict
       });
+    }
+    if job.launch.as_ref().is_some_and(|launch| !launch.released()) {
+      return Err(invalid("job retains an unresolved process reservation"));
     }
     job.revision = job
       .revision
@@ -436,6 +685,7 @@ impl Journal {
         digest,
         device: metadata.dev(),
         inode: metadata.ino(),
+        launch: job.launch,
       },
     );
     self.healthy = true;
@@ -587,11 +837,24 @@ impl Journal {
       (Document::Job(next), Some(Document::Job(previous))) => {
         previous.validate()?;
         next.validate()?;
+        let completion = next.launch == previous.launch
+          && next.view.result.is_some()
+          && next.view.completed_at.is_some();
+        let execution = next.view == previous.view
+          && match (&previous.launch, &next.launch) {
+            (None, Some(launch)) => {
+              launch.sequence == 1
+                && matches!(launch.worker.state, ProcessState::Intent)
+                && launch.helpers.iter().all(Option::is_none)
+            }
+            (Some(previous), Some(next)) => previous.successor(next),
+            _ => false,
+          };
         if next.view.key != previous.view.key
           || next.input != previous.input
-          || next.revision != previous.revision + 1
+          || Some(next.revision) != previous.revision.checked_add(1)
           || previous.view.result.is_some()
-          || next.view.result.is_none()
+          || (!completion && !execution)
           || next.view.created_at != previous.view.created_at
         {
           return Err(invalid("invalid job transaction"));
@@ -678,6 +941,8 @@ struct Job {
   revision: u64,
   view: View,
   input: Prepared,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  launch: Option<Launch>,
 }
 
 impl Job {
@@ -689,7 +954,7 @@ impl Job {
     validate_key(&self.view.key)?;
     validate_input(&self.input)?;
     if self.schema != SCHEMA
-      || self.revision != if self.view.result.is_some() { 2 } else { 1 }
+      || self.revision < if self.view.result.is_some() { 2 } else { 1 }
       || self.view.result.is_some() != self.view.completed_at.is_some()
       || self
         .view
@@ -700,6 +965,9 @@ impl Job {
         .view
         .completed_at
         .is_some_and(|at| at < self.view.created_at)
+      || self.launch.as_ref().is_some_and(|launch| {
+        launch.validate().is_err() || (self.view.result.is_some() && !launch.released())
+      })
     {
       return Err(invalid("invalid job record"));
     }
@@ -714,6 +982,19 @@ struct Entry {
   digest: [u8; 32],
   device: u64,
   inode: u64,
+  launch: Option<Launch>,
+}
+
+fn find_process<'a>(launch: &'a mut Launch, token: &str) -> io::Result<&'a mut Process> {
+  if launch.worker.token == token {
+    return Ok(&mut launch.worker);
+  }
+  launch
+    .helpers
+    .iter_mut()
+    .flatten()
+    .find(|process| process.token == token)
+    .ok_or_else(|| invalid("process has no retained launch intent"))
 }
 
 fn job_name(key: &Key) -> String {

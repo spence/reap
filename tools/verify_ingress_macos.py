@@ -109,6 +109,16 @@ def main():
             run = subprocess.run([str(client), "--exact", "service::tests::native::server_process", "--nocapture"],
                                  env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=6)
         receipt["native_exit"] = run.returncode
+        if run.returncode != 0:
+            # inspect only this verifier's still-registered, agentless resolver before cleanup.
+            target, expected = next(item for item in owned if item[1][-1] == "context-resolver")
+            current = launchctl("print", target)
+            arguments = re.search(r"\n\s*arguments = \{\n(.*?)\n\s*\}", current.stdout, re.S)
+            actual = [line.strip() for line in arguments[1].splitlines()] if arguments else []
+            pid = re.search(r"\n\s*pid = ([0-9]+)\n", current.stdout)
+            if current.returncode == 0 and actual == expected and pid:
+                sample = command("/usr/bin/sample", pid[1], "1", "1", "-file", str(runtime / "resolver.sample.txt"))
+                receipt["resolver_sample_exit"] = sample.returncode
         assert run.returncode == 0, "installed ingress client failed"
         evidence = json.loads((runtime / "client-receipt.json").read_text())
         assert evidence["metadata_only"] and not evidence["cleanup_granted"]

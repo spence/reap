@@ -685,13 +685,21 @@ mod native {
 
   fn installed_client(root: &Path) {
     let call = |role: Role, request: Request, deadline: Instant| {
+      let operation = match &request {
+        Request::Epoch => "epoch",
+        Request::Prepare { .. } => "prepare",
+        Request::Admit { .. } => "admit",
+        Request::AdmitPrepared { .. } => "raw_admission",
+        _ => "other",
+      };
       let name = names(role).0;
       let bytes = serde_json::to_vec(&Message {
         protocol: PROTOCOL,
         request,
       })
       .unwrap();
-      let response = control::exchange(&name, &bytes, deadline).unwrap();
+      let response = control::exchange(&name, &bytes, deadline)
+        .unwrap_or_else(|reason| panic!("installed {role:?} {operation}: {reason}"));
       let response: Response = serde_json::from_slice(&response.body).unwrap();
       assert_eq!(response.protocol, PROTOCOL);
       assert_eq!(response.via, role);

@@ -208,6 +208,9 @@ refuses the move. The probe's running/output wait is bounded to five seconds;
 a timeout also refuses later assessments in that invocation. Cancellation
 targets only that probe's own helpers; kernel-blocked termination can remain
 pending. No observed handle is not proof that work is finished.
+Raw diagnostic capture has a combined 512 KiB limit. Open-file evidence uses a bounded
+field parser with complete output and EOF. Oversized or invalid fields and unavailable vnode
+paths refuse the move. Large host inventories do not require a large output buffer.
 If a kernel-blocked `lsof` is already present, Reap refuses without spawning
 another one. Renewal remains available; do not bypass that activity refusal.
 Reap verifies the expected child removal before discounting its directory mtime from the

@@ -820,6 +820,9 @@ On macOS, an observable open file or working-directory handle inside a leased
 tree also blocks retirement; failure to inspect open handles blocks it too.
 The macOS activity probe has a five-second running/output budget; a timeout
 refuses cleanup, including later assessments in that invocation.
+Raw diagnostic capture has a combined 512 KiB limit. The open-file scan uses a bounded
+field parser and consumes complete output. Large host inventories do not require a large buffer.
+Malformed fields, unavailable vnode paths, oversized fields, or missing EOF refuse cleanup.
 An already kernel-blocked `lsof` causes refusal without starting another
 `lsof`, preventing repeated maintenance from accumulating stuck probes.
 This is an additional brake, not proof that a tree without open handles is
@@ -1058,6 +1061,11 @@ Their component contracts are [transport](docs/specs/control-transport.md) and
 cleanup, migration, target policy permission, or worker execution grants.
 The [native preparation pipeline](docs/specs/invocation.md) binds caller directory, namespace,
 and configuration evidence before new metadata admission. Public command routing remains open.
+The [worker-grant core](docs/specs/worker-grants.md) records process ownership before a child can run.
+The [portable lifetime core](docs/specs/lifetime-v2.md) returns retained-by-default proposals.
+The [permanent custody core](docs/specs/archive-custody.md) stores immutable captures with independent retrieval.
+These cores do not activate new executors, migrate leases, capture live conversations, or release sources.
+Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.
 
 ## license
 

@@ -16,7 +16,7 @@ them as Burn assets.
 <!-- Durable project-specific completion contracts only. -->
 
 - **Safety invariants stay tested** — Applies when: changing candidate selection, guards,
-  admission, retention, retire validation, control, or a deletion/move executor. Complete when:
+  admission, worker grants, retention, retire validation, control, or a deletion/move executor. Complete when:
   invariant tests cover allowed effects and protected survivors, the whole suite is green,
   and control/admission changes pass native fault and installed-path proof on both configured Macs.
   Execute and verify with: `cargo test`, `tools/verify_control_macos.py`, and

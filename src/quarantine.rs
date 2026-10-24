@@ -638,9 +638,14 @@ pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> 
     let _ = FAILURE.set(error.clone());
     return Err(error);
   }
-  let output = match crate::util::capture_probe(
-    Command::new("/usr/sbin/lsof").args(["-n", "-P", "-F0n"]),
+  let mut fields = ActivityFields::new(dir);
+  let output = match crate::util::stream_probe(
+    Command::new("/usr/sbin/lsof").args(["-n", "-P", "-F0tn"]),
     Duration::from_secs(5),
+    |pipe, bytes| match pipe {
+      crate::util::ProbePipe::Stdout => fields.push(bytes),
+      crate::util::ProbePipe::Stderr => Err(io::Error::other("activity probe reported an error")),
+    },
   ) {
     Ok(output) => output,
     Err(e) => {
@@ -649,26 +654,141 @@ pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> 
       return Err(error);
     }
   };
-  if !output.status.success() || !output.stderr.is_empty() {
-    let error = format!(
-      "lsof returned {}: {}",
-      output.status,
-      String::from_utf8_lossy(&output.stderr)
-    );
+  if !output.success() {
+    let error = format!("lsof returned {output}");
     let _ = FAILURE.set(error.clone());
     return Err(error);
   }
-  for field in output.stdout.split(|byte| *byte == 0) {
-    let field = field.strip_prefix(b"\n").unwrap_or(field);
-    let Some(name) = field.strip_prefix(b"n") else {
-      continue;
-    };
-    let path = Path::new(OsStr::from_bytes(name));
-    if path.is_absolute() && path.starts_with(dir) {
-      return Ok(Some(path.to_path_buf()));
+  fields.finish().map_err(|reason| {
+    let error = format!("incomplete activity evidence: {reason}");
+    let _ = FAILURE.set(error.clone());
+    error
+  })
+}
+
+/// Bounded parser for native `lsof -F0tn`. Process/file sets end with a newline.
+/// Retain one field and one refusal path, not a host-wide vector of open files.
+#[cfg(target_os = "macos")]
+struct ActivityFields<'a> {
+  directory: &'a Path,
+  pending: Vec<u8>,
+  first: Option<PathBuf>,
+  process: bool,
+  file: bool,
+  kind: Option<Vec<u8>>,
+}
+
+#[cfg(target_os = "macos")]
+impl<'a> ActivityFields<'a> {
+  fn new(directory: &'a Path) -> Self {
+    Self {
+      directory,
+      pending: Vec::new(),
+      first: None,
+      process: false,
+      file: false,
+      kind: None,
     }
   }
-  Ok(None)
+
+  fn push(&mut self, bytes: &[u8]) -> io::Result<()> {
+    for part in bytes.split_inclusive(|byte| *byte == 0) {
+      if self.pending.len().saturating_add(part.len()) > 8192 {
+        return Err(io::Error::new(
+          io::ErrorKind::InvalidData,
+          "oversized activity field",
+        ));
+      }
+      self.pending.extend_from_slice(part);
+      if !self.pending.ends_with(&[0]) {
+        continue;
+      }
+      let field = &self.pending[..self.pending.len() - 1];
+      let field = field.strip_prefix(b"\n").unwrap_or(field);
+      match field.split_first() {
+        Some((b'p', pid)) if !pid.is_empty() && pid.iter().all(u8::is_ascii_digit) => {
+          self.process = true;
+          self.file = false;
+          self.kind = None;
+        }
+        Some((b'f', descriptor)) if self.process && !descriptor.is_empty() => {
+          self.file = true;
+          self.kind = None;
+        }
+        Some((b't', kind)) if self.file && !kind.is_empty() && kind.len() <= 32 => {
+          self.kind = Some(kind.to_vec());
+        }
+        Some((b'n', name)) if self.file => {
+          let kind = self.kind.as_deref();
+          // native EBADF/ESRCH records describe vanished handles, not unknown live paths.
+          if kind.is_none() && closed_native_handle(name) {
+            self.pending.clear();
+            continue;
+          }
+          // these native non-vnode descriptors can have an empty name on macOS.
+          if name.is_empty() && matches!(kind, Some(b"PIPE" | b"NPOLICY" | b"NEXUS")) {
+            self.pending.clear();
+            continue;
+          }
+          let path = Path::new(OsStr::from_bytes(name));
+          if name.is_empty()
+            || (!path.is_absolute()
+              && (kind.is_none() || matches!(kind, Some(b"REG" | b"DIR" | b"LINK" | b"FIFO"))))
+          {
+            return Err(io::Error::new(
+              io::ErrorKind::InvalidData,
+              format!(
+                "activity path is unavailable (type {kind:?}, name {:?})",
+                String::from_utf8_lossy(&name[..name.len().min(128)])
+              ),
+            ));
+          }
+          if self.first.is_none() && path.is_absolute() && path.starts_with(self.directory) {
+            self.first = Some(path.to_path_buf());
+          }
+        }
+        _ => {
+          return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+              "invalid activity field (identifier {:?}, bytes {}, process {}, type {:?})",
+              field.first(),
+              field.len(),
+              self.process,
+              self.kind
+            ),
+          ))
+        }
+      }
+      self.pending.clear();
+    }
+    Ok(())
+  }
+
+  fn finish(self) -> io::Result<Option<PathBuf>> {
+    if !self.process || !(self.pending.is_empty() || self.pending == b"\n") {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "missing complete activity EOF",
+      ));
+    }
+    Ok(self.first)
+  }
+}
+
+/// Decode the native `err2nm` terminal errors; the identifier names its probe domain.
+#[cfg(target_os = "macos")]
+fn closed_native_handle(name: &[u8]) -> bool {
+  let Some(colon) = name.iter().position(|byte| *byte == b':') else {
+    return false;
+  };
+  let (domain, status) = name.split_at(colon);
+  !domain.is_empty()
+    && domain.len() <= 32
+    && domain
+      .iter()
+      .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(byte))
+    && matches!(status, b": FD unavailable" | b": process unavailable")
 }
 
 #[cfg(target_os = "macos")]
@@ -1439,6 +1559,126 @@ mod tests {
     assert!(!kernel_blocked_lsof(b"U 03-02:53:19 /bin/other\n"));
     assert!(!kernel_blocked_lsof(b"Z 03-02:53:19 /usr/sbin/lsof\n"));
   }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn activity_stream_retains_a_late_protection_path_without_retaining_host_wide_output() {
+    let mut fields = ActivityFields::new(Path::new("/owned"));
+    fields.push(b"p123\0\n").unwrap();
+    for _ in 0..40_000 {
+      for bytes in b"f4\0tREG\0n/elsewhere/not-selected\0\n".chunks(3) {
+        fields.push(bytes).unwrap();
+      }
+    }
+    fields.push(b"f5\0tREG\0n/owned/must-survive\0\n").unwrap();
+    assert!(fields.pending.len() <= 8192);
+    assert_eq!(
+      fields.finish().unwrap(),
+      Some(PathBuf::from("/owned/must-survive"))
+    );
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn activity_stream_requires_complete_valid_bounded_fields_before_a_negative_guard() {
+    let mut complete = ActivityFields::new(Path::new("/owned"));
+    complete
+      .push(b"p123\0\nfcwd\0tDIR\0n/elsewhere\0\n")
+      .unwrap();
+    assert!(complete.finish().unwrap().is_none());
+    for kind in ["PIPE", "NPOLICY", "NEXUS"] {
+      let mut fields = ActivityFields::new(Path::new("/owned"));
+      fields
+        .push(format!("p123\0\nf4\0t{kind}\0n\0\n").as_bytes())
+        .unwrap();
+      assert!(fields.finish().unwrap().is_none());
+    }
+    for kind in ["REG", "DIR", "unknown"] {
+      let mut fields = ActivityFields::new(Path::new("/owned"));
+      assert!(fields
+        .push(format!("p123\0\nf4\0t{kind}\0n\0\n").as_bytes())
+        .is_err());
+    }
+    for incomplete in [
+      b"".as_slice(),
+      b"p123\0\nn/owned/truncated",
+      b"p123\0\nn/elsewhere\n",
+    ] {
+      let mut fields = ActivityFields::new(Path::new("/owned"));
+      fields.push(incomplete).unwrap();
+      assert!(fields.finish().is_err());
+    }
+    for invalid in [
+      b"n/elsewhere\0".as_slice(),
+      b"pabc\0",
+      b"p123\0\nzunknown\0",
+    ] {
+      assert!(ActivityFields::new(Path::new("/owned"))
+        .push(invalid)
+        .is_err());
+    }
+    let mut fields = ActivityFields::new(Path::new("/owned"));
+    fields.push(b"p123\0\n").unwrap();
+    assert!(fields.push(&[b'x'; 8193]).is_err());
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn activity_stream_uses_complete_absolute_names_when_optional_type_is_absent() {
+    let mut fields = ActivityFields::new(Path::new("/owned"));
+    fields
+      .push(b"p123\0\nf4\0n/elsewhere/untyped\0\nf5\0n/owned/must-survive\0\n")
+      .unwrap();
+    assert_eq!(
+      fields.finish().unwrap(),
+      Some(PathBuf::from("/owned/must-survive"))
+    );
+    let mut fields = ActivityFields::new(Path::new("/owned"));
+    fields.push(b"p123\0\nf4\0n/elsewhere/untyped\0\n").unwrap();
+    assert!(fields.finish().unwrap().is_none());
+    assert!(ActivityFields::new(Path::new("/owned"))
+      .push(b"p123\0\nf4\0nunknown\0\n")
+      .is_err());
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn activity_stream_accepts_native_closed_descriptors_but_preserves_later_live_paths() {
+    for terminal in ["FD unavailable", "process unavailable"] {
+      for domain in ["vnode", "socket", "pipe", "kqueue"] {
+        let terminal = format!("{domain}: {terminal}");
+        let mut fields = ActivityFields::new(Path::new("/owned"));
+        fields
+          .push(format!("p123\0\nf4\0n{terminal}\0\n").as_bytes())
+          .unwrap();
+        assert!(fields.finish().unwrap().is_none());
+        let mut fields = ActivityFields::new(Path::new("/owned"));
+        fields
+          .push(format!("p123\0\nf4\0n{terminal}\0\nf5\0tREG\0n/owned/live\0\n").as_bytes())
+          .unwrap();
+        assert_eq!(fields.finish().unwrap(), Some(PathBuf::from("/owned/live")));
+      }
+    }
+    for unknown in [
+      "vnode: Permission denied",
+      "vnode: Operation timed out",
+      "vnode: unknown failure",
+      "not a domain: FD unavailable",
+    ] {
+      assert!(ActivityFields::new(Path::new("/owned"))
+        .push(format!("p123\0\nf4\0n{unknown}\0\n").as_bytes())
+        .is_err());
+    }
+    let mut fields = ActivityFields::new(Path::new("/owned"));
+    fields
+      .push(b"p123\0\nf4\0n/owned/vnode: FD unavailable\0\n")
+      .unwrap();
+    assert_eq!(
+      fields.finish().unwrap(),
+      Some(PathBuf::from("/owned/vnode: FD unavailable"))
+    );
+  }
+
   fn tmp() -> PathBuf {
     let n = N.fetch_add(1, Ordering::SeqCst);
     let d = std::env::temp_dir().join(format!("reap-quar-{}-{}", std::process::id(), n));

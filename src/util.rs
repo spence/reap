@@ -10,7 +10,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{symlink, MetadataExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, ExitStatus, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -362,7 +362,45 @@ fn lock_state_with_timeout(state: &Path, timeout: Duration) -> io::Result<File> 
 }
 
 /// Bound a guard probe, including pipe reads and cancellation of its own helpers.
+/// Combined stdout/stderr has a 512 KiB cap. Overflow refuses; no truncated success is returned.
 pub fn capture_probe(command: &mut Command, timeout: Duration) -> io::Result<Output> {
+  let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+  let mut remaining = 512 * 1024;
+  let status = stream_probe(command, timeout, |pipe, bytes| {
+    if bytes.len() > remaining {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "safety probe output exceeds 512 KiB; assessment is incomplete",
+      ));
+    }
+    remaining -= bytes.len();
+    match pipe {
+      ProbePipe::Stdout => stdout.extend_from_slice(bytes),
+      ProbePipe::Stderr => stderr.extend_from_slice(bytes),
+    }
+    Ok(())
+  })?;
+  Ok(Output {
+    status,
+    stdout,
+    stderr,
+  })
+}
+
+/// One of an owned safety probe's output pipes.
+pub enum ProbePipe {
+  Stdout,
+  Stderr,
+}
+
+/// Consume complete probe output through a bounded parser instead of retained raw output.
+/// The parser enforces its record/allocation bounds and validates EOF after this returns.
+/// Success requires child exit and EOF on both pipes. Callback errors refuse the assessment.
+pub fn stream_probe(
+  command: &mut Command,
+  timeout: Duration,
+  mut consume: impl FnMut(ProbePipe, &[u8]) -> io::Result<()>,
+) -> io::Result<ExitStatus> {
   let mut child = command
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
@@ -385,26 +423,19 @@ pub fn capture_probe(command: &mut Command, timeout: Duration) -> io::Result<Out
       }
     }
     let start = Instant::now();
-    let (mut out, mut err) = (Vec::new(), Vec::new());
     let (mut out_done, mut err_done) = (false, false);
-    let mut status = None;
     loop {
       if !out_done {
-        out_done = read_probe_pipe(&mut stdout, &mut out)?;
+        out_done = read_probe_pipe(&mut stdout, |bytes| consume(ProbePipe::Stdout, bytes))?;
       }
       if !err_done {
-        err_done = read_probe_pipe(&mut stderr, &mut err)?;
+        err_done = read_probe_pipe(&mut stderr, |bytes| consume(ProbePipe::Stderr, bytes))?;
       }
-      if status.is_none() {
-        status = child.try_wait()?;
-      }
-      if let Some(status) = status {
-        if out_done && err_done {
-          return Ok(Output {
-            status,
-            stdout: out,
-            stderr: err,
-          });
+      // retain an exited leader's PID until both pipes close, so error cleanup cannot
+      // signal a different process group after PID reuse.
+      if out_done && err_done {
+        if let Some(status) = child.try_wait()? {
+          return Ok(status);
         }
       }
       if start.elapsed() >= timeout {
@@ -425,12 +456,15 @@ pub fn capture_probe(command: &mut Command, timeout: Duration) -> io::Result<Out
   result
 }
 
-fn read_probe_pipe(pipe: &mut impl Read, output: &mut Vec<u8>) -> io::Result<bool> {
+fn read_probe_pipe(
+  pipe: &mut impl Read,
+  mut consume: impl FnMut(&[u8]) -> io::Result<()>,
+) -> io::Result<bool> {
   let mut bytes = [0u8; 65536];
   match pipe.read(&mut bytes) {
     Ok(0) => Ok(true),
     Ok(n) => {
-      output.extend_from_slice(&bytes[..n]);
+      consume(&bytes[..n])?;
       Ok(false)
     }
     Err(e)
@@ -611,6 +645,38 @@ mod tests {
       b"probe-data-0123456789-0123456789\n".len() * 3000
     );
     assert!(output.stderr.is_empty());
+  }
+
+  #[test]
+  fn guard_probe_refuses_combined_output_above_the_capture_bound() {
+    let result = capture_probe(
+      Command::new("/bin/sh").args(["-c", "dd if=/dev/zero bs=1024 count=300 2>/dev/null; dd if=/dev/zero bs=1024 count=300 1>&2 2>/dev/null"]),
+      Duration::from_secs(5),
+    );
+    assert!(
+      matches!(result, Err(ref reason) if reason.kind() == io::ErrorKind::InvalidData),
+      "oversized safety evidence must refuse, not return a successful truncated probe"
+    );
+  }
+
+  #[test]
+  fn streamed_probe_consumes_complete_evidence_above_the_diagnostic_capture_bound() {
+    let (mut stdout, mut stderr) = (0, 0);
+    let status = stream_probe(
+      Command::new("/bin/sh").args(["-c", "dd if=/dev/zero bs=1024 count=600 2>/dev/null"]),
+      Duration::from_secs(5),
+      |pipe, bytes| {
+        match pipe {
+          ProbePipe::Stdout => stdout += bytes.len(),
+          ProbePipe::Stderr => stderr += bytes.len(),
+        }
+        Ok(())
+      },
+    )
+    .unwrap();
+    assert!(status.success());
+    assert_eq!(stdout, 600 * 1024);
+    assert_eq!(stderr, 0);
   }
 
   #[test]

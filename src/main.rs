@@ -13,6 +13,7 @@
 //! Age alone never triggers deletion anywhere; it only delays deletion that a
 //! marker, manifest, binding, or lease already authorized.
 
+pub mod archive;
 mod config;
 pub mod control;
 mod coverage;
@@ -24,7 +25,9 @@ pub mod identity;
 mod inventory;
 pub mod invocation;
 pub mod journal;
+pub mod launch;
 mod lease;
+pub mod lifetime;
 mod maintenance;
 mod manifest;
 mod parents;
