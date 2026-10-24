@@ -99,5 +99,5 @@ remain required. No lifetime conversion, live archive capture, or source pruning
 The explicit stalled native wait case remains open in the job-client contract. Native Linux runtime
 and the earlier intermittent Kytos caller-capture investigation also remain open. Current internal
 passes do not establish the cause of that earlier failure. `MS-LIFETIME-ENFORCE.T13`, T14, and the
-full implementation goal stay active. Inner native verification runtimes are removed; the declared
-outer Mini Data evidence scope remains kept for the active goal.
+full implementation goal stay active. Final passing inner native verification runtimes are removed.
+The declared outer Mini Data evidence scope remains kept for the active goal.
