@@ -1,0 +1,115 @@
+{
+  "fleet": {
+    "catalyst": {
+      "artifacts": {
+        "declarations": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "a05c98ea5477fd44195c3ce21f5dc6b8ed65d177d09ed25b03ac9649012baf0e",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "9bd18879fee2cc3845171d079384c663de5e45ecaf6321e496d7ee2c7c0bcb30",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "5b11d21a3f088864210662e0e18ba0a23d5f60b26790603a4eb51ee08b0bfc09",
+          "team": "35A87BDK48"
+        }
+      },
+      "consumer_log_sha256": {
+        "declarations": "4490672d206d6039998e58821edace7f85dd068e651f3a15ba6a6cf8949ee777",
+        "preservation": "b61a44fcb4fce8405b55138e19243c2c36f037174f5c9bfd818a70d1a3c7f846",
+        "public": "b93b9224c44720f9dc2e2408e8111c9c5493a292d1282d14bcfda32e382b35f9"
+      },
+      "installed_declaration_tests": 22,
+      "installed_preservation_tests": 14,
+      "installed_public_tests": 5,
+      "internal_data_device": 16777232,
+      "native": {
+        "launch": {
+          "ignored": 0,
+          "passed": 13,
+          "receipt_sha256": "2c1057a5d9f0df97cf55542534aa2b00e51b520bdb8e68b4c2593c085463b04e",
+          "runtime_removed": true,
+          "unit_sha256": "5b11d21a3f088864210662e0e18ba0a23d5f60b26790603a4eb51ee08b0bfc09"
+        },
+        "service": {
+          "ignored": 0,
+          "passed": 13,
+          "receipt_sha256": "16324917fd771243a4f674365a12ece0f75ad0051fd6cf017b350dd3f582f2b6",
+          "runtime_removed": true,
+          "unit_sha256": "5b11d21a3f088864210662e0e18ba0a23d5f60b26790603a4eb51ee08b0bfc09"
+        }
+      }
+    },
+    "catalyst-mini": {
+      "artifacts": {
+        "declarations": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "a05c98ea5477fd44195c3ce21f5dc6b8ed65d177d09ed25b03ac9649012baf0e",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "9bd18879fee2cc3845171d079384c663de5e45ecaf6321e496d7ee2c7c0bcb30",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "5b11d21a3f088864210662e0e18ba0a23d5f60b26790603a4eb51ee08b0bfc09",
+          "team": "35A87BDK48"
+        }
+      },
+      "consumer_log_sha256": {
+        "declarations": "efc6e3cfa6371ca7f2f32a99dfd0b458fa0873f6a76fc04a341a94cc5534e45f",
+        "preservation": "e9eeb1d7f9a7e80356cb6998f4a8e5b0ad5d7f310ca8b4f8b4e2a960f1af07ff",
+        "public": "e83c031ab9f24872c6d4b0acf8c51749342918312691694bc016ab39ff307638"
+      },
+      "installed_declaration_tests": 22,
+      "installed_preservation_tests": 14,
+      "installed_public_tests": 5,
+      "internal_data_device": 16777234,
+      "native": {
+        "launch": {
+          "ignored": 0,
+          "passed": 13,
+          "receipt_sha256": "42b990094c8a0f06e1a76943f14fee79bbc2a2c44d78b3920ffd69a8ea254dd1",
+          "runtime_removed": true,
+          "unit_sha256": "5b11d21a3f088864210662e0e18ba0a23d5f60b26790603a4eb51ee08b0bfc09"
+        },
+        "service": {
+          "ignored": 0,
+          "passed": 13,
+          "receipt_sha256": "465a840135568793477b3df7864e2b80c0ffbe730509557e53263e0a27ac4ac1",
+          "runtime_removed": true,
+          "unit_sha256": "5b11d21a3f088864210662e0e18ba0a23d5f60b26790603a4eb51ee08b0bfc09"
+        }
+      }
+    }
+  },
+  "python": {
+    "service_installer": 23,
+    "signing_publication": 19
+  },
+  "rejected_baseline": {
+    "log_sha256": "4ed2509c47f66a310a1dd08593afc5b23f0e7c7589e8804b718d97c1490356f6",
+    "removed_reserved_candidate": true
+  },
+  "rust": {
+    "declaration": 22,
+    "full_log_sha256": "24576aa8d4f2b7ef11942e5d8c127040838ef32287e666a6a689b14dec03b46d",
+    "lifecycle": 57,
+    "native_fault_cases": 5,
+    "regular_unit": 228,
+    "unique_cases": 312
+  },
+  "source_revision": "0dae800e09cf34803093767ca3531825dac51066",
+  "source_sha256": {
+    "README.md": "01741ad63ee2d30d94ef5bc58a78170c97972c4c59d5e5fff6923a70d5df9f6e",
+    "docs/specs/reap-file.md": "377152ede770c1fb6de687384f1e5fcdb81a8e70f8d80c1a5eda8f1b134b24a6",
+    "src/files.rs": "e86aee1dc1e3f38b49a2d798c4cf7a74cdfcf57c0b0d9aefff3e76a7f5e90ac6",
+    "tests/reap_files.rs": "872403c469b26e3b10305777eb32ed8ae0ef1353de5afe0b0767925fa1d7df2f"
+  }
+}
