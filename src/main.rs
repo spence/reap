@@ -40,6 +40,8 @@ mod status;
 mod store_bindings;
 mod stores;
 mod util;
+pub mod volumes;
+pub mod worker;
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
@@ -109,6 +111,9 @@ struct PolicyArgs {
 
 #[derive(Subcommand)]
 enum Cmd {
+  /// Internal pre-grant target worker.
+  #[command(hide = true)]
+  Worker { launch: String, process: String },
   #[command(name = "__service", hide = true)]
   Service {
     #[arg(value_enum)]
@@ -351,6 +356,7 @@ enum RunError {
 fn main() {
   let cli = Cli::parse();
   let code = match cli.cmd {
+    Some(Cmd::Worker { launch, process }) => worker::run(&launch, &process),
     Some(Cmd::Service { role }) => service::run(role),
     // Bare `reap` == dry-run sweep.
     None => cmd_sweep(false, false, false, &PolicyArgs::default()),

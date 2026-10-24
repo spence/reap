@@ -27,11 +27,15 @@ def main():
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--filter", choices=["control::tests", "service::tests", "launch::tests",
                                             "lifetime::tests", "archive::tests",
-                                            "quarantine::tests", "util::tests"], default="control::tests")
+                                            "quarantine::tests", "util::tests", "worker::tests",
+                                            "journal::tests", "volumes::"], default="control::tests")
     parser.add_argument("--fault-library", type=pathlib.Path)
+    parser.add_argument("--worker-binary", type=pathlib.Path)
     arguments = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
+    if arguments.worker_binary and arguments.filter != "worker::tests":
+        parser.error("--worker-binary requires the worker selection")
 
     source = arguments.test_executable.resolve(strict=True)
     output = arguments.output.absolute()
@@ -55,11 +59,17 @@ def main():
             "REAP_NATIVE_CONTROL_PROBE", "REAP_NATIVE_CONTROL_SERVICE",
             "REAP_NATIVE_CAPTURE_CLIENT", "REAP_NATIVE_CAPTURE_RESULT",
             "REAP_INTERNAL_CONFIG_SNAPSHOT",
+            "REAP_TEST_WORKER_BIN",
             "DYLD_INSERT_LIBRARIES",
         ):
             environment.pop(name, None)
         environment["REAP_NATIVE_CONTROL_FIXTURE_ROOT"] = str(runtime / "fixtures")
         environment["REAP_NATIVE_CAPTURE_CWD_ROOT"] = str(output / "caller-directories")
+        if arguments.worker_binary:
+            worker = arguments.worker_binary.resolve(strict=True)
+            environment["REAP_TEST_WORKER_BIN"] = str(worker)
+            receipt["worker_binary"] = str(worker)
+            receipt["worker_sha256"] = hashlib.sha256(worker.read_bytes()).hexdigest()
         selection = [str(executable), arguments.filter, "--test-threads=1", "--nocapture"]
         if arguments.fault_library:
             library = runtime / "fault_fullsync.dylib"
@@ -93,7 +103,8 @@ def main():
                               "two_helpers_remain_owned_and_retain_worker_slots_until_all_exits_are_proved",
                               "sequential_resolution_and_bulk_launches_never_replay_a_retired_launch_sequence",
                               "retired_helper_reservations_cannot_create_another_process_after_restart",
-                              "grant_helper_and_exit_retries_refuse_replaced_journal_bindings"],
+                              "grant_helper_and_exit_retries_refuse_replaced_journal_bindings",
+                              "launch_records_boot_identity_before_any_process_exists"],
             "lifetime::tests": ["native_writer_requires_inspection_and_publishes_bound_identity",
                                 "native_rename_preserves_grace_and_permission_copy_and_replacement_do_not",
                                 "honored_children_leave_group_accounting_and_unbound_children_block_caps"],
@@ -105,6 +116,18 @@ def main():
                                   "scratch_retire_moves_to_quarantine_with_owner"],
             "util::tests": ["guard_probe_refuses_combined_output_above_the_capture_bound",
                             "streamed_probe_consumes_complete_evidence_above_the_diagnostic_capture_bound"],
+            "worker::tests": ["production_resolver_retains_ownership_across_restart_and_never_respawns_a_retry",
+                              "ungranted_runtime_exit_has_no_target_result_and_cannot_clear_an_ambiguous_intent",
+                              "granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation",
+                              "incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence",
+                              "invalid_native_directory_identities_cannot_be_complete_resolver_evidence"],
+            "journal::tests": ["prior_boot_intents_release_without_pids_but_same_boot_and_legacy_unknown_intents_stay",
+                               "prior_boot_launch_cannot_grant_current_processes_or_create_helper_intents",
+                               "writer_restart_reconciles_prior_boot_worker_and_ungranted_helper_before_admission"],
+            "volumes::": ["native_system_and_data_share_one_resource",
+                          "native_target_aliases_and_held_rename_share_keys",
+                          "unknown_virtual_raid_and_incomplete_topologies_refuse",
+                          "external_tunneled_nvme_requires_exact_endpoint"],
         }[arguments.filter]
         if not all(case in content for case in required) or "test result: ok." not in content:
             result = 1
@@ -125,7 +148,7 @@ def main():
             receipt["runtime_device"] = runtime.stat().st_dev
     finally:
         # a failed launch fixture can retain an unresolved owned descendant.
-        safe_to_remove = not (arguments.filter == "launch::tests" and result != 0)
+        safe_to_remove = not (arguments.filter in ("launch::tests", "worker::tests") and result != 0)
         for path in runtime.glob("fixtures/*/*.plist"):
             data = plistlib.loads(path.read_bytes())
             expected = [str(runtime / "reap-native-test"), "--exact",

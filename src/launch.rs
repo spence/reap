@@ -13,6 +13,13 @@ use crate::journal::{random_token, Key};
 
 const MAX_GRANT: usize = 4096;
 
+/// Read the native boot identity without filesystem or helper work.
+pub fn boot_id() -> io::Result<String> {
+  let boot = native::boot()?;
+  valid_boot(&boot)?;
+  Ok(boot)
+}
+
 /// A kernel process identity. A PID alone cannot prove ownership or continued execution.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -110,6 +117,9 @@ impl Resources {
 pub struct Launch {
   pub sequence: u64,
   pub token: String,
+  /// The originating boot. Missing evidence protects an ungranted intent.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub boot: Option<String>,
   pub resources: Resources,
   pub worker: Process,
   pub helpers: [Option<Process>; 2],
@@ -121,6 +131,7 @@ impl Launch {
     Ok(Self {
       sequence,
       token: random_token()?,
+      boot: Some(boot_id()?),
       resources,
       worker: Process::new()?,
       helpers: [None, None],
@@ -131,13 +142,42 @@ impl Launch {
     self.worker.exited() && self.helpers.iter().flatten().all(Process::exited)
   }
 
+  pub(crate) fn origin_boot(&self) -> Option<&str> {
+    self.boot.as_deref().or_else(|| match &self.worker.state {
+      ProcessState::Granted { identity, .. } | ProcessState::Exited { identity, .. } => {
+        Some(identity.boot.as_str())
+      }
+      _ => None,
+    })
+  }
+
   pub(crate) fn validate(&self) -> io::Result<()> {
     if self.sequence == 0 || self.worker.sequence != 1 {
       return Err(invalid("launch sequence is zero"));
     }
     valid_token(&self.token)?;
+    if let Some(boot) = &self.boot {
+      valid_boot(boot)?;
+    }
     self.resources.validate()?;
     self.worker.validate()?;
+    for process in std::iter::once(&self.worker).chain(self.helpers.iter().flatten()) {
+      let process_boot = match &process.state {
+        ProcessState::Granted { identity, .. } | ProcessState::Exited { identity, .. } => {
+          Some(identity.boot.as_str())
+        }
+        ProcessState::BootEnded { boot } => Some(boot.as_str()),
+        ProcessState::Intent => None,
+      };
+      if let Some(boot) = process_boot {
+        if self.origin_boot().is_some_and(|origin| origin != boot)
+          || (matches!(process.state, ProcessState::BootEnded { .. })
+            && self.origin_boot().is_none())
+        {
+          return Err(invalid("process boot does not match its launch"));
+        }
+      }
+    }
     for helper in self.helpers.iter().flatten() {
       helper.validate()?;
       if helper.token == self.worker.token || helper.token == self.token {
@@ -169,6 +209,7 @@ impl Launch {
     }
     if self.sequence != next.sequence
       || self.token != next.token
+      || self.boot != next.boot
       || self.resources != next.resources
       || next.validate().is_err()
     {
@@ -216,8 +257,11 @@ impl Process {
     })
   }
 
-  fn exited(&self) -> bool {
-    matches!(self.state, ProcessState::Exited { .. })
+  pub(crate) fn exited(&self) -> bool {
+    matches!(
+      self.state,
+      ProcessState::Exited { .. } | ProcessState::BootEnded { .. }
+    )
   }
 
   fn validate(&self) -> io::Result<()> {
@@ -227,6 +271,7 @@ impl Process {
     valid_token(&self.token)?;
     match &self.state {
       ProcessState::Intent => Ok(()),
+      ProcessState::BootEnded { boot } => valid_boot(boot),
       ProcessState::Granted { identity, grant } | ProcessState::Exited { identity, grant } => {
         identity.validate()?;
         valid_token(grant)
@@ -239,6 +284,7 @@ impl Process {
       && self.token == next.token
       && match (&self.state, &next.state) {
         (ProcessState::Intent, ProcessState::Granted { .. }) => true,
+        (ProcessState::Intent, ProcessState::BootEnded { .. }) => true,
         (
           ProcessState::Granted {
             identity: a,
@@ -259,6 +305,10 @@ impl Process {
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProcessState {
   Intent,
+  /// Native boot identity proves that no process from the recorded boot can still execute.
+  BootEnded {
+    boot: String,
+  },
   Granted {
     identity: ProcessIdentity,
     grant: String,
@@ -342,7 +392,12 @@ impl Grant {
   }
 }
 
-fn read_frame(pipe: &mut UnixStream, mut bytes: &mut [u8], deadline: Instant) -> io::Result<()> {
+/// Read the exact slice within one cumulative deadline. EOF and timeout refuse the frame.
+pub(crate) fn read_frame(
+  pipe: &mut UnixStream,
+  mut bytes: &mut [u8],
+  deadline: Instant,
+) -> io::Result<()> {
   while !bytes.is_empty() {
     let remaining = deadline
       .checked_duration_since(Instant::now())
@@ -371,6 +426,14 @@ fn valid_token(value: &str) -> io::Result<()> {
       .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
   {
     return Err(invalid("invalid launch token"));
+  }
+  Ok(())
+}
+
+fn valid_boot(boot: &str) -> io::Result<()> {
+  if boot.is_empty() || boot.len() > 64 || !boot.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+  {
+    return Err(invalid("invalid native boot identity"));
   }
   Ok(())
 }

@@ -231,7 +231,49 @@ impl Journal {
       journal.persist(Document::Header(claimed.clone()))?;
       journal.header = claimed;
     }
+    journal.reconcile_prior_boot()?;
     Ok(journal)
+  }
+
+  /// Reconcile only recorded prior-boot ownership before this writer opens admission.
+  /// Unknown and same-boot intents retain their slots. No PID or age assumption is needed.
+  fn reconcile_prior_boot(&mut self) -> io::Result<()> {
+    if !self.index.values().any(|entry| {
+      entry
+        .launch
+        .as_ref()
+        .is_some_and(|launch| !launch.released() && launch.origin_boot().is_some())
+    }) {
+      return Ok(());
+    }
+    let boot = crate::launch::boot_id()?;
+    let mut cursor = None;
+    loop {
+      let next = match cursor.as_ref() {
+        Some(key) => self
+          .index
+          .range((std::ops::Bound::Excluded(key), std::ops::Bound::Unbounded))
+          .next(),
+        None => self.index.first_key_value(),
+      };
+      let Some((key, entry)) = next else {
+        break;
+      };
+      let key = key.clone();
+      let launch = entry.launch.clone();
+      cursor = Some(key.clone());
+      let Some(launch) = launch else {
+        continue;
+      };
+      if launch.released() || launch.origin_boot().is_none_or(|origin| origin == boot) {
+        continue;
+      }
+      for helper in launch.helpers.iter().flatten() {
+        self.observe_exit(&key, &launch.token, &helper.token)?;
+      }
+      self.observe_exit(&key, &launch.token, &launch.worker.token)?;
+    }
+    Ok(())
   }
 
   pub fn epoch(&self) -> Epoch {
@@ -402,13 +444,14 @@ impl Journal {
       if previous.sequence == sequence && previous.token == token {
         return Ok(previous.clone());
       }
-      if !matches!(previous.state, ProcessState::Exited { .. })
-        || Some(sequence) != previous.sequence.checked_add(1)
-      {
+      if !previous.exited() || Some(sequence) != previous.sequence.checked_add(1) {
         return Err(invalid("helper slot remains occupied"));
       }
     } else if sequence != 1 {
       return Err(invalid("initial helper sequence must be one"));
+    }
+    if launch.origin_boot() != Some(crate::launch::boot_id()?.as_str()) {
+      return Err(invalid("helper launch belongs to another or unknown boot"));
     }
     let process = Process {
       sequence,
@@ -454,6 +497,9 @@ impl Journal {
       .ok_or_else(|| invalid("job has no launch intent"))?;
     if launch.token != launch_token {
       return Err(invalid("launch token does not match"));
+    }
+    if launch.origin_boot() != Some(identity.boot.as_str()) {
+      return Err(invalid("process grant has another or unknown launch boot"));
     }
     let resources = launch.resources.clone();
     let process = find_process(launch, process_token)?;
@@ -509,19 +555,25 @@ impl Journal {
     if launch.token != launch_token {
       return Err(invalid("launch token does not match"));
     }
-    if launch.worker.token == process_token
-      && launch
-        .helpers
-        .iter()
-        .flatten()
-        .any(|p| !matches!(p.state, ProcessState::Exited { .. }))
+    if launch.worker.token == process_token && launch.helpers.iter().flatten().any(|p| !p.exited())
     {
       return Ok(false);
     }
+    let origin_boot = launch.origin_boot().map(str::to_owned);
     let process = find_process(launch, process_token)?;
     let (identity, grant) = match &process.state {
-      ProcessState::Intent => return Ok(false),
-      ProcessState::Exited { .. } => return Ok(true),
+      ProcessState::Intent => {
+        let Some(boot) = origin_boot else {
+          return Ok(false);
+        };
+        if boot == crate::launch::boot_id()? {
+          return Ok(false);
+        }
+        process.state = ProcessState::BootEnded { boot };
+        self.update(job)?;
+        return Ok(true);
+      }
+      ProcessState::Exited { .. } | ProcessState::BootEnded { .. } => return Ok(true),
       ProcessState::Granted { identity, grant } => (identity.clone(), grant.clone()),
     };
     if !identity.exited()? {

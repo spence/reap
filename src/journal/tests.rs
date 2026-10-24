@@ -46,6 +46,146 @@ fn terminal() -> Terminal {
   }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn prior_boot_intents_release_without_pids_but_same_boot_and_legacy_unknown_intents_stay() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let current = crate::launch::boot_id().unwrap();
+  let mut prior = current.clone();
+  prior.replace_range(..1, if current.starts_with('0') { "1" } else { "0" });
+  for boot in [Some(prior.clone()), Some(current), None] {
+    let key = key(&journal);
+    journal.admit(key.clone(), input(), 1).unwrap();
+    let mut launch = Launch::new(
+      1,
+      Resources::Bulk {
+        physical_volumes: vec![format!("fixture-{}", key.nonce)],
+      },
+    )
+    .unwrap();
+    launch.boot = boot.clone();
+    let mut job = journal.job(&key).unwrap().unwrap();
+    job.launch = Some(launch.clone());
+    journal.update(job).unwrap();
+    let exited = journal
+      .observe_exit(&key, &launch.token, &launch.worker.token)
+      .unwrap();
+    assert_eq!(exited, boot.as_deref() == Some(prior.as_str()));
+    let retained = journal.launch(&key).unwrap().unwrap();
+    assert_eq!(retained.released(), exited);
+    if exited {
+      assert!(matches!(
+        retained.worker.state,
+        ProcessState::BootEnded { .. }
+      ));
+      drop(journal);
+      journal = Journal::open(&fixture.0).unwrap();
+      assert!(journal.launch(&key).unwrap().unwrap().released());
+      assert!(journal
+        .reserve_launch(&key, 2, Resources::Resolver)
+        .unwrap()
+        .is_some());
+    } else {
+      assert!(matches!(retained.worker.state, ProcessState::Intent));
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn prior_boot_launch_cannot_grant_current_processes_or_create_helper_intents() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let key = key(&journal);
+  journal.admit(key.clone(), input(), 1).unwrap();
+  let mut launch = Launch::new(1, Resources::Resolver).unwrap();
+  let identity = ProcessIdentity::read(std::process::id()).unwrap().unwrap();
+  let mut prior = identity.boot.clone();
+  prior.replace_range(..1, if prior.starts_with('0') { "1" } else { "0" });
+  launch.boot = Some(prior.clone());
+  let mut job = journal.job(&key).unwrap().unwrap();
+  job.launch = Some(launch.clone());
+  journal.update(job).unwrap();
+  assert!(journal
+    .grant_process(&key, &launch.token, &launch.worker.token, identity.clone())
+    .is_err());
+  let mut job = journal.job(&key).unwrap().unwrap();
+  let mut old_identity = identity;
+  old_identity.boot = prior;
+  job.launch.as_mut().unwrap().worker.state = ProcessState::Granted {
+    identity: old_identity,
+    grant: random_token().unwrap(),
+  };
+  journal.update(job).unwrap();
+  assert!(journal
+    .reserve_helper(&key, &launch.token, 0, 1, &random_token().unwrap())
+    .is_err());
+  assert!(journal
+    .launch(&key)
+    .unwrap()
+    .unwrap()
+    .helpers
+    .iter()
+    .all(Option::is_none));
+  assert!(journal
+    .observe_exit(&key, &launch.token, &launch.worker.token)
+    .unwrap());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn writer_restart_reconciles_prior_boot_worker_and_ungranted_helper_before_admission() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let key = key(&journal);
+  journal.admit(key.clone(), input(), 1).unwrap();
+  let mut launch = Launch::new(1, Resources::Resolver).unwrap();
+  let mut identity = ProcessIdentity::read(std::process::id()).unwrap().unwrap();
+  identity.boot.replace_range(
+    ..1,
+    if identity.boot.starts_with('0') {
+      "1"
+    } else {
+      "0"
+    },
+  );
+  launch.boot = Some(identity.boot.clone());
+  let mut job = journal.job(&key).unwrap().unwrap();
+  job.launch = Some(launch.clone());
+  journal.update(job).unwrap();
+  let mut job = journal.job(&key).unwrap().unwrap();
+  job.launch.as_mut().unwrap().worker.state = ProcessState::Granted {
+    identity,
+    grant: random_token().unwrap(),
+  };
+  journal.update(job).unwrap();
+  let mut job = journal.job(&key).unwrap().unwrap();
+  job.launch.as_mut().unwrap().helpers[0] = Some(Process {
+    sequence: 1,
+    token: random_token().unwrap(),
+    state: ProcessState::Intent,
+  });
+  journal.update(job).unwrap();
+  drop(journal);
+
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let recovered = journal.launch(&key).unwrap().unwrap();
+  assert!(recovered.released());
+  assert!(matches!(
+    recovered.worker.state,
+    ProcessState::Exited { .. }
+  ));
+  assert!(matches!(
+    recovered.helpers[0].as_ref().unwrap().state,
+    ProcessState::BootEnded { .. }
+  ));
+  assert!(journal
+    .reserve_launch(&key, 2, Resources::Resolver)
+    .unwrap()
+    .is_some());
+}
+
 fn stage(root: &Path, document: &Document) {
   let body = serde_json::to_vec(document).unwrap();
   let mut frame = Vec::new();

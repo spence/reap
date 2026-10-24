@@ -1061,7 +1061,10 @@ Their component contracts are [transport](docs/specs/control-transport.md) and
 cleanup, migration, target policy permission, or worker execution grants.
 The [native preparation pipeline](docs/specs/invocation.md) binds caller directory, namespace,
 and configuration evidence before new metadata admission. Public command routing remains open.
-The [worker-grant core](docs/specs/worker-grants.md) records process ownership before a child can run.
+The [worker-grant core](docs/specs/worker-grants.md) records process ownership before target work.
+Its owned resolver runtime uses a private grant/result channel and rejects duplicate process starts.
+The [native physical resolver](docs/specs/physical-resources.md) identifies admitted APFS NVMe storage
+without a helper. Unknown topologies refuse. Native boot evidence also governs launch recovery.
 The [portable lifetime core](docs/specs/lifetime-v2.md) returns retained-by-default proposals.
 The [permanent custody core](docs/specs/archive-custody.md) stores immutable captures with independent retrieval.
 These cores do not activate new executors, migrate leases, capture live conversations, or release sources.

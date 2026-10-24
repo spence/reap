@@ -137,6 +137,17 @@ fn resource_sets_require_sorted_unique_safe_keys() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn launch_records_boot_identity_before_any_process_exists() {
+  let launch = Launch::new(1, Resources::Resolver).unwrap();
+  let value = serde_json::to_value(&launch).unwrap();
+  assert_eq!(
+    value.get("boot").and_then(|v| v.as_str()),
+    Some(boot_id().unwrap().as_str())
+  );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn prior_boot_exit_proof_does_not_depend_on_reused_pid_ownership() {
   let mut previous = ProcessIdentity::read(std::process::id()).unwrap().unwrap();
   previous.pid = 1;

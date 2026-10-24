@@ -1,6 +1,6 @@
 # SPEC-WORKER-GRANTS — durable process ownership
 
-- Status: component implementation; dispatcher and fleet conformance remain open.
+- Status: ownership core and native resolver runtime; public dispatch remains open.
 - Consumers: Reap state writer, launcher, target workers, and direct helpers.
 - Grounds: owner-authorized `DEC-LIFETIME-AUTHORITY`, sections 7 and 10.
 - Bindings: `src/journal.rs`, `src/launch.rs`, and the cases below.
@@ -9,6 +9,7 @@
 
 - **C1** — A durable intent reserves the complete resource set before process creation.
   Exact retries retain that intent. A restart or timeout does not replace unresolved work.
+  The native originating boot is durable before spawn, including when no PID is recorded.
 - **C2** — One unresolved resolver occupies the resolver slot.
   Each unresolved bulk launch occupies every physical-volume slot in its complete set.
   Namespaces and path aliases do not create physical capacity.
@@ -21,6 +22,9 @@
 - **C5** — A native exit observation releases only its exact recorded process.
   An observation error retains the reservation. No operation terminates a foreign process.
   A terminal result and ordinary metadata compaction cannot release unresolved process ownership.
+  A changed native boot proves exit for a launch from that recorded boot, without a PID lookup.
+  Same-boot and unknown-boot intents remain occupied. A prior-boot launch cannot issue a new process grant
+  or create another helper intent.
 - **C6** — A durable execution grant does not establish cleanup-policy or commit permission.
   Target effects still require fresh scope, identity, policy, activity, recovery, and commit evidence.
 - **C7** — A job can advance to its next launch sequence only after native proof releases every predecessor process.
@@ -30,16 +34,33 @@
 
 ## Boundary
 
-The journal and pipe handshake implement component ownership rules.
+The journal, pipe handshake, and owned runtime implement process ownership rules.
+`worker::start` persists a new resolver intent before it creates a process.
+An existing launch returns retained ownership, not another child. The child uses the installed
+binary's hidden `worker` entry and a private socket. It does not inherit client stdout/stderr.
+Grant delivery occurs once, after the owned native process identity is durable.
+The child reads no target before its grant. Its initial task resolves native directory identity
+and physical resource keys; it cannot perform cleanup or complete the original command.
+Complete result framing, EOF, and process exit are required. An incomplete result or unsuccessful
+exit cannot become successful scope evidence. Polling consumes at most 64 KiB per call.
+Resolved directory identities require nonzero native identifiers. The volume UUID has lowercase
+hexadecimal groups of 8-4-4-4-12 digits; the file ID has 16 lowercase hexadecimal digits.
+Malformed identities refuse complete evidence.
+An ungranted or ambiguously spawned intent stays occupied, even after an owned child exits.
+
 The public CLI does not dispatch target workers through this interface yet.
 The parent launcher must retain its owned child handles and supply identities from those children.
 An arbitrary client cannot supply a PID as proof of process ownership.
 The target resolver must supply canonical physical-volume keys, not APFS volume UUIDs or path strings.
-Canonical physical mapping, overlapping-scope reservations, platform launcher isolation, and dispatcher integration remain required before activation.
+The [physical resource contract](physical-resources.md) defines admitted native topologies.
+Overlapping-scope reservations, platform launcher isolation, and dispatcher integration remain required before activation.
 
-An intent without a durably recorded process remains occupied after restart.
+An intent without a durably recorded process remains occupied after a same-boot restart.
 Absence of a PID in that intent does not prove that process creation never occurred.
-There is no age-based release of such an intent.
+Missing boot evidence also protects it. A different native boot proves that all prior-boot processes
+are gone. There is no age-based release.
+Writer startup reconciles recorded prior-boot workers and helpers before it opens admission.
+It does not release unknown or same-boot ownership.
 
 macOS process evidence uses `proc_pidinfo(PROC_PIDTBSDINFO)` and `kern.bootsessionuuid`.
 The non-macOS implementation refuses process ownership until native support is proved.
@@ -63,3 +84,11 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 | C7 | `sequential_resolution_and_bulk_launches_never_replay_a_retired_launch_sequence` |
 | C1, C7 | `retired_helper_reservations_cannot_create_another_process_after_restart`; `grant_helper_and_exit_retries_refuse_replaced_journal_bindings` |
 | C5 | `prior_boot_exit_proof_does_not_depend_on_reused_pid_ownership`; a native current stamp and a simulated prior stamp require no machine reboot |
+| C1, C5 | `launch_records_boot_identity_before_any_process_exists`; `journal::tests::prior_boot_intents_release_without_pids_but_same_boot_and_legacy_unknown_intents_stay` |
+| C3, C4, C5 | `journal::tests::prior_boot_launch_cannot_grant_current_processes_or_create_helper_intents` |
+| C1, C5 | `journal::tests::writer_restart_reconciles_prior_boot_worker_and_ungranted_helper_before_admission` |
+| C1, C2, C3, C5, C7 | `worker::tests::production_resolver_retains_ownership_across_restart_and_never_respawns_a_retry` |
+| C3, C5 | `worker::tests::ungranted_runtime_exit_has_no_target_result_and_cannot_clear_an_ambiguous_intent` |
+| C2, C3, C6 | `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |
+| C6 | `worker::tests::incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence`; `worker::tests::invalid_task_cannot_create_a_reservation_or_process` |
+| C6 | `worker::tests::invalid_native_directory_identities_cannot_be_complete_resolver_evidence` |
