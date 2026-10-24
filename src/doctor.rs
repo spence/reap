@@ -56,6 +56,9 @@ fn assess_with_mount(lease: &Lease, mounted: impl Fn(&Path, u64) -> bool) -> Dia
   if !marker_ok {
     return Diagnosis::Blocked(format!("{LEASE_MARKER} missing or mismatched"));
   }
+  if let Err(error) = crate::preservation::check(path) {
+    return Diagnosis::Blocked(error);
+  }
   if meta.dev() == lease.dev {
     return Diagnosis::Valid;
   }

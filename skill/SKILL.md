@@ -46,6 +46,15 @@ Only its lease marker and explicitly approved Cargo targets are exceptions.
 Local exclusion works for `files`, not for `retire`; do not switch to
 scratch to evade that distinction.
 
+## Preservation roles
+
+Version 2 `.reap` roles `conversation_source` and `permanent_archive` veto ordinary moves and
+deletions through Cargo, stores, declaration cleanup, retirement, and purge. Ancestor and descendant
+removal units are also protected, outside governed roots too. Scratch, seals, `--now`, and explicit
+purge selectors do not waive this guard. Uncertain role evidence refuses the affected mutation.
+Ordinary KEEP still permits authorized Cargo compaction. This guard does not activate conversation
+archives, source pruning, or version 2 lifetime disposal.
+
 ## Job observations
 
 `reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
@@ -252,7 +261,7 @@ whose quarantine metadata fails validation. It rechecks each entry before
 deleting it and refuses nested mounts or unreadable slots. Holds live in the
 quarantine index and appear in `quarantine list` and `status`. Explicit
 `purge --id`, `--owner`, or `--all` bypasses holds and marker/metadata checks,
-but not the path/mount guard; obtain owner authorization before using them.
+but not path, mount, or preservation-role guards; obtain owner authorization before using them.
 Purge does not verify ownership, inspect open handles, or rerun Git recoverability checks;
 settle current use and required preservation separately before permanent deletion.
 Do not unhold an owner-held entry without that owner's approval.

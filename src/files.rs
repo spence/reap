@@ -526,14 +526,18 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
         Disposition::Delete => "delete",
       };
       let scratch = matches!(scan.view.decls.get(&r.by), Some(Ok(d)) if d.scratch == Some(true));
+      let preservation_error = crate::preservation::check(&r.path).err();
+      let preservation_refused = preservation_error.is_some();
       let coverage_error = scan.coverage_errors.iter().find_map(|(path, error)| {
         (path.starts_with(&r.path) || r.path.starts_with(path))
           .then(|| format!("incomplete coverage at {}: {error}", path.display()))
       });
-      if let Some(why) =
-        coverage_error.or_else(|| blocked(r, scratch, &scan.root, &qdir, &leases, now, min_age))
+      if let Some(why) = coverage_error
+        .or(preservation_error)
+        .or_else(|| blocked(r, scratch, &scan.root, &qdir, &leases, now, min_age))
       {
         println!("  blocked    {}  ({why})", r.path.display());
+        failed |= apply && preservation_refused;
         continue;
       }
       if !apply {
@@ -549,11 +553,7 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
       }
       let result = match r.disposition {
         Disposition::Delete => {
-          let res = if fs::symlink_metadata(&r.path).is_ok_and(|m| m.is_dir()) {
-            fs::remove_dir_all(&r.path)
-          } else {
-            fs::remove_file(&r.path)
-          };
+          let res = crate::preservation::remove(&r.path);
           res.map_err(|e| e.to_string())
         }
         Disposition::Quarantine => {

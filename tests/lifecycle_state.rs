@@ -2313,7 +2313,12 @@ fn disposable_cargo_permission_honors_protections_and_invalid_manifests() {
     let path = checkout.join("target").join(metadata);
     fs::write(&path, b"required preservation").unwrap();
     make_tree_quiet(&checkout);
-    cargo_refusal(&root, &checkout, &["target"], "cargo-target");
+    let refusal = if metadata == ".reap" {
+      "preservation"
+    } else {
+      "cargo-target"
+    };
+    cargo_refusal(&root, &checkout, &["target"], refusal);
     assert_eq!(fs::read(&path).unwrap(), b"required preservation");
     fs::remove_file(path).unwrap();
   }

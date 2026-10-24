@@ -381,6 +381,15 @@ pub fn assess_retire_ignoring_dir_mtimes(
     }
   };
 
+  if let Err(error) = crate::preservation::check(&dir) {
+    a.checks.push(RetireCheck {
+      label: "preservation",
+      ok: false,
+      detail: error,
+    });
+    return a;
+  }
+
   let canon_ok = fs::canonicalize(&dir).map(|c| c == dir).unwrap_or(false);
   let inode_ok = meta.dev() == lease.dev && meta.ino() == lease.ino;
   push(
@@ -1025,7 +1034,7 @@ pub fn finalize_retire(retired: &Retired, main_repo: Option<&Path>) -> Result<()
       GitError::Failed(detail) => format!("pruning retired worktree: {}", detail),
     })?;
   }
-  match fs::remove_file(retired.dest.join(LEASE_MARKER)) {
+  match crate::preservation::remove(&retired.dest.join(LEASE_MARKER)) {
     Ok(()) => Ok(()),
     Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
     Err(e) => Err(format!("removing retired lease marker: {}", e)),
@@ -1103,24 +1112,7 @@ pub fn audit_purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
       slot.display()
     ));
   }
-  let mut stack = vec![slot.clone()];
-  while let Some(dir) = stack.pop() {
-    let children = fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    for child in children {
-      let child = child.map_err(|e| format!("{}: {e}", dir.display()))?;
-      let path = child.path();
-      let meta = fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-      if meta.dev() != qmeta.dev() {
-        return Err(format!(
-          "nested mount at {} -- refusing to purge",
-          path.display()
-        ));
-      }
-      if meta.is_dir() {
-        stack.push(path);
-      }
-    }
-  }
+  crate::preservation::check(&slot)?;
   Ok(true)
 }
 
@@ -1206,6 +1198,7 @@ pub fn rollback_restore(qdir: &Path, entry: &Entry, dest: &Path) -> Result<(), S
 
 pub fn finalize_restore(qdir: &Path, entry: &Entry) -> Result<(), String> {
   let slot = entries_dir(qdir).join(&entry.id);
+  crate::preservation::check(&slot)?;
   let path = evidence_path(&slot);
   match fs::symlink_metadata(&path) {
     Ok(meta) if meta.is_file() => {
@@ -1215,12 +1208,13 @@ pub fn finalize_restore(qdir: &Path, entry: &Entry) -> Result<(), String> {
       if evidence.version != 1 || evidence.entry != *entry {
         return Err(format!("{} does not match restored entry", path.display()));
       }
-      fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+      crate::preservation::remove(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     Ok(_) => return Err(format!("{} is not a metadata file", path.display())),
     Err(e) if e.kind() == io::ErrorKind::NotFound => {}
     Err(e) => return Err(format!("{}: {e}", path.display())),
   }
+  crate::preservation::check(&slot)?;
   fs::remove_dir(&slot).map_err(|e| format!("{}: {e}", slot.display()))
 }
 

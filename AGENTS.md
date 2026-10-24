@@ -19,8 +19,9 @@ them as Burn assets.
   admission, worker grants, retention, retire validation, control, or a deletion/move executor. Complete when:
   invariant tests cover allowed effects and protected survivors, the whole suite is green,
   and control/admission changes pass native fault and installed-path proof on both configured Macs.
-  Execute and verify with: `cargo test`, `tools/verify_control_macos.py`, and
-  `tools/verify_ingress_macos.py`.
+  Execute and verify with: `cargo test`; for cleanup boundaries, also use
+  `python3 -m unittest discover -s tests -p test_preservation.py` against the installed binary.
+  For control/admission, use `tools/verify_control_macos.py` and `tools/verify_ingress_macos.py`.
 - **Docs and skill match the binary** — Applies when: changing the CLI surface, a safety claim,
   or a config/manifest schema. Complete when: `README.md` and `skill/SKILL.md` describe the
   shipped behavior and claim no more safety than the code enforces. Execute and verify with:

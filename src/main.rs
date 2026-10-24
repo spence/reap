@@ -34,6 +34,7 @@ mod maintenance;
 mod manifest;
 mod parents;
 mod plan;
+mod preservation;
 mod provenance;
 mod quarantine;
 mod reapfile;
@@ -1226,7 +1227,7 @@ fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
               .is_some_and(|m| m.id == l.id && m.token == l.token)
             {
               if let Err(cleanup) =
-                std::fs::remove_file(Path::new(&l.path).join(lease::LEASE_MARKER))
+                preservation::remove(&Path::new(&l.path).join(lease::LEASE_MARKER))
               {
                 eprintln!("error: removing uncommitted lease marker: {}", cleanup);
               }

@@ -170,7 +170,7 @@ pub fn move_dir(src: &Path, dst: &Path) -> io::Result<Moved> {
     Err(e) if e.kind() == io::ErrorKind::NotFound => {}
     Err(e) => return Err(e),
   }
-  match fs::rename(src, dst) {
+  match crate::preservation::rename(src, dst) {
     Ok(()) => return Ok(Moved::Renamed),
     Err(e) if e.raw_os_error() == Some(EXDEV) => {}
     Err(e) => return Err(e),
@@ -203,22 +203,22 @@ pub fn move_dir(src: &Path, dst: &Path) -> io::Result<Moved> {
   let got = match copy_tree(src, &staging) {
     Ok(g) => g,
     Err(e) => {
-      let _ = fs::remove_dir_all(&staging);
+      let _ = crate::preservation::remove(&staging);
       return Err(e);
     }
   };
   if got != (want.files, want.bytes, want.links) {
-    let _ = fs::remove_dir_all(&staging);
+    let _ = crate::preservation::remove(&staging);
     return Err(other(format!(
       "copy verification failed for {} (source changed mid-copy?)",
       src.display()
     )));
   }
-  if let Err(e) = fs::rename(&staging, dst) {
-    let _ = fs::remove_dir_all(&staging);
+  if let Err(e) = crate::preservation::rename(&staging, dst) {
+    let _ = crate::preservation::remove(&staging);
     return Err(e);
   }
-  fs::remove_dir_all(src)?;
+  crate::preservation::remove(src)?;
   Ok(Moved::Copied)
 }
 
@@ -246,7 +246,7 @@ pub fn move_unit(src: &Path, dst: &Path) -> io::Result<Moved> {
     Err(e) if e.kind() == io::ErrorKind::NotFound => {}
     Err(e) => return Err(e),
   }
-  match fs::rename(src, dst) {
+  match crate::preservation::rename(src, dst) {
     Ok(()) => return Ok(Moved::Renamed),
     Err(e) if e.raw_os_error() == Some(EXDEV) => {}
     Err(e) => return Err(e),
@@ -271,7 +271,7 @@ pub fn move_unit(src: &Path, dst: &Path) -> io::Result<Moved> {
     let unchanged = fs::symlink_metadata(src).is_ok_and(|now| same_unit_metadata(&before, &now))
       && fs::read_link(src).is_ok_and(|now| now == target);
     if !unchanged {
-      let _ = fs::remove_file(&staging);
+      let _ = crate::preservation::remove(&staging);
       return Err(other(format!("{} changed during move", src.display())));
     }
   } else {
@@ -290,7 +290,7 @@ pub fn move_unit(src: &Path, dst: &Path) -> io::Result<Moved> {
     }) {
       Ok(copied) => copied,
       Err(e) => {
-        let _ = fs::remove_file(&staging);
+        let _ = crate::preservation::remove(&staging);
         return Err(e);
       }
     };
@@ -298,15 +298,15 @@ pub fn move_unit(src: &Path, dst: &Path) -> io::Result<Moved> {
       && same_unit_metadata(&before, &source.metadata()?)
       && fs::symlink_metadata(src).is_ok_and(|now| same_unit_metadata(&before, &now));
     if !unchanged {
-      let _ = fs::remove_file(&staging);
+      let _ = crate::preservation::remove(&staging);
       return Err(other(format!("{} changed during copy", src.display())));
     }
   }
-  if let Err(e) = fs::rename(&staging, dst) {
-    let _ = fs::remove_file(&staging);
+  if let Err(e) = crate::preservation::rename(&staging, dst) {
+    let _ = crate::preservation::remove(&staging);
     return Err(e);
   }
-  fs::remove_file(src)?;
+  crate::preservation::remove(src)?;
   Ok(Moved::Copied)
 }
 

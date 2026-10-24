@@ -218,18 +218,14 @@ pub fn apply_store(plan: &StorePlan, project_dir: &Path) -> StoreApply {
     }
   };
   for c in &plan.candidates {
-    let meta = match checked_candidate(plan, project_dir, c, &leases) {
-      Ok(meta) => meta,
+    match checked_candidate(plan, project_dir, c, &leases) {
+      Ok(_) => {}
       Err(e) => {
         result.errors.push(e);
         continue;
       }
     };
-    let removed = if meta.is_dir() {
-      fs::remove_dir_all(&c.path)
-    } else {
-      fs::remove_file(&c.path)
-    };
+    let removed = crate::preservation::remove(&c.path);
     match removed {
       Ok(()) => {
         result.removed += 1;
@@ -489,6 +485,7 @@ pub fn marker_armed(dir: &Path) -> bool {
 }
 
 pub fn write_marker(dir: &Path) -> io::Result<()> {
+  crate::preservation::check_container(dir)?;
   let text = format!(
     "Signature: {}\n\
      # This directory is a reap-managed artifact store: its direct children\n\
@@ -509,9 +506,9 @@ pub fn write_marker(dir: &Path) -> io::Result<()> {
   let result = file
     .write_all(text.as_bytes())
     .and_then(|_| file.sync_all())
-    .and_then(|_| fs::rename(&temp, &marker));
+    .and_then(|_| crate::preservation::rename(&temp, &marker));
   if result.is_err() {
-    let _ = fs::remove_file(temp);
+    let _ = crate::preservation::remove(&temp);
   }
   result
 }
@@ -671,6 +668,15 @@ fn plan_one(
         "still {} over max_bytes; protections (keep_last/min_age) hold",
         human(live - maxb)
       ));
+    }
+  }
+
+  for (index, child) in children.iter().enumerate() {
+    if chosen[index].is_some() {
+      if let Err(error) = crate::preservation::check(&child.path) {
+        notes.push(format!("preserved {}: {error}", child.path.display()));
+        chosen[index] = None;
+      }
     }
   }
 

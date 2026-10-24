@@ -636,6 +636,10 @@ fn add_category(
     if entry_mtime(&p) > age_floor {
       continue; // in-flight / just touched -> leave it
     }
+    if let Err(error) = crate::preservation::check(&p) {
+      eprintln!("preserved {}: {error}", p.display());
+      continue;
+    }
     safe.push(p);
   }
   if safe.is_empty() {
@@ -665,12 +669,7 @@ pub fn apply_plan(plan: &Plan) -> usize {
   let mut removed = 0;
   for c in &plan.categories {
     for p in &c.paths {
-      let is_real_dir = fs::symlink_metadata(p).map(|m| m.is_dir()).unwrap_or(false);
-      let res = if is_real_dir {
-        fs::remove_dir_all(p)
-      } else {
-        fs::remove_file(p)
-      };
+      let res = crate::preservation::remove(p);
       match res {
         Ok(()) => removed += 1,
         Err(e) => eprintln!("warning: could not remove {}: {}", p.display(), e),

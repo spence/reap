@@ -176,6 +176,13 @@ Each command class has its own authority and cannot exceed it:
 
 New deletion surfaces require an explicit declaration and local arming.
 
+Version 2 `.reap` roles `conversation_source` and `permanent_archive` veto ordinary cleanup,
+including Cargo, stores, lease retirement, declaration removal, and every purge selector.
+The veto covers exact, ancestor, and descendant removal units outside governed roots too.
+Uncertain declaration evidence refuses the affected mutation. Ordinary KEEP still permits
+authorized Cargo compaction. This protection does not activate archives, source pruning,
+or version 2 lifetime disposal. See the [preservation contract](docs/specs/preservation.md).
+
 ## installation
 
 ### CLI only

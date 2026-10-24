@@ -1,0 +1,276 @@
+{
+  "status": "verified ordinary-role guard checkpoint; full activation and redesign remain open",
+  "source_base_revision": "f99983e893831a7210f7a53186fd60ee0c5a383b",
+  "source_sha256": {
+    "AGENTS.md": "e98b4aed425b30883e25994f329b65a1c9ec22307c5fc26fcf10953ce127b5c4",
+    "README.md": "8d34fe231268e7afa9764ba54f82be752c59f06b94f3646721e9be8b6f2e3508",
+    "skill/SKILL.md": "9e7eac3ea916d336882097351c6d06a641ec39a02b48c6797e84cd8f00f424e4",
+    "src/preservation.rs": "556a70bc189c85ae7c523cad22be3a8b771a303d8f81fb4eef7cefcc1b9dd886",
+    "src/main.rs": "c28b7fe96936e28bcaa2ca30f795c8e3f01ac20c618ba37283805d8de13952bb",
+    "src/plan.rs": "7900a834c2eb31f20a68a9ea85cc80e55cbf9733ed33cfad2640f71139dace01",
+    "src/files.rs": "1e227a1cbd5d94b444e99c8bde8b73e2bfbac8f6dbe62faa04f8d3b8cdd0ad93",
+    "src/stores.rs": "b30cdde7b73d6f661b85daa6df82ea4683ad383be1b87613b23678b240fcc3de",
+    "src/quarantine.rs": "a6b05e8ec81df11ee81a36327a9fd920b2c9bb4e758a2c41b21fe6f95b85a633",
+    "src/util.rs": "8943a1bc62f779f43650887757bbc0dbb1113cd7a16b9806e44a33f37cfe0398",
+    "src/doctor.rs": "66892f2240d0ef0324889797346fb04f59b18eaae13747dbfca631a658efdeb8",
+    "src/lease.rs": "29495b677f5347bf5b9fc1fbd571eb9d26035343a8307941e9e9d91496dcbfb5",
+    "src/parents.rs": "501276092604acb7e6e6f8346b054f3d9397876f76f3b23ebbed97f6ba9912b6",
+    "tests/lifecycle_state.rs": "fc02ba955ee24b1d02e0bfc4144f4cf779b5bfdc4e8bd6488f0e26fe9128ca7a",
+    "tests/test_preservation.py": "c285ef0b7b86de4d02dbe2687c9272f6a6ccce4e86c053f02046c5590977f705",
+    "tools/verify_control_macos.py": "e347ae1291366afb50014033d19c5cc0d391e347aa4415305326ac0067c5c490",
+    "docs/specs/preservation.md": "9f1f7be77c3e155bf0707acb62a0c665c30688f59142a23238c1e74009f50792"
+  },
+  "unit_sha256": "2e74833c8a5edbb12fa97f2293cb500878eef39a59c701050b57db0d4c1d5682",
+  "signed_binary_sha256": "28dd4e747c89f51370da5c47f7db81e2fd8a2106f3cb79dee252e9762d88502d",
+  "suite": {
+    "unit": 214,
+    "lifecycle": 57,
+    "declarations": 21,
+    "total": 292,
+    "ignored": 0,
+    "log_sha256": "34e3a03adcedd72132720a997b119139c261600d40fd6bd9028fadc58c7ede5b"
+  },
+  "native": {
+    "catalyst": {
+      "cases": 12,
+      "receipt": {
+        "runtime": "/private/tmp/reap-control-runtime-8vr654ir",
+        "labels_absent": [],
+        "native_exit": 0,
+        "binary_sha256": "2e74833c8a5edbb12fa97f2293cb500878eef39a59c701050b57db0d4c1d5682",
+        "runtime_removed": true,
+        "verification_exit": 0
+      },
+      "log_sha256": "311967a8ca9a62333bd0fbe70336e492637241826c3d15f5415ea7d61c5ea933"
+    },
+    "catalyst-mini": {
+      "cases": 12,
+      "receipt": {
+        "runtime": "/private/tmp/reap-control-runtime-q0us0iq_",
+        "labels_absent": [],
+        "native_exit": 0,
+        "binary_sha256": "2e74833c8a5edbb12fa97f2293cb500878eef39a59c701050b57db0d4c1d5682",
+        "runtime_removed": true,
+        "verification_exit": 0
+      },
+      "log_sha256": "727c547c6eaa46f40bd49fdb03dfca05e32fabb7634bd90da45e09df87371c99"
+    }
+  },
+  "installed": {
+    "catalyst": {
+      "preservation_methods": 14,
+      "workspace_cases": 5,
+      "declaration_cases": 21,
+      "sha256": {
+        "cli.log": "61dbd35ec0eed8e4f030484cccb75ce9155e68b44e74b29880e8853d4b035c65",
+        "workspaces.log": "2736a1ddbc24686a290dc814fa47d8b5e0812584f042256f1e14547f779cb526",
+        "declarations.log": "ecd17c8e7db5312a8a43177332fc8ff9482d057434f22762f941da0352b33bbe",
+        "install.log": "247cc1c97f010e040b06d79a7395bba5738583a91d34ee2816a1fd13799f3b26",
+        "signature.txt": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "installed_sha256": "28dd4e747c89f51370da5c47f7db81e2fd8a2106f3cb79dee252e9762d88502d"
+    },
+    "catalyst-mini": {
+      "preservation_methods": 14,
+      "workspace_cases": 5,
+      "declaration_cases": 21,
+      "sha256": {
+        "cli.log": "10800093f88de581e98ded7161eb10e3b4f9ad3353a7cab61a358f2d6b766ad8",
+        "workspaces.log": "fedd5148db0063c2f095a7f1ced753b4dad1a5fd0ec81e7f3f1623bb865af488",
+        "declarations.log": "dfc9dbebb8e7972312d3cbd87e75bdfbde4b5a3ef2f1adcbcb291e8234622ffe",
+        "install.log": "247cc1c97f010e040b06d79a7395bba5738583a91d34ee2816a1fd13799f3b26",
+        "signature.txt": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "consumer": {
+        "host": "catalyst-mini.local",
+        "uid": 501,
+        "installed_sha256": "28dd4e747c89f51370da5c47f7db81e2fd8a2106f3cb79dee252e9762d88502d",
+        "test_script_sha256": "c285ef0b7b86de4d02dbe2687c9272f6a6ccce4e86c053f02046c5590977f705",
+        "signature_status": 0,
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+        "version": "reap 0.1.0"
+      }
+    }
+  },
+  "cross_device": {
+    "receipt": {
+      "host": "catalyst-mini.local",
+      "uid": 501,
+      "external_device": 16777244,
+      "data_device": 16777234,
+      "installed_sha256": "28dd4e747c89f51370da5c47f7db81e2fd8a2106f3cb79dee252e9762d88502d",
+      "harness_sha256": "94f4bd3765f955a80fd176215ec14b7c41d82f8239870afdcdf540d4a0e97518",
+      "exit_code": 0,
+      "native_case": "cross_device_store_quarantine_restores_without_erasing_a_staging_directory"
+    },
+    "log_sha256": "ed2e484981863e1a3000372c16a2f0e6ea0690068734c653183d400bf2c69394"
+  },
+  "baseline": [
+    {
+      "log": "target/control-t13/preservation-cli-baseline-outcomes.log",
+      "methods": 10,
+      "failed_subcases": 33,
+      "sha256": "3c74e95dfaa95468433cfa6082bb737d8b5a185a77b58f317676239ddf8b846b"
+    },
+    {
+      "log": "target/control-t13/preservation-marker-baseline.log",
+      "methods": 1,
+      "failed_subcases": 2,
+      "sha256": "766f78bbb4ad9eee31493f60a7b3061a3283e00d7acc97c829b5cd5d517d1c79"
+    },
+    {
+      "log": "target/control-t13/preservation-marker-links-before.log",
+      "methods": 1,
+      "failed_subcases": 2,
+      "sha256": "2a958697a210ee34fd5194b2c3ace15de7a1309cf42c276fedc8bf84ccbb394b"
+    },
+    {
+      "log": "target/control-t13/preservation-parent-path-before.log",
+      "methods": 1,
+      "failed_subcases": 1,
+      "sha256": "68b3095ae982cf6aaea58bec964b5a335aa7857769499329a6c43884c95b401b"
+    }
+  ],
+  "checks": {
+    "installer_17": {
+      "log": "target/control-t13/preservation-install-tests.log",
+      "sha256": "2f865c25cb556cfd0b279e24671aadcc5cdfe2ea6e4a43b9ec39dc55dcb5bb34"
+    },
+    "format": {
+      "log": "target/control-t13/preservation-finalized-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "verifier_regressions_4": {
+      "log": "target/control-t13/preservation-verifier-tests.log",
+      "sha256": "4a160235c0add54f7a5997815d0e01a072210439de4899c702c94dd3cd814662"
+    },
+    "release": {
+      "log": "target/control-t13/preservation-finalized-release.log",
+      "sha256": "c5c0d7e71cc022d440e2a726d866f9688d70a51b894d5cd276677c207b0cbee4"
+    },
+    "linux_compile_only": {
+      "log": "target/control-t13/preservation-finalized-linux-compile.log",
+      "sha256": "5e54541b797e8b5f9f2a5a3c38558cbdfd25944f4a6f0ba3e3bb9f6f3864d320"
+    },
+    "installed_help": {
+      "log": "target/control-t13/preservation-finalized-installed-help.txt",
+      "sha256": "151c19743e4a7a39442f6722ade5bf12629ddc4d91ebfc287247f7ff70609b46"
+    }
+  },
+  "delegation": {
+    "peer_id": "peer-18e185e849ddca78-230164",
+    "conversation_id": "conversation-18e185e84c0c27e0-230168",
+    "request_id": "cmsg-18e185e86a3560b0-230171",
+    "observed": {
+      "provider": "codex",
+      "model": "gpt-6.1-sol",
+      "effort": "high",
+      "execution_profile": "host"
+    },
+    "conversation_close": {
+      "command": "conversation.close",
+      "ok": true,
+      "result": {
+        "conversation": {
+          "conversation_id": "conversation-18e185e84c0c27e0-230168",
+          "created_ms": 1792861359424,
+          "initiator_peer_id": null,
+          "metadata": {
+            "agent_gateway_launch": {
+              "launch_key": "reap-preservation-boundaries-t14-20261024",
+              "request_sha256": "7bfd9b94549239ff6deaf7568f0426860e9c992e87e462c4fa7f0787df71ffd6"
+            }
+          },
+          "recipient_peer_id": "peer-18e185e849ddca78-230164",
+          "state": "closed",
+          "updated_ms": 1792862917094
+        }
+      },
+      "schema": "agent-gateway.cli/v1"
+    },
+    "peer_close": {
+      "command": "peer.close",
+      "ok": true,
+      "result": {
+        "peer": {
+          "account_id": "default",
+          "agent": "codex",
+          "capabilities": [
+            "deliver",
+            "queue",
+            "steer",
+            "cancel"
+          ],
+          "control_modes": [
+            "queue_next",
+            "append_active",
+            "interrupt",
+            "interrupt_then_send"
+          ],
+          "created_ms": 1792861359388,
+          "display_name": "reap-preservation-t14",
+          "environment_variable_names": [],
+          "execution_policy": {
+            "approval_policy": "never",
+            "filesystem_boundary": "none",
+            "network_access": true,
+            "permission_mode": null,
+            "slash_tmp_access": null,
+            "source": "native_provider",
+            "tmpdir_access": null,
+            "writable_roots": null
+          },
+          "lifecycle": "closed",
+          "metadata": {
+            "agent_gateway_launch": {
+              "launch_key": "reap-preservation-boundaries-t14-20261024",
+              "request_sha256": "7bfd9b94549239ff6deaf7568f0426860e9c992e87e462c4fa7f0787df71ffd6"
+            },
+            "owner": "root",
+            "scope": "ordinary executor preservation vetoes",
+            "work": "MS-LIFETIME-ENFORCE.T14"
+          },
+          "observed_effort": "high",
+          "observed_execution_profile": "host",
+          "observed_model": "gpt-6.1-sol",
+          "peer_id": "peer-18e185e849ddca78-230164",
+          "process_ownership": "daemon_owned",
+          "provider_runtime_version": "0.163.0",
+          "readiness": {
+            "delivery_available": false,
+            "next_action": null,
+            "prerequisite": null
+          },
+          "requested_effort": "high",
+          "requested_execution_profile": "host",
+          "requested_model": "gpt-6.1-sol",
+          "result_schema_supported": true,
+          "tags": [],
+          "target": {
+            "peer_id": "peer-18e185e849ddca78-230164",
+            "type": "peer"
+          },
+          "updated_ms": 1792862578896,
+          "working_directory": "/Users/spencer/src/reap"
+        }
+      },
+      "schema": "agent-gateway.cli/v1"
+    }
+  },
+  "remaining": [
+    "Configured archive resources and retained historical roles in the unified executor",
+    "Complete same-device and declaration-file mount proof; no arbitrary-writer atomicity claim",
+    "Old-reader fences, process drain, effectful grants, overlapping-scope and commit guards",
+    "Ordinary bounded CLI routing, service activation, efficient discovery and measured work reduction",
+    "Default retained creation, portable executor enforcement, lease/store conversion and operator migration",
+    "Native conversation adapters, independent retrieval, separate verified source release and AIMeter proof",
+    "Native Linux runtime and intermittent Mini Kytos caller-capture cause and remedy"
+  ],
+  "production_archive_or_source_pruning_activated": false,
+  "production_service_registration_activated": false,
+  "foreign_agents_or_processes_stopped": false,
+  "outer_mini_data_evidence_scope": {
+    "path": "/private/tmp/reap-cores-transport-8yjfimnx",
+    "state": "kept for the active goal"
+  }
+}

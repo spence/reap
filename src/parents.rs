@@ -146,7 +146,7 @@ fn arm(
   leases.guard_extended_state();
   if let Err(e) = save_leases(state, leases) {
     if valid_identity(&record) {
-      let _ = fs::remove_file(parent.join(PARENT_MARKER));
+      let _ = crate::preservation::remove(&parent.join(PARENT_MARKER));
     }
     return Err(format!("saving managed parent: {e}"));
   }
@@ -167,6 +167,7 @@ fn canonical_dir(raw: &str) -> Result<PathBuf, String> {
 }
 
 fn write_marker(parent: &Path, record: &ManagedParent) -> Result<(), String> {
+  crate::preservation::check_container(parent).map_err(|e| e.to_string())?;
   let marker = parent.join(PARENT_MARKER);
   let mut file = OpenOptions::new()
     .write(true)
@@ -182,11 +183,11 @@ fn write_marker(parent: &Path, record: &ManagedParent) -> Result<(), String> {
     .write_all(&content)
     .and_then(|()| file.write_all(b"\n"))
   {
-    let _ = fs::remove_file(&marker);
+    let _ = crate::preservation::remove(&marker);
     return Err(format!("{}: {e}", marker.display()));
   }
   if let Err(e) = file.sync_all() {
-    let _ = fs::remove_file(&marker);
+    let _ = crate::preservation::remove(&marker);
     return Err(format!("{}: {e}", marker.display()));
   }
   Ok(())

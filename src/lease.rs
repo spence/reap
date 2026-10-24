@@ -8,9 +8,9 @@
 //! Each lease records an owner (agent/session or `user@host`) so quarantined
 //! results can be traced back to whoever created them.
 
-use std::fs;
-use std::io;
-use std::os::unix::fs::MetadataExt;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -340,7 +340,7 @@ pub fn remove_released_marker(lease: &Lease) -> Result<(), String> {
       marker_path.display()
     ));
   }
-  fs::remove_file(&marker_path).map_err(|e| format!("{}: {}", marker_path.display(), e))
+  crate::preservation::remove(&marker_path).map_err(|e| format!("{}: {}", marker_path.display(), e))
 }
 
 pub fn find_by_path<'a>(leases: &'a LeaseFile, dir: &Path) -> Option<&'a Lease> {
@@ -349,6 +349,7 @@ pub fn find_by_path<'a>(leases: &'a LeaseFile, dir: &Path) -> Option<&'a Lease> 
 }
 
 pub fn write_marker(dir: &Path, l: &Lease) -> io::Result<()> {
+  crate::preservation::check_container(dir)?;
   let m = LeaseMarker {
     id: l.id.clone(),
     token: l.token.clone(),
@@ -356,7 +357,20 @@ pub fn write_marker(dir: &Path, l: &Lease) -> io::Result<()> {
   let mut text = serde_json::to_string_pretty(&m)
     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
   text.push('\n');
-  fs::write(dir.join(LEASE_MARKER), text)
+  let mut file = OpenOptions::new()
+    .write(true)
+    .create(true)
+    .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+    .open(dir.join(LEASE_MARKER))?;
+  let metadata = file.metadata()?;
+  if !metadata.is_file() || metadata.nlink() != 1 {
+    return Err(io::Error::new(
+      io::ErrorKind::InvalidData,
+      "lease marker is not a single-link regular file",
+    ));
+  }
+  file.set_len(0)?;
+  file.write_all(text.as_bytes())
 }
 
 pub fn read_marker(dir: &Path) -> Option<LeaseMarker> {

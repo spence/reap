@@ -29,7 +29,7 @@ def main():
                                             "lifetime::tests", "archive::tests",
                                             "quarantine::tests", "util::tests", "worker::tests",
                                             "journal::tests", "volumes::", "dispatch::tests",
-                                            "client::tests"], default="control::tests")
+                                            "client::tests", "preservation::tests"], default="control::tests")
     parser.add_argument("--fault-library", type=pathlib.Path)
     parser.add_argument("--worker-binary", type=pathlib.Path)
     arguments = parser.parse_args()
@@ -140,6 +140,13 @@ def main():
                               "malformed_or_other_key_terminal_evidence_cannot_return_success",
                               "lost_admission_reply_keeps_the_same_key_and_reports_possible_acceptance",
                               "missing_native_service_is_prompt_and_never_falls_back_to_filesystem_work"],
+            "preservation::tests": ["ancestors_descendants_and_late_roles_preserve_bytes_but_not_siblings",
+                                    "parent_components_keep_native_meaning_and_cannot_bypass_role_checks",
+                                    "child_links_are_leaves_and_parent_aliases_cannot_hide_roles",
+                                    "unreadable_subtrees_and_declarations_are_not_empty_evidence",
+                                    "stale_cargo_plan_revalidates_roles_and_counts_only_removed_siblings",
+                                    "a_declaration_lost_after_entry_observation_is_not_absence_evidence",
+                                    "metadata_guards_refuse_role_aliases_without_retaining_unrelated_containers"],
         }[arguments.filter]
         if not all(case in content for case in required) or "test result: ok." not in content:
             result = 1
