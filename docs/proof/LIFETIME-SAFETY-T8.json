@@ -1,0 +1,223 @@
+{
+  "work": "MS-LIFETIME-AUTHORITY.T8",
+  "recorded_utc": "2026-10-24T05:11:33.514480+00:00",
+  "scope": "v1 safety correction and native installer delivery; full redesign remains open",
+  "source_revisions": {
+    "binary_sha256": "04fce1daaba52f410faa9f497e558237487030a8c36c4ff1df6e11f057b9a67d",
+    "binary_source_revision": "874249b817fcc534042805c0d5698f8886efb67b",
+    "installer_revision": "a41c639cdd9c033342df926d13674634395d1a92",
+    "harness_sha256": "020f436236774616c711531fb87aa0f8c8a296ec9a72cba8648b7ce4f22a7fc9"
+  },
+  "baseline": {
+    "binary": "/Users/spencer/.cargo/bin/reap",
+    "binary_sha256": "1d38f206c23c6c2325c32999ffbf351a312019ef7cfe63937c87ac63ccadc166",
+    "harness_sha256": "020f436236774616c711531fb87aa0f8c8a296ec9a72cba8648b7ce4f22a7fc9",
+    "test_source_sha256": "44e72d9798f6c5c0ad3629a705f56aca56bddb728e287fd76c9b649e7d781fb6",
+    "exit_code": 101,
+    "results": [
+      "test failed_git_tracking_cannot_authorize_a_tracked_declaration ... FAILED",
+      "test deeply_nested_unrecoverable_checkout_survives_expired_container ... FAILED",
+      "test new_keep_protects_during_grace_from_an_established_parent_rule ... FAILED",
+      "test sealed_expiry_cannot_override_incomplete_directory_coverage ... FAILED",
+      "test unreadable_subtree_protects_its_ancestor_without_blocking_unrelated_cleanup ... FAILED",
+      "test partial_cleanup_preserves_unrecoverable_enclosing_checkout_and_metadata ... FAILED",
+      "test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 15 filtered out; finished in 6.36s"
+    ]
+  },
+  "workspace_baseline": {
+    "binary_sha256": "1d38f206c23c6c2325c32999ffbf351a312019ef7cfe63937c87ac63ccadc166",
+    "failed_cases": [
+      "test_declaration_preserves_commits_on_a_noncurrent_branch",
+      "test_declaration_preserves_ignored_local_data"
+    ],
+    "log_sha256": "3bae039a396965dc94c79d6159f361dec97dd22f1df7b268c4ce9590e70b6ae3"
+  },
+  "local_full_suite": {
+    "results": [
+      "test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s",
+      "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 52.51s",
+      "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.40s"
+    ],
+    "exit_code": 0
+  },
+  "installer_fixtures": {
+    "passed": 17,
+    "log_sha256": "2f865c25cb556cfd0b279e24671aadcc5cdfe2ea6e4a43b9ec39dc55dcb5bb34"
+  },
+  "native_install_controls": {
+    "mismatched_prebuilt": {
+      "exit_code": 1,
+      "old_binary_unchanged": true,
+      "identity_mismatch_reported": true,
+      "actual_installed_binary_unchanged": true
+    },
+    "source_without_signer": {
+      "exit_code": 1,
+      "old_binary_unchanged": true,
+      "profile_refusal_reported": true,
+      "cargo_not_invoked": true
+    }
+  },
+  "rejected_results": {
+    "initial_prebuilt_classifier": {
+      "accepted": false,
+      "private_fixture_was_replaced": true,
+      "actual_installed_binary_changed": false,
+      "cause": "Authority line absent in observed native codesign output",
+      "log_sha256": "af38b825bb2f1b3561cc1afddf4601eba30c1cb4cd3311752e617c7fd7621c54"
+    },
+    "mini_in_checkout_fixtures": {
+      "accepted": false,
+      "passed": 13,
+      "failed": 8,
+      "cause": "enclosing Reap checkout correctly blocks non-scratch cleanup; fixture root must be outside Git"
+    }
+  },
+  "mini_source_install_failure": {
+    "host": "catalyst-mini",
+    "revision": "874249b817fcc534042805c0d5698f8886efb67b",
+    "exit_code": 1,
+    "elapsed_seconds": 14.668522792,
+    "binary_sha256": "1d38f206c23c6c2325c32999ffbf351a312019ef7cfe63937c87ac63ccadc166",
+    "operator_guides_unchanged": true,
+    "guide_hashes": {
+      "/Users/spencer/.claude/skills/reap/SKILL.md": "5b9eaf8b90dd38d1263dea9a3ff9e397169d5c26178635bac303c3118a9c8ec9",
+      "/Users/spencer/.codex/skills/reap/SKILL.md": "5b9eaf8b90dd38d1263dea9a3ff9e397169d5c26178635bac303c3118a9c8ec9"
+    }
+  },
+  "fleet": {
+    "catalyst": {
+      "source_install": {
+        "host": "catalyst",
+        "revision": "874249b817fcc534042805c0d5698f8886efb67b",
+        "exit_code": 0,
+        "elapsed_seconds": 19.516695375088602,
+        "binary_sha256": "04fce1daaba52f410faa9f497e558237487030a8c36c4ff1df6e11f057b9a67d",
+        "operator_guides_unchanged": true,
+        "guide_hashes": {
+          "/Users/spencer/.claude/skills/reap/SKILL.md": "5b9eaf8b90dd38d1263dea9a3ff9e397169d5c26178635bac303c3118a9c8ec9",
+          "/Users/spencer/.codex/skills/reap/SKILL.md": "5b9eaf8b90dd38d1263dea9a3ff9e397169d5c26178635bac303c3118a9c8ec9"
+        }
+      },
+      "prebuilt_install": {
+        "exit_code": 0,
+        "installer_revision": "a41c639cdd9c033342df926d13674634395d1a92"
+      },
+      "runtime": {
+        "host": "catalyst",
+        "binary_sha256": "04fce1daaba52f410faa9f497e558237487030a8c36c4ff1df6e11f057b9a67d",
+        "version": "reap 0.1.0",
+        "tests": {
+          "declarations": {
+            "exit_code": 0,
+            "terminal": [
+              "test partial_cleanup_preserves_unrecoverable_enclosing_checkout_and_metadata ... ok",
+              "",
+              "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.87s",
+              ""
+            ]
+          },
+          "workspaces": {
+            "exit_code": 0,
+            "terminal": [
+              "----------------------------------------------------------------------",
+              "Ran 5 tests in 6.586s",
+              "",
+              "OK"
+            ]
+          }
+        },
+        "codesign_verify_exit": 0,
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+      }
+    },
+    "catalyst-mini": {
+      "prebuilt_install": {
+        "host": "catalyst-mini",
+        "hostname": "catalyst-mini.local",
+        "install_exit": 0,
+        "binary_sha256": "04fce1daaba52f410faa9f497e558237487030a8c36c4ff1df6e11f057b9a67d",
+        "binary_source_revision": "874249b817fcc534042805c0d5698f8886efb67b",
+        "installer_revision": "a41c639cdd9c033342df926d13674634395d1a92",
+        "codesign_verify_exit": 0,
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "operator_guides_unchanged": true,
+        "guide_hashes": {
+          "/Users/spencer/.claude/skills/reap/SKILL.md": "5b9eaf8b90dd38d1263dea9a3ff9e397169d5c26178635bac303c3118a9c8ec9",
+          "/Users/spencer/.codex/skills/reap/SKILL.md": "5b9eaf8b90dd38d1263dea9a3ff9e397169d5c26178635bac303c3118a9c8ec9"
+        }
+      },
+      "runtime": {
+        "host": "catalyst-mini",
+        "hostname": "catalyst-mini.local",
+        "fixture_volume": "/Volumes/kytos",
+        "fixture_root": "/Volumes/kytos/projects/reap/lifetime-safety-t8-fixtures",
+        "permission_denial_control": true,
+        "binary_source_revision": "874249b817fcc534042805c0d5698f8886efb67b",
+        "installer_revision": "a41c639cdd9c033342df926d13674634395d1a92",
+        "tests": {
+          "declarations": {
+            "exit_code": 0,
+            "terminal": [
+              "test partial_cleanup_preserves_unrecoverable_enclosing_checkout_and_metadata ... ok",
+              "",
+              "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.55s",
+              ""
+            ]
+          },
+          "workspaces": {
+            "exit_code": 0,
+            "terminal": [
+              "----------------------------------------------------------------------",
+              "Ran 5 tests in 4.634s",
+              "",
+              "OK"
+            ]
+          }
+        },
+        "version": "reap 0.1.0",
+        "codesign_verify_exit": 0,
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+      },
+      "fixture_retention": {
+        "target": "/Users/spencer/projects/reap/lifetime-safety-t8-fixtures",
+        "canonical_target": "/Volumes/kytos/projects/reap/lifetime-safety-t8-fixtures",
+        "governed": true,
+        "ancestor_git": false,
+        "overlapping_state_paths": false,
+        "retention": "sealed KEEP",
+        "permission_denial_control": true
+      }
+    }
+  },
+  "inputs_sha256": {
+    "src/files.rs": "6b5c9ad4c6a5576218216df4cd6f8006d9c611f096a282cee2c4f39756b65396",
+    "src/quarantine.rs": "41b27765af72f88cbefe672f3b1e9898c9f71ef9c30e85c080fd136ed76a7d06",
+    "src/util.rs": "2b7226c53e0e7f0a7eceafd449a7ea0fda94c16cf642bf0cd4555accde1223e9",
+    "src/config.rs": "6b1d1f87a0dec63e629d175ad5489926b87c8cdbef36dbfa650a695687f6f5d1",
+    "tests/reap_files.rs": "44e72d9798f6c5c0ad3629a705f56aca56bddb728e287fd76c9b649e7d781fb6",
+    "tests/skill_workspaces.py": "06dacb564bcce82775712db091483228fab94dd73e99ef2612ee1ef5b7b2c86d",
+    "install.sh": "9db8084b4e2f70377bac4fbb94f04fc215ad4beedc331f04f400cc5edbdfd6bd",
+    "tests/install_signing.py": "48933158bd3d9ee03b78047db7ca4f2ca269ec3816769bf246abf82d5670ee64",
+    "docs/specs/reap-file.md": "6275ef5e4382903c2c8429a357bcefcac6085a7a1a7d32d6ceb02565a168aac0",
+    "docs/specs/macos-install.md": "b8ea238d332fc926e7f87b35dcc8dd123f75902f806564970636caa7c1b66ce8",
+    "skill/SKILL.md": "f727f4466846ae87e79ba21b0a1468c30f4d689b6d7e6e3ab4b0a8be70d18e5c"
+  },
+  "artifacts": {
+    "catalyst": [
+      "target/archive-native-t7",
+      "target/lifetime-safety-t8"
+    ],
+    "catalyst-mini": [
+      "/Users/spencer/src/reap/target/lifetime-safety-t8-native",
+      "/Users/spencer/projects/reap/lifetime-safety-t8-fixtures"
+    ],
+    "cargo_protection": "Untracked .reap.json keep.paths on each host",
+    "external_fixture_policy": "sealed KEEP; generated child fixtures removed by the native harness"
+  },
+  "foreign_processes_stopped": false,
+  "keychain_changed": false,
+  "provider_homes_changed": false,
+  "archive_policy_activated": false,
+  "v2_migration_activated": false
+}

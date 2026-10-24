@@ -6,8 +6,9 @@
 - Grounds: `DEC-REAP-NATIVE-IDENTITY`; the Skills repository's canonical-context ownership
   contract (`~/src/skills/AGENTS.md`).
 - Fixtures: `docs/specs/macos-install.fixtures.json`.
-- Conformance: C1–C3 fleet identity evidence is in `docs/proof/REAP-NATIVE-IDENTITY.md`.
-  The expanded installer fixtures pass on Catalyst; C4 has not been deployed.
+- Conformance: C1–C5 have fixture and native proof in
+  [LIFETIME-SAFETY-T8](../proof/LIFETIME-SAFETY-T8.md). Earlier C1–C3 evidence remains in
+  `docs/proof/REAP-NATIVE-IDENTITY.md`.
 
 ## Contract
 
@@ -22,13 +23,14 @@
   · Binding: `tests/install_signing.py` failure cases.
 - **C3** — With no configured signer, a certificate-signed macOS installation
   is not replaced by ad-hoc code. A fresh install without signing credentials
-  remains supported with an explicit ad-hoc signature.
+  remains supported with an explicit ad-hoc signature. Unknown existing identity is protective;
+  replacement without a signer requires a positively identified existing ad-hoc signature.
   · Binding: `tests/install_signing.py` downgrade and fresh-install cases.
 - **C4** — The installer bootstraps a missing agent skill but never replaces an existing
   `reap/SKILL.md`, including a symlink. Updating an existing operator guide belongs to its owner,
   not binary installation. Build/sign/verification failures leave skills unchanged.
   · Binding: `tests/install_signing.py` existing-skill, symlink, repeated-install and failure cases.
-  · Conformance: installer fixtures pass on Catalyst; not deployed.
+  · Conformance: fixtures pass; native operator-guide hashes remain unchanged on both Macs.
 - **C5** — `install.sh --binary PATH` installs an existing build through the same private
   staging and atomic publication path. It does not build or sign again. On macOS, the staged
   binary passes strict native signature verification. If a macOS binary is already installed,
@@ -36,7 +38,8 @@
   and identity mismatch preserve the installed binary and operator guides.
   · Binding: prebuilt cases in `tests/install_signing.py`, plus native signature, identity,
     checksum, and installed-consumer proof on both Macs.
-  · Conformance: pending implementation and native proof.
+  · Conformance: 17 installer fixtures pass, native negative controls preserve old binaries,
+    and both Macs install the same verified artifact with matching designated requirements.
 
 ## Non-goals
 

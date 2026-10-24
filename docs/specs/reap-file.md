@@ -8,7 +8,7 @@
 - Grounds: `DEC-LIFETIME-AUTHORITY`, `DEC-LIFETIME-FORMAT` (both proposed)
 - Fixtures: `docs/specs/reap-file.fixtures.json`, read by `src/reapfile.rs::tests::spec_fixtures`
   (C4–C13); on-disk honour rules in `tests/reap_files.rs` (C1–C3)
-- Conformance: met by the local suite and native workspace cases; fleet release proof remains pending · 2026-10-23
+- Conformance: met by the local suite and installed-binary cases on both Macs · 2026-10-23
 
 ## Surface
 
@@ -113,6 +113,9 @@ reap's existing behavior and are governed by its own documentation, not by this 
 | C14, native workspace lifecycle | `REAP_BIN=<verified-binary> python3 tests/skill_workspaces.py` | 5 cases pass locally |
 | C4–C10, C12–C13 | `cargo test reapfile::tests::spec_fixtures` (reads the fixture path) | recorded passing model proof |
 | C1–C13 (reference) | `python3 prototypes/lifetime-authority/scenarios.py`, `python3 prototypes/lifetime-format/evaluate.py` | pass |
+
+The [T8 fleet proof](../proof/LIFETIME-SAFETY-T8.md) records the full local suite, rejected
+baseline controls, native installer verification, and 26 installed-consumer cases on each Mac.
 
 ### Historical native failure evidence
 
