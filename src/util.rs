@@ -530,15 +530,30 @@ pub fn new_token(seed: &str) -> String {
   format!("{}{}", hash_hex(seed, 0xa5), hash_hex(seed, 0x5a))
 }
 
+/// Git commands inspect the named filesystem checkout, not inherited Git paths.
+pub(crate) fn git_command(dir: &Path) -> Command {
+  let mut command = Command::new("git");
+  command.arg("-C").arg(dir).env("GIT_OPTIONAL_LOCKS", "0");
+  for name in [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  ] {
+    command.env_remove(name);
+  }
+  command
+}
+
 pub fn git_capture(dir: &Path, args: &[&str]) -> Result<String, GitError> {
   git_capture_bytes(dir, args).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Capture raw Git output so path records retain their original bytes.
 pub fn git_capture_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, GitError> {
-  let out = Command::new("git")
-    .arg("-C")
-    .arg(dir)
+  let out = git_command(dir)
     .args(args)
     .output()
     .map_err(|_| GitError::Missing)?;

@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -41,15 +42,22 @@ impl Env {
   }
 
   fn reap(&self, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_reap"))
+    self.command(args).output().unwrap()
+  }
+
+  fn command(&self, args: &[&str]) -> Command {
+    // Fleet verification uses the installed consumer with this same fixture harness.
+    let binary =
+      std::env::var_os("REAP_TEST_BIN").unwrap_or_else(|| env!("CARGO_BIN_EXE_reap").into());
+    let mut command = Command::new(binary);
+    command
       .args(args)
       .env("HOME", self.root.join("home"))
       .env("XDG_STATE_HOME", self.root.join("state"))
       .env_remove("REAP_OWNER")
       .env_remove("REAP_SESSION")
-      .current_dir(&self.root)
-      .output()
-      .unwrap()
+      .current_dir(&self.root);
+    command
   }
 
   fn apply(&self) -> String {
@@ -255,6 +263,197 @@ fn new_declaration_waits_out_the_grace_period() {
   let out = env.apply();
   assert!(run.exists(), "{out}");
   assert!(out.contains("takes effect in"), "{out}");
+}
+
+#[test]
+fn failed_git_tracking_cannot_authorize_a_tracked_declaration() {
+  let env = Env::new(0.0);
+  let repo = env.projects().join("p/repo");
+  declare(
+    &repo,
+    json!({"version": 1, "expires": PAST, "scratch": true}),
+  );
+  file(&repo.join("sentinel"));
+  for args in [vec!["init", "-q"], vec!["add", "-f", ".reap"]] {
+    assert!(Command::new("git")
+      .arg("-C")
+      .arg(&repo)
+      .args(args)
+      .output()
+      .unwrap()
+      .status
+      .success());
+  }
+  age(&env.projects(), 2.0);
+  let control = env.reap(&["files"]);
+  assert!(String::from_utf8_lossy(&control.stdout).contains("tracked by git"));
+
+  let bin = env.root.join("bin");
+  fs::create_dir(&bin).unwrap();
+  fs::write(bin.join("git"), "#!/bin/sh\nexit 128\n").unwrap();
+  fs::set_permissions(bin.join("git"), fs::Permissions::from_mode(0o700)).unwrap();
+  let path = std::env::join_paths(
+    std::iter::once(bin).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+  )
+  .unwrap();
+  let output = env
+    .command(&["files", "--apply"])
+    .env("PATH", path)
+    .output()
+    .unwrap();
+  let text = String::from_utf8_lossy(&output.stdout);
+  assert!(
+    repo.join(".reap").exists() && repo.join("sentinel").exists(),
+    "{text}"
+  );
+  assert!(text.contains("cannot determine Git tracking"), "{text}");
+  assert!(!output.status.success());
+}
+
+#[test]
+fn unreadable_subtree_protects_its_ancestor_without_blocking_unrelated_cleanup() {
+  let env = Env::new(0.0);
+  let parent = env.projects().join("p/expired");
+  let child = parent.join("evidence");
+  let unrelated = env.projects().join("p/unrelated");
+  declare(&parent, json!({"version": 1, "expires": PAST}));
+  declare(&child, json!({"version": 1, "keep": {"reason": "proof"}}));
+  declare(&unrelated, json!({"version": 1, "expires": PAST}));
+  file(&child.join("sentinel"));
+  age(&env.projects(), 2.0);
+  fs::set_permissions(&child, fs::Permissions::from_mode(0)).unwrap();
+  let unreadable = fs::read_dir(&child).is_err();
+  let output = env.reap(&["files"]);
+  fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
+  if !unreadable {
+    eprintln!("permission fixture requires an unprivileged account");
+    return;
+  }
+  let text = String::from_utf8_lossy(&output.stdout);
+  assert!(
+    !text.contains(&format!("would quarantine {} ", parent.display())),
+    "{text}"
+  );
+  assert!(text.contains("cannot read directory"), "{text}");
+  assert!(!output.status.success());
+  assert!(
+    text.contains(&format!("would quarantine {} ", unrelated.display())),
+    "{text}"
+  );
+  assert!(child.join("sentinel").exists());
+}
+
+#[test]
+fn sealed_expiry_cannot_override_incomplete_directory_coverage() {
+  let env = Env::new(0.0);
+  let parent = env.projects().join("p/expired");
+  let child = parent.join("unknown");
+  declare(
+    &parent,
+    json!({"version": 1, "expires": PAST, "seal": true, "scratch": true}),
+  );
+  file(&child.join("sentinel"));
+  age(&env.projects(), 2.0);
+  fs::set_permissions(&child, fs::Permissions::from_mode(0)).unwrap();
+  let unreadable = fs::read_dir(&child).is_err();
+  let output = env.reap(&["files"]);
+  fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
+  if !unreadable {
+    eprintln!("permission fixture requires an unprivileged account");
+    return;
+  }
+  let text = String::from_utf8_lossy(&output.stdout);
+  assert!(
+    !text.contains(&format!("would quarantine {} ", parent.display())),
+    "{text}"
+  );
+  assert!(text.contains("incomplete coverage"), "{text}");
+  assert!(!output.status.success());
+  assert!(child.join("sentinel").exists());
+}
+
+#[test]
+fn new_keep_protects_during_grace_from_an_established_parent_rule() {
+  let env = Env::new(24.0);
+  let parent = env.projects().join("p/runs");
+  let child = parent.join("run-kept");
+  let disposable = parent.join("run-disposable");
+  declare(
+    &parent,
+    json!({"version": 1, "keep": {"reason": "runs"},
+    "children": [{"pattern": "run-*", "max_age_days": 1}]}),
+  );
+  file(&child.join("sentinel"));
+  file(&disposable.join("output"));
+  env.reap(&["files"]);
+  let seen_path = env.root.join("state/reap/reap-files-seen.json");
+  let mut seen: Value = serde_json::from_str(&fs::read_to_string(&seen_path).unwrap()).unwrap();
+  for value in seen.as_object_mut().unwrap().values_mut() {
+    *value = json!(0);
+  }
+  fs::write(&seen_path, seen.to_string()).unwrap();
+  declare(
+    &child,
+    json!({"version": 1, "keep": {"reason": "still needed"}}),
+  );
+  age(&env.projects(), 2.0);
+  let output = env.apply();
+  assert!(child.join("sentinel").exists(), "{output}");
+  assert!(!disposable.exists(), "{output}");
+}
+
+#[test]
+fn partial_cleanup_preserves_unrecoverable_enclosing_checkout_and_metadata() {
+  let env = Env::new(0.0);
+  let repo = env.projects().join("p/repo");
+  declare(&repo, json!({"version": 1, "expires": PAST}));
+  declare(
+    &repo.join("evidence"),
+    json!({"version": 1, "keep": {"reason": "proof"}}),
+  );
+  file(&repo.join("source.rs"));
+  file(&repo.join("src/module.rs"));
+  file(&repo.join("evidence/proof"));
+  assert!(Command::new("git")
+    .arg("-C")
+    .arg(&repo)
+    .args(["init", "-q"])
+    .output()
+    .unwrap()
+    .status
+    .success());
+  age(&env.projects(), 2.0);
+  let output = env.apply();
+  for path in ["source.rs", "src/module.rs", "evidence/proof", ".git/HEAD"] {
+    assert!(repo.join(path).exists(), "{path}: {output}");
+  }
+  assert!(output.contains("is not recoverable"), "{output}");
+}
+
+#[test]
+fn deeply_nested_unrecoverable_checkout_survives_expired_container() {
+  let env = Env::new(0.0);
+  let parent = env.projects().join("p/expired");
+  let repo = parent.join("a/b/c/d/repo");
+  let disposable = env.projects().join("p/disposable");
+  declare(&parent, json!({"version": 1, "expires": PAST}));
+  declare(&disposable, json!({"version": 1, "expires": PAST}));
+  file(&repo.join("source.rs"));
+  assert!(Command::new("git")
+    .arg("-C")
+    .arg(&repo)
+    .args(["init", "-q"])
+    .output()
+    .unwrap()
+    .status
+    .success());
+  age(&env.projects(), 2.0);
+  let output = env.apply();
+  assert!(
+    repo.join("source.rs").exists() && repo.join(".git/HEAD").exists(),
+    "{output}"
+  );
+  assert!(!disposable.exists(), "{output}");
 }
 
 #[test]

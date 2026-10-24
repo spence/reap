@@ -1302,6 +1302,21 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool, cargo_targets: &[Pa
     push(&mut a.checks, "git", true, String::new());
     return;
   }
+  a.checks.extend(git_recovery_checks(
+    dir,
+    cargo_targets,
+    &[dir.join(LEASE_MARKER)],
+  ));
+}
+
+/// Fresh Git recovery checks shared by leases and declaration removal subjects.
+/// Only exact lifecycle control files are exempt from local-file checks.
+pub(crate) fn git_recovery_checks(
+  dir: &Path,
+  cargo_targets: &[PathBuf],
+  control_files: &[PathBuf],
+) -> Vec<RetireCheck> {
+  let mut checks = vec![];
   // Non-scratch: everything must be recoverable elsewhere.
   match git_capture_bytes(
     dir,
@@ -1315,26 +1330,26 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool, cargo_targets: &[Pa
   ) {
     Err(GitError::Missing) => {
       push(
-        &mut a.checks,
+        &mut checks,
         "git-clean",
         false,
-        "git unavailable -- cannot verify a non-scratch lease".to_string(),
+        "git unavailable -- cannot verify recoverability".to_string(),
       );
-      return;
+      return checks;
     }
     Err(GitError::Failed(e)) => {
-      push(&mut a.checks, "git-clean", false, e);
-      return;
+      push(&mut checks, "git-clean", false, e);
+      return checks;
     }
     Ok(out) => {
-      let marker_untracked = format!("?? {LEASE_MARKER}");
-      let marker_ignored = format!("!! {LEASE_MARKER}");
       let paths: Vec<&[u8]> = out
         .split(|byte| *byte == 0)
         .filter(|line| {
           !line.is_empty()
-            && *line != marker_untracked.as_bytes()
-            && *line != marker_ignored.as_bytes()
+            && !line
+              .strip_prefix(b"?? ")
+              .or_else(|| line.strip_prefix(b"!! "))
+              .is_some_and(|name| control_files.contains(&dir.join(OsStr::from_bytes(name))))
         })
         .collect();
       let dirty = paths
@@ -1350,13 +1365,13 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool, cargo_targets: &[Pa
         })
         .count();
       push(
-        &mut a.checks,
+        &mut checks,
         "git-clean",
         dirty == 0,
         format!("{} uncommitted/untracked path(s)", dirty),
       );
       push(
-        &mut a.checks,
+        &mut checks,
         "git-ignored",
         ignored == 0,
         format!("{} ignored path(s) with unproved recoverability", ignored),
@@ -1377,30 +1392,31 @@ fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool, cargo_targets: &[Pa
       Ok(n) => {
         let n = n.trim().parse::<u64>().unwrap_or(u64::MAX);
         push(
-          &mut a.checks,
+          &mut checks,
           label,
           n == 0,
           format!("{} commit(s) not on any remote", n),
         );
       }
-      Err(GitError::Failed(e)) => push(&mut a.checks, label, false, e),
-      Err(GitError::Missing) => push(&mut a.checks, label, false, "git unavailable".to_string()),
+      Err(GitError::Failed(e)) => push(&mut checks, label, false, e),
+      Err(GitError::Missing) => push(&mut checks, label, false, "git unavailable".to_string()),
     }
   }
   match git_capture(dir, &["stash", "list"]) {
     Ok(out) => push(
-      &mut a.checks,
+      &mut checks,
       "git-stash",
       out.trim().is_empty(),
       format!("{} stash(es) would be lost", out.lines().count()),
     ),
     Err(_) => push(
-      &mut a.checks,
+      &mut checks,
       "git-stash",
       false,
       "git unavailable".to_string(),
     ),
   }
+  checks
 }
 
 #[cfg(test)]

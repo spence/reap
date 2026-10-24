@@ -20,7 +20,7 @@ pub struct Config {
   pub quarantine: QuarantineConfig,
   /// Roots whose `.reap` declarations reap honours (SPEC-REAP-FILE C1).
   pub governed_roots: Vec<String>,
-  /// A newly seen `.reap` file takes effect after this many hours (C3).
+  /// New `.reap` disposal permission waits this many hours; KEEP protects immediately (C3).
   pub reap_file_grace_hours: f64,
   /// A path modified more recently than this is never removed by a declaration.
   pub reap_file_min_age_minutes: f64,

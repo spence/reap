@@ -162,6 +162,35 @@ class WorkspaceLifecycle(unittest.TestCase):
                          b'retained executable')
         self.assertEqual((payload / 'source.txt').read_text(), CONTENT)
 
+    def test_declaration_preserves_commits_on_a_noncurrent_branch(self):
+        self.declare(expires='2020-01-01T00:00:00Z')
+        self.git(self.workspace, 'checkout', '-qb', 'unpublished')
+        (self.workspace / 'branch-only.txt').write_text('unpublished source\n')
+        self.git(self.workspace, 'add', 'branch-only.txt')
+        self.git(self.workspace, '-c', 'commit.gpgsign=false', 'commit', '-qm',
+                 'test: unpublished branch fixture')
+        self.git(self.workspace, 'checkout', '-q', 'review')
+        self.age()
+        result = self.reap('files', '--apply', self.projects)
+        self.assertTrue(self.workspace.exists(), result.stdout + result.stderr)
+        self.assertIn('commit', result.stdout)
+        self.assertEqual(self.git(self.workspace, 'show', 'unpublished:branch-only.txt').stdout,
+                         'unpublished source\n')
+
+    def test_declaration_preserves_ignored_local_data(self):
+        self.declare(expires='2020-01-01T00:00:00Z')
+        exclude = Path(self.git(self.workspace, 'rev-parse', '--path-format=absolute',
+                                '--git-path', 'info/exclude').stdout.strip())
+        with exclude.open('a') as stream:
+            stream.write('/local-notes.txt\n')
+        notes = self.workspace / 'local-notes.txt'
+        notes.write_text('required local evidence\n')
+        self.age()
+        result = self.reap('files', '--apply', self.projects)
+        self.assertTrue(notes.exists(), result.stdout + result.stderr)
+        self.assertEqual(notes.read_text(), 'required local evidence\n')
+        self.assertIn('ignored path', result.stdout)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -8,7 +8,7 @@
 - Grounds: `DEC-LIFETIME-AUTHORITY`, `DEC-LIFETIME-FORMAT` (both proposed)
 - Fixtures: `docs/specs/reap-file.fixtures.json`, read by `src/reapfile.rs::tests::spec_fixtures`
   (C4–C13); on-disk honour rules in `tests/reap_files.rs` (C1–C3)
-- Conformance: C2 and C11 not met; other clauses retain their recorded proof · 2026-10-23
+- Conformance: met by the local suite and native workspace cases; fleet release proof remains pending · 2026-10-23
 
 ## Surface
 
@@ -33,11 +33,17 @@ reap's existing behavior and are governed by its own documentation, not by this 
   · Binding: `tests/reap_files.rs::default_governed_root_removes_only_declared_projects`,
     `tests/reap_files.rs::copies_outside_the_root_and_symlinks_inside_are_never_touched` · Conformance: `met`
 - **C2** — A `.reap` file tracked by git is ignored.
-  · Binding: `tests/reap_files.rs::git_tracked_declaration_is_set_aside`
-  · Conformance: `not met` when the Git probe fails; see the native failure evidence below.
-- **C3** — A declaration takes effect only once its file identity has been seen for the grace
-  period (default 24 hours); renames and moves within a volume keep identity.
-  · Binding: `tests/reap_files.rs::new_declaration_waits_out_the_grace_period`; rename and move cases in `prototypes/lifetime-authority/scenarios.py` · Conformance: `met`
+  Unknown tracking state protects the affected subtree and cannot authorize removal.
+  · Binding: `tests/reap_files.rs::git_tracked_declaration_is_set_aside`,
+    `tests/reap_files.rs::failed_git_tracking_cannot_authorize_a_tracked_declaration`
+  · Conformance: `met`; failed probes return an incomplete result and preserve the subtree.
+- **C3** — Disposal permission takes effect only once its file identity has been seen for the grace
+  period (default 24 hours); renames and moves within a volume keep identity. A new untracked
+  KEEP protects immediately. Grace cannot expose its subtree to inherited disposal.
+  · Binding: `tests/reap_files.rs::new_declaration_waits_out_the_grace_period`,
+    `tests/reap_files.rs::new_keep_protects_during_grace_from_an_established_parent_rule`;
+    rename and move cases in `prototypes/lifetime-authority/scenarios.py`
+  · Conformance: `met`
 - **C4** — A declaration with `"seal": true` governs its whole subtree; declarations beneath it
   are ignored.
   · Binding: `fixture:seal-overrides-descendants` · Conformance: `met`
@@ -76,15 +82,26 @@ reap's existing behavior and are governed by its own documentation, not by this 
     `fixture:declared-child-not-counted` · Conformance: `met`
 - **C11** — When a declaration's `expires` has passed, its directory is removed, except subtrees
   protected by their own unexpired, kept, or invalid declaration, which remain in place.
-  · Binding: `fixture:expired-scratch-keeps-declared-evidence`, `fixture:worktree-scratch-expired`
-  · Conformance: `not met` for an unreadable protected subtree; see the native failure evidence below.
+  Incomplete directory or entry coverage protects the affected subtree and prevents whole-ancestor
+  removal. Independently eligible unrelated units remain eligible.
+  · Binding: `fixture:expired-scratch-keeps-declared-evidence`, `fixture:worktree-scratch-expired`,
+    `tests/reap_files.rs::unreadable_subtree_protects_its_ancestor_without_blocking_unrelated_cleanup`
+    and `tests/reap_files.rs::sealed_expiry_cannot_override_incomplete_directory_coverage`
+  · Conformance: `met`; incomplete coverage is not overridden by seal or scratch.
 - **C12** — `disposition` is `quarantine` (default, recoverable until purge) or `delete`; any
   other value is invalid.
   · Binding: `fixture:invalid-bad-disposition` · Conformance: `met`
 - **C14** — A path holding a git work tree with uncommitted, stashed, or unpushed work, or no
   upstream to prove its commits are pushed, is not removed by a declaration unless the declaration
-  that removes it sets `"scratch": true`.
-  · Binding: `tests/reap_files.rs::git_work_survives_unless_scratch` · Conformance: `met`
+  that removes it sets `"scratch": true`. Partial removals also use the enclosing checkout's
+  recoverability proof. Nested checkout discovery has no depth-three safety cutoff.
+  The proof covers all local branches and HEAD. Ignored local data also blocks removal;
+  ignore rules do not prove recoverability. Only exact lifecycle control files are exempt.
+  · Binding: `tests/reap_files.rs::git_work_survives_unless_scratch`,
+    `tests/reap_files.rs::partial_cleanup_preserves_unrecoverable_enclosing_checkout_and_metadata`,
+    `tests/reap_files.rs::deeply_nested_unrecoverable_checkout_survives_expired_container`
+    and the native ignored-data and noncurrent-branch cases in `tests/skill_workspaces.py`
+  · Conformance: `met`
 - **C13** — `owner` and `purpose` are informational and never change what is removed.
   · Binding: `fixture:build-output-expired` (`purpose` present) · Conformance: `met`
 
@@ -92,16 +109,15 @@ reap's existing behavior and are governed by its own documentation, not by this 
 
 | Clauses | Check | State |
 |---|---|---|
-| C1, C3, C14 | `cargo test --test reap_files` | recorded passing proof |
-| C2 | Normal-Git fixture above; failed-Git native reproduction below | not met |
+| C1–C3, C11, C14 | `cargo test --test reap_files` | 21 cases pass locally |
+| C14, native workspace lifecycle | `REAP_BIN=<verified-binary> python3 tests/skill_workspaces.py` | 5 cases pass locally |
 | C4–C10, C12–C13 | `cargo test reapfile::tests::spec_fixtures` (reads the fixture path) | recorded passing model proof |
-| C11 | Model fixtures above; unreadable-subtree native reproduction below | not met |
 | C1–C13 (reference) | `python3 prototypes/lifetime-authority/scenarios.py`, `python3 prototypes/lifetime-format/evaluate.py` | pass |
 
-### Native failure evidence
+### Historical native failure evidence
 
 The [2026-10-23 investigation](../proof/RESPONSIVENESS-INVESTIGATION.md) reproduces both failures
-against the installed binary on both Macs. Its [receipts](../proof/RESPONSIVENESS-2026-10-23.json)
+against the then-installed binary on both Macs. Its [receipts](../proof/RESPONSIVENESS-2026-10-23.json)
 retain the dry-run output. No destructive execution occurred.
 
 - `ISS-FAILED-GIT-TRACKING-PROBE-HONORS-A-TRACK`: a fatal Git exit is treated as an untracked
@@ -109,9 +125,9 @@ retain the dry-run output. No destructive execution occurred.
 - `ISS-UNREADABLE-DECLARATION-SUBTREE-HIDES-KEE`: a skipped directory hides its KEEP declaration.
   The expired ancestor then becomes a removal candidate without an incomplete-coverage result.
 
-Run `python3 tools/reproduce_responsiveness.py --destination target/reap-native-failure-evidence`
-with a new destination. This diagnostic harness demonstrates the defects; it is not proof of
-conformance. Correction requires fail-closed regressions and native preservation proof.
+`tools/reproduce_responsiveness.py` is the historical baseline harness. It asserts the observed
+defects and must not be treated as a conformance test for corrected binaries. Current correction
+cases are bound above. The full local Rust suite passes: 64 unit, 57 lifecycle, and 21 declaration cases.
 
 ### Accepted gaps
 

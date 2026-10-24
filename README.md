@@ -605,9 +605,14 @@ reap files --apply    # remove what the declarations say, after re-checking each
 
 Reap honours a `.reap` file only under a governed root (`governed_roots`,
 default `["~/projects"]`; the root may be a symlink, nothing below it is followed),
-only when git does not track it, and only after its file identity has been seen
-for `reap_file_grace_hours` (default 24). A sealed declaration overrides the
-declarations beneath it. An invalid file protects its whole subtree.
+only when Git proves it untracked, or no enclosing checkout exists. Failed Git
+probes protect the affected subtree. New KEEP declarations protect immediately;
+new disposal permission waits for `reap_file_grace_hours` (default 24).
+Child disposal rules in a newly seen declaration also wait for grace. A sealed declaration overrides
+the declarations beneath it. Invalid files and incomplete directory coverage
+protect their affected subtrees. Incomplete coverage also blocks whole-ancestor
+removal, including a sealed or scratch ancestor. The command reports incomplete
+coverage with a failure exit while independent unrelated units can proceed.
 
 Before each removal, `--apply` re-checks that the path is still inside the root
 without crossing a symlink, that it was not modified within
@@ -616,9 +621,17 @@ file handle, that it does not overlap a recorded lease, and that the current
 directory is outside it. `disposition` `quarantine` (the default) moves the path
 into the indexed quarantine with the declaration's owner and reason;
 `delete` removes it directly. Whatever the disposition, a path holding a git
-work tree (up to three levels down) with uncommitted, stashed, or unpushed work,
-or no upstream, is never removed unless its declaration sets `"scratch": true`. First-seen times live in `reap-files-seen.json` in the state
+work tree with uncommitted, stashed, or unpushed work, or no upstream, is never
+removed unless its declaration sets `"scratch": true`. Partial file and directory
+removals also use enclosing checkout guards. Nested checkout discovery has no
+depth-three safety cutoff. First-seen times live in `reap-files-seen.json` in the state
 directory; deleting that cache only delays action.
+
+Declaration and lease checks use the same Git recoverability assessment: all local
+branches, HEAD, stashes, uncommitted/untracked paths, and ignored local data.
+Only the exact lifecycle control file is exempt from local-file checks.
+An ignored `target/` is not disposal permission for declaration cleanup.
+The separate lease retirement option for explicitly disposable Cargo output remains available.
 
 Every run also lists `UNDECLARED` paths: a target (`<root>/<project>/<target>`)
 or a loose entry at those two levels that no `.reap` covers, itself or through

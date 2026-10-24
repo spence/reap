@@ -4,9 +4,9 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::UNIX_EPOCH;
 
 use crate::config::{home, load_config};
@@ -16,7 +16,8 @@ use crate::provenance::{self, Provenance};
 use crate::quarantine::{execute_path_retire, finalize_restore, load_index, save_index};
 use crate::reapfile::{evaluate, Decl, Disposition, Removal, View, FILE_NAME};
 use crate::util::{
-  default_owner, fmt_rel, hostname, lock_state, move_unit, state_dir, tree_stats, write_json_atomic,
+  default_owner, fmt_rel, git_command, hostname, lock_state, move_unit, state_dir, tree_stats,
+  write_json_atomic,
 };
 
 const SEEN_FILE: &str = "reap-files-seen.json";
@@ -31,6 +32,8 @@ pub struct Found {
 pub struct Scan {
   pub root: PathBuf,
   pub found: Vec<Found>,
+  incomplete: bool,
+  coverage_errors: BTreeMap<PathBuf, String>,
   view: DiskView,
 }
 
@@ -96,18 +99,40 @@ fn unit_stats(path: &Path) -> Option<(f64, u64, Option<PathBuf>)> {
   Some((own.max(st.newest_mtime), st.bytes, st.foreign_dev))
 }
 
-fn git_tracked(file: &Path) -> bool {
+/// All enclosing filesystem checkouts; an unreadable or unsafe marker is not absence.
+fn git_ancestors(dir: &Path) -> Result<Vec<PathBuf>, String> {
+  let mut trees = vec![];
+  for ancestor in dir.ancestors() {
+    let marker = ancestor.join(".git");
+    match fs::symlink_metadata(&marker) {
+      Ok(meta) if meta.is_file() || meta.is_dir() => trees.push(ancestor.to_path_buf()),
+      Ok(_) => return Err(format!("unsafe Git metadata at {}", marker.display())),
+      Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+      Err(error) => return Err(format!("cannot inspect {}: {error}", marker.display())),
+    }
+  }
+  Ok(trees)
+}
+
+fn git_tracked(file: &Path) -> Result<bool, String> {
   let Some(dir) = file.parent() else {
-    return false;
+    return Err("declaration has no parent".into());
   };
-  Command::new("git")
-    .args(["-C"])
-    .arg(dir)
-    .args(["ls-files", "--error-unmatch", "--", FILE_NAME])
-    .env("GIT_OPTIONAL_LOCKS", "0")
+  if git_ancestors(dir)?.is_empty() {
+    return Ok(false);
+  }
+  let output = git_command(dir)
+    .args(["ls-files", "--cached", "-z", "--", FILE_NAME])
     .output()
-    .map(|o| o.status.success())
-    .unwrap_or(false)
+    .map_err(|error| error.to_string())?;
+  if !output.status.success() {
+    return Err(format!("Git exited with {}", output.status));
+  }
+  match output.stdout.as_slice() {
+    b"" => Ok(false),
+    b".reap\0" => Ok(true),
+    _ => Err("unexpected Git path output".into()),
+  }
 }
 
 /// Find every `.reap` under `root` without following symlinks below it, and apply the honour
@@ -122,35 +147,67 @@ pub fn scan(root: &Path, now: i64, grace_secs: i64) -> Result<Scan, String> {
   let mut seen = HashMap::new();
   let mut found = vec![];
   let mut decls = BTreeMap::new();
+  let mut coverage_errors = BTreeMap::new();
+  let mut incomplete = false;
   let mut stack = vec![root.clone()];
   while let Some(dir) = stack.pop() {
-    let Ok(rd) = fs::read_dir(&dir) else { continue };
-    for e in rd.flatten() {
-      let Ok(ft) = e.file_type() else { continue };
+    let rd = match fs::read_dir(&dir) {
+      Ok(rd) => rd,
+      Err(error) => {
+        coverage_errors.insert(dir, format!("cannot read directory: {error}"));
+        continue;
+      }
+    };
+    for entry in rd {
+      let (e, ft) = match entry.and_then(|entry| entry.file_type().map(|ft| (entry, ft))) {
+        Ok(entry) => entry,
+        Err(error) => {
+          coverage_errors.insert(dir.clone(), format!("cannot read directory entry: {error}"));
+          continue;
+        }
+      };
       if e.file_name() == FILE_NAME && ft.is_file() {
         let file = e.path();
-        let Ok(meta) = fs::symlink_metadata(&file) else {
-          continue;
+        let meta = match fs::symlink_metadata(&file) {
+          Ok(meta) => meta,
+          Err(error) => {
+            coverage_errors.insert(dir.clone(), format!("cannot inspect declaration: {error}"));
+            continue;
+          }
         };
         let key = format!("{}:{}:{}", root.display(), meta.dev(), meta.ino());
         let first = *previous.get(&key).unwrap_or(&now);
         seen.insert(key, first);
-        let set_aside = if git_tracked(&file) {
-          Some("tracked by git".to_string())
-        } else if now - first < grace_secs {
-          Some(format!(
-            "new; takes effect in {}",
-            fmt_rel(grace_secs - (now - first))
-          ))
-        } else {
-          None
+        let set_aside = match git_tracked(&file) {
+          Ok(true) => Some("tracked by git".to_string()),
+          Err(error) => {
+            let why = format!("cannot determine Git tracking: {error}");
+            incomplete = true;
+            decls.insert(dir.clone(), Err(why.clone()));
+            Some(why)
+          }
+          Ok(false) => {
+            let mut parsed = fs::read_to_string(&file)
+              .map_err(|e| format!("unreadable: {e}"))
+              .and_then(|t| Decl::parse(&t));
+            let pending = (now - first < grace_secs).then(|| {
+              format!(
+                "new; disposal takes effect in {}",
+                fmt_rel(grace_secs - (now - first))
+              )
+            });
+            if let Some(why) = &pending {
+              // Protection is immediate; new child rules cannot grant disposal during grace.
+              match &mut parsed {
+                Ok(declaration) if declaration.keep.is_some() => declaration.children = None,
+                Ok(_) => parsed = Err(why.clone()),
+                Err(_) => {}
+              }
+            }
+            decls.insert(dir.clone(), parsed);
+            pending
+          }
         };
-        if set_aside.is_none() {
-          let parsed = fs::read_to_string(&file)
-            .map_err(|e| format!("unreadable: {e}"))
-            .and_then(|t| Decl::parse(&t));
-          decls.insert(dir.clone(), parsed);
-        }
         found.push(Found {
           dir: dir.clone(),
           set_aside,
@@ -159,6 +216,10 @@ pub fn scan(root: &Path, now: i64, grace_secs: i64) -> Result<Scan, String> {
         stack.push(e.path());
       }
     }
+  }
+  incomplete |= !coverage_errors.is_empty();
+  for (path, error) in &coverage_errors {
+    decls.insert(path.clone(), Err(error.clone()));
   }
   let mut merged: HashMap<String, i64> = previous
     .into_iter()
@@ -170,6 +231,8 @@ pub fn scan(root: &Path, now: i64, grace_secs: i64) -> Result<Scan, String> {
   Ok(Scan {
     root,
     found,
+    incomplete,
+    coverage_errors,
     view: DiskView {
       decls,
       stats: RefCell::new(HashMap::new()),
@@ -271,9 +334,13 @@ fn blocked(
     Ok(None) => {}
     Err(e) => return Some(format!("cannot inspect open handles: {e}")),
   }
-  if meta.is_dir() && !scratch {
-    for tree in git_trees(p) {
-      if let Some(why) = git_unrecoverable(&tree) {
+  if !scratch {
+    let trees = match git_trees(p, meta.is_dir()) {
+      Ok(trees) => trees,
+      Err(error) => return Some(error),
+    };
+    for tree in trees {
+      if let Some(why) = git_unrecoverable(&tree, &r.by.join(FILE_NAME)) {
         return Some(format!(
           "git work at {} is not recoverable: {why} (set \"scratch\": true to allow)",
           tree.display()
@@ -284,51 +351,56 @@ fn blocked(
   None
 }
 
-/// Git work trees at `dir` or up to three levels below it (not descending into `.git`).
-fn git_trees(dir: &Path) -> Vec<PathBuf> {
-  let mut out = vec![];
-  let mut stack = vec![(dir.to_path_buf(), 0)];
-  while let Some((d, depth)) = stack.pop() {
-    if d.join(".git").exists() {
-      out.push(d.clone());
-    }
-    if depth == 3 {
-      continue;
-    }
-    if let Ok(rd) = fs::read_dir(&d) {
-      for e in rd.flatten() {
-        if e.file_name() != ".git" && e.file_type().is_ok_and(|t| t.is_dir()) {
-          stack.push((e.path(), depth + 1));
+/// Enclosing and nested checkouts, without symlink traversal or a depth cutoff.
+fn git_trees(path: &Path, is_dir: bool) -> Result<Vec<PathBuf>, String> {
+  let parent = if is_dir {
+    path
+  } else {
+    path.parent().ok_or("path has no parent")?
+  };
+  let mut trees = git_ancestors(parent)?;
+  let mut stack = if is_dir {
+    vec![path.to_path_buf()]
+  } else {
+    vec![]
+  };
+  while let Some(dir) = stack.pop() {
+    let entries =
+      fs::read_dir(&dir).map_err(|error| format!("cannot read {}: {error}", dir.display()))?;
+    for entry in entries {
+      let entry = entry.map_err(|error| format!("cannot read {}: {error}", dir.display()))?;
+      let kind = entry
+        .file_type()
+        .map_err(|error| format!("cannot inspect {}: {error}", entry.path().display()))?;
+      if entry.file_name() == ".git" {
+        if !kind.is_dir() && !kind.is_file() {
+          return Err(format!("unsafe Git metadata at {}", entry.path().display()));
         }
+        trees.push(dir.clone());
+      } else if kind.is_dir() {
+        stack.push(entry.path());
       }
     }
   }
-  out
+  trees.sort();
+  trees.dedup();
+  Ok(trees)
 }
 
-fn git_unrecoverable(dir: &Path) -> Option<String> {
-  let git = |args: &[&str]| {
-    Command::new("git")
-      .arg("-C")
-      .arg(dir)
-      .args(args)
-      .env("GIT_OPTIONAL_LOCKS", "0")
-      .output()
-      .ok()
-      .filter(|o| o.status.success())
-      .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-  };
-  match git(&["status", "--porcelain"]) {
-    None => return Some("git status failed".into()),
-    Some(s) if !s.is_empty() => return Some("uncommitted changes".into()),
-    _ => {}
+fn git_unrecoverable(dir: &Path, declaration: &Path) -> Option<String> {
+  let checks = crate::quarantine::git_recovery_checks(dir, &[], &[declaration.to_path_buf()]);
+  if let Some(failure) = checks.iter().find(|check| !check.ok) {
+    let context = if failure.label == "git-clean" {
+      "uncommitted changes or failed Git status"
+    } else {
+      failure.label
+    };
+    return Some(format!("{context}: {}", failure.detail));
   }
-  if git(&["stash", "list"]).is_some_and(|s| !s.is_empty()) {
-    return Some("stashes".into());
-  }
-  match git(&["log", "--oneline", "@{u}.."]) {
-    None => Some("no upstream to prove commits are pushed".into()),
-    Some(s) if !s.is_empty() => Some("unpushed commits".into()),
+  // Version 1 also requires the current branch's explicit upstream proof.
+  match crate::util::git_capture(dir, &["log", "--oneline", "@{u}.."]) {
+    Err(_) => Some("no upstream to prove commits are pushed".into()),
+    Ok(commits) if !commits.trim().is_empty() => Some("unpushed commits".into()),
     _ => None,
   }
 }
@@ -383,6 +455,7 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
       }
     };
     let ev = evaluate(&scan.view, now as i64);
+    failed |= scan.incomplete;
     println!(
       "reap files {} -- {}",
       scan.root.display(),
@@ -395,7 +468,11 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
     println!(
       "  declarations: {} found, {} honoured",
       scan.found.len(),
-      scan.view.decls.len()
+      scan
+        .found
+        .iter()
+        .filter(|found| found.set_aside.is_none())
+        .count()
     );
     for f in scan.found.iter().filter(|f| f.set_aside.is_some()) {
       println!(
@@ -449,7 +526,13 @@ pub fn run(path: Option<String>, apply: bool) -> i32 {
         Disposition::Delete => "delete",
       };
       let scratch = matches!(scan.view.decls.get(&r.by), Some(Ok(d)) if d.scratch == Some(true));
-      if let Some(why) = blocked(r, scratch, &scan.root, &qdir, &leases, now, min_age) {
+      let coverage_error = scan.coverage_errors.iter().find_map(|(path, error)| {
+        (path.starts_with(&r.path) || r.path.starts_with(path))
+          .then(|| format!("incomplete coverage at {}: {error}", path.display()))
+      });
+      if let Some(why) =
+        coverage_error.or_else(|| blocked(r, scratch, &scan.root, &qdir, &leases, now, min_age))
+      {
         println!("  blocked    {}  ({why})", r.path.display());
         continue;
       }

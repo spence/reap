@@ -352,14 +352,23 @@ reap files            # dry-run; shows honoured, set-aside, and invalid declarat
 reap files --apply    # remove what declarations say, re-checking each path
 ```
 
-A new declaration takes effect after the configured first-seen grace (24 hours by default);
-git-tracked ones are ignored; an
-invalid one protects its subtree. Removal re-checks quiet time, open handles,
+A new KEEP protects immediately. Disposal permission and child disposal rules in
+a newly seen file wait for first-seen grace (24 hours by default). Git-tracked
+declarations are ignored; unknown Git tracking protects the affected subtree.
+Invalid declarations and incomplete directory coverage protect their subtrees.
+Incomplete coverage also blocks whole-ancestor removal, even with seal or scratch;
+the command returns a failure while unrelated eligible units can proceed.
+Removal re-checks quiet time, open handles,
 mounts, lease overlap, and symlinks, and quarantines by default. A git tree
 with uncommitted, stashed, or unpushed work survives unless the declaration
-sets `"scratch": true`. Leases and
+sets `"scratch": true`. This guard includes enclosing checkouts for partial
+removals and nested checkouts at any depth. Leases and
 stores remain in force during the transition; a `.reap` path that overlaps a
 lease is never removed by its declaration.
+
+Declaration and lease Git checks cover all local branches, HEAD, stashes,
+uncommitted/untracked paths, and ignored local data. Only the exact lifecycle
+control file is exempt. A declaration does not make an ignored Cargo target disposable.
 
 ## 4. Exception manifest (v1, unchanged)
 
