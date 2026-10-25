@@ -1,0 +1,362 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "source_revision": "e228872c2b937ab82d2025b96f34cb9758a92aee",
+  "scope": "Owned coordinator helper launcher; separate helper tokens and durable grants; actual installed child executable proof",
+  "source_files": {
+    "src/worker.rs": "7e72d49445c91a531d6a139e2ed9799df5aa222c66a9e35534008a41e404fec5",
+    "src/worker/tests.rs": "d4de8820d7d919a0a5a8826cb4d73ef1b0ac6b656ed51ea8de8519fc620f9ed6",
+    "docs/specs/worker-grants.md": "e4bc1dc80ff2324c4d1cdcaa2fa40ad6962fd4b3b65b4847b7265ee0c93448a7",
+    "README.md": "e44ffa2ff78d64eb8c0ff7add1e6725a6027fb2893e928b92ecef4707db32cdf"
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "963443643dc90006555165b1afd81e49ea5401ea9db0fa441f079333c011ebab",
+      "signature": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-runtime/frozen/reap-unit\nIdentifier=dev.micro.reap.native-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=35231 flags=0x0(none) hashes=1095+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 1:23:58\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "declaration-tests": {
+      "sha256": "ddbdd2ae5f9bc12f0572b00bb729bf3f6927e5ec269a53d31dfdb002518b82b8",
+      "signature": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-runtime/frozen/declaration-tests\nIdentifier=dev.micro.reap.declaration-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=4068 flags=0x0(none) hashes=121+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 1:23:58\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "reap-release": {
+      "sha256": "b22507603b3b1daeb8edcda4c2e4126de4752bd37333c251d4ae10a7ec9f8c4c",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-runtime/frozen/reap-release\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=6930 flags=0x0(none) hashes=211+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 1:23:58\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "signature": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-runtime/frozen/fault.dylib\nIdentifier=dev.micro.reap.native-faults\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=288 flags=0x0(none) hashes=3+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 24, 2026 at 12:51:35\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    }
+  },
+  "certificates": {
+    "reap-release": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "b22507603b3b1daeb8edcda4c2e4126de4752bd37333c251d4ae10a7ec9f8c4c"
+    },
+    "reap-unit": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "963443643dc90006555165b1afd81e49ea5401ea9db0fa441f079333c011ebab"
+    },
+    "declaration-tests": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "ddbdd2ae5f9bc12f0572b00bb729bf3f6927e5ec269a53d31dfdb002518b82b8"
+    },
+    "fault.dylib": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+    }
+  },
+  "goal_complete": false,
+  "native_probe_adapters_activated": false,
+  "worker_request_transport_activated": false,
+  "live_migration_activated": false,
+  "source_pruning_activated": false,
+  "hosts": {
+    "catalyst": {
+      "installed_sha256": "b22507603b3b1daeb8edcda4c2e4126de4752bd37333c251d4ae10a7ec9f8c4c",
+      "requirement": {
+        "path": "target/control-t13/helper-runtime/catalyst-installed-requirement.txt",
+        "sha256": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "install": {
+        "path": "target/control-t13/helper-runtime/catalyst-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      },
+      "native": {
+        "worker": {
+          "passed": 10,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-worker/receipt.json",
+            "sha256": "dfb25e8cd6bbdc72018a70313148f9f1dcc6ab908567d6b685cbd9e22646cc87"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-worker/native.log",
+            "sha256": "f0d999e4d4b4abb04fdef3b37285f2f1f1ee9084ed92b9760439bd45f8879e2b"
+          }
+        },
+        "installed-worker": {
+          "passed": 10,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-installed-worker/receipt.json",
+            "sha256": "3d8130c95d2a1aeb0ab8614003f0e7216e54be765538376e13faf58d3777b5bb"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-installed-worker/native.log",
+            "sha256": "5e1e92b797e49329b42b6de3b4f8b4ac3ea3baf4ae3fe1483928517d49daf5d5"
+          }
+        },
+        "dispatch": {
+          "passed": 19,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-dispatch/receipt.json",
+            "sha256": "050ebb49372848e3d47c1522223ec50c1dda68eb9042274293fba15c4c3db969"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-dispatch/native.log",
+            "sha256": "7ed35dfc546eba1a749c25e83d61c81cc0b58be11188a5e137a8706cfda019d7"
+          }
+        },
+        "service": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-service/receipt.json",
+            "sha256": "4fb5d628e3d969aa7e333ca733bb67782e3cde728428a2d580fa2cec69a80810"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-service/native.log",
+            "sha256": "de44df3991896f21e952baacc7256b1fb9486e1332259461b82cd1e36bed0947"
+          }
+        },
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-launch/receipt.json",
+            "sha256": "58c87f811826f1a65f44a62c367f5958ca1b4bd86e2d02ca0d21653aaffd22f2"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-launch/native.log",
+            "sha256": "7879edf615d7df477d695549bc1093bbd377d2d6bb2a19570d7e1770b2a3c644"
+          }
+        }
+      },
+      "consumers": {
+        "declarations": {
+          "passed": 23,
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-declarations.log",
+            "sha256": "27522d636142be8917feba57e064a1592236da9e38ede2d0f742e22740099992"
+          }
+        },
+        "preservation": {
+          "passed": 14,
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-preservation.log",
+            "sha256": "8326c156d2636cad32a60e382c075db4df9f3770e6b929c8cf5a647d7117f888"
+          }
+        },
+        "public": {
+          "passed": 8,
+          "log": {
+            "path": "target/control-t13/helper-runtime/catalyst-public.log",
+            "sha256": "14072a37a95fb5e12580d28b329828feb5d7edfb8e834f51385bbf82a2c95ed3"
+          }
+        }
+      },
+      "ingress": {
+        "check": {
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-ingress-check/receipt.json",
+            "sha256": "04d2206935c1747267b101c3411b7eaafa58979b47f68b3307930cd7ae733c79"
+          },
+          "job": {
+            "path": "target/control-t13/helper-runtime/catalyst-ingress-check/verified-job.json",
+            "sha256": "bad856c8193ecc45dcdc24f1e6834c484b01d9888ac41b4955395f189264c8a5"
+          }
+        },
+        "files": {
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-ingress-files/receipt.json",
+            "sha256": "d9b96305f7ed5e108439a859226538d73d791dfa8337bad4000f8bd5b6717f01"
+          },
+          "job": {
+            "path": "target/control-t13/helper-runtime/catalyst-ingress-files/verified-job.json",
+            "sha256": "94dce8f3433dfb4b9235fad319487dba02ea3fcfaf8b260be90ec6e012d17f9f"
+          }
+        },
+        "scoped": {
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/catalyst-ingress-scoped/receipt.json",
+            "sha256": "5fef022769c24908afb8092c65be480ca8712ee54d6c5410e89f133f7c07dc30"
+          },
+          "job": {
+            "path": "target/control-t13/helper-runtime/catalyst-ingress-scoped/verified-job.json",
+            "sha256": "b8334cc1bbbda611545e17f8156ec714314cf1cad3e127130c60a5fcc6f5e2b0"
+          }
+        }
+      }
+    },
+    "catalyst-mini": {
+      "installed_sha256": "b22507603b3b1daeb8edcda4c2e4126de4752bd37333c251d4ae10a7ec9f8c4c",
+      "requirement": {
+        "path": "target/control-t13/helper-runtime/mini-evidence/mini-installed-requirement.txt",
+        "sha256": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "install": {
+        "path": "target/control-t13/helper-runtime/mini-evidence/mini-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      },
+      "native": {
+        "worker": {
+          "passed": 10,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-worker/receipt.json",
+            "sha256": "bb1397a53e5798cde4606b7a8b5a926a44011fc62c86b5ca888336448dbe8b5c"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-worker/native.log",
+            "sha256": "4edf9f03a612a7d1410abc5c304a2a2acc4b6e5f1084ea2557c6802afe87cce7"
+          }
+        },
+        "installed-worker": {
+          "passed": 10,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-installed-worker/receipt.json",
+            "sha256": "7f0cfbb2ac0a08ae713d674ecd9d9861ead16e338477d8b134f8403a5dfef63c"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-installed-worker/native.log",
+            "sha256": "932a374b027733877d23992ebd5e2fc95f9298de7a8177f1a708a29107520cf1"
+          }
+        },
+        "dispatch": {
+          "passed": 19,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-dispatch/receipt.json",
+            "sha256": "4ede7c7348301d71d4e4f172c1cf98dc07e7593f7d0b6877fe7f4a599c388bc5"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-dispatch/native.log",
+            "sha256": "15d0384999fb2756ee9d8f4b2a6685d7d3871eccc33401da9d3d422e22a1e785"
+          }
+        },
+        "service": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-service/receipt.json",
+            "sha256": "acdf5e0d3de6f6d96dc9487ee7d4b1879b65b08b048532179382cb758a61b165"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-service/native.log",
+            "sha256": "e7a23c8e1445e4a65e9efe1227da619c568fb630c1a40fb73731bae64697cda3"
+          }
+        },
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-launch/receipt.json",
+            "sha256": "f5d639a331e2a1f12788a1a441b75555938be834264b740ecedb4bcf0000a312"
+          },
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-launch/native.log",
+            "sha256": "9c76446e818db05255fd1cd8115e6df3bbcb55120ed77e6f7f9b979fdd100ee3"
+          }
+        }
+      },
+      "consumers": {
+        "declarations": {
+          "passed": 23,
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-declarations.log",
+            "sha256": "6365160f362aeb5f012fe6487da5fc87f806d80fd03b9baebe74df34f7907839"
+          }
+        },
+        "preservation": {
+          "passed": 14,
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-preservation.log",
+            "sha256": "f2968b19a3dc23cb6af64bf1b33eb46d0c82c1168dc3404ec074be17600ba214"
+          }
+        },
+        "public": {
+          "passed": 8,
+          "log": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-public.log",
+            "sha256": "53253f78608a9b6c12965af61ecf8a5b48cf2af029692418077d5d47ffcaea4e"
+          }
+        }
+      },
+      "ingress": {
+        "check": {
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-ingress-check/receipt.json",
+            "sha256": "3821f655cdc353d0f9a55894b9b69aec522b8e891996048a4cbd105221551870"
+          },
+          "job": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-ingress-check/verified-job.json",
+            "sha256": "2e1540f62cdce619e048fefb99a12644233b49964ae93a31e1473ad337085007"
+          }
+        },
+        "files": {
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-ingress-files/receipt.json",
+            "sha256": "b6c4c22d5d43dc528af509c67521b4e5727bd35294aaf1f5cc43a542d368a734"
+          },
+          "job": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-ingress-files/verified-job.json",
+            "sha256": "c8df3f6588bbe2dc3317428b7b130430561b35fa20b0f533581b005f19194726"
+          }
+        },
+        "scoped": {
+          "receipt": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-ingress-scoped/receipt.json",
+            "sha256": "8e93da818ca8adcbf3131e686c343582a875e7e8599f7adb7ab88d4c53180feb"
+          },
+          "job": {
+            "path": "target/control-t13/helper-runtime/mini-evidence/mini-ingress-scoped/verified-job.json",
+            "sha256": "980aa9304440bc87d41b420c5141604458956e4a7019adee4f80ea9a1b53a77b"
+          }
+        }
+      }
+    }
+  },
+  "source_verification": {
+    "full-rust.log": {
+      "path": "target/control-t13/helper-runtime/full-rust.log",
+      "sha256": "38a16f7fa0ae1c8d52fa92763b5d680993206baa1bb5c28cc352a705d8e77073"
+    },
+    "install-signing.log": {
+      "path": "target/control-t13/helper-runtime/install-signing.log",
+      "sha256": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4"
+    },
+    "ingress-verifier.log": {
+      "path": "target/control-t13/helper-runtime/ingress-verifier.log",
+      "sha256": "4f585e61d23133a64f76de4668bab083631d1579bf97fb0ee770d5b4ddbe5b84"
+    },
+    "service-installation.log": {
+      "path": "target/control-t13/helper-runtime/service-installation.log",
+      "sha256": "8d72224aee59a5c4227bcf128854cb6f3f4f678d2a8fd9b0872185381573579d"
+    },
+    "counts": {
+      "regular_unit": 248,
+      "lifecycle_entries": 57,
+      "declaration_cases": 23,
+      "native_fault_cases_separate": 5,
+      "python_ingress_verifier": 18,
+      "python_installer_signing": 19,
+      "python_service_installation": 23
+    }
+  },
+  "review": {
+    "review-wait.json": {
+      "path": "target/control-t13/helper-runtime/review-wait.json",
+      "sha256": "633bc1241f0a5272b51dc8d5081e9cc0a4796671b71b98bd993ef233ce41f292"
+    },
+    "review-peer.json": {
+      "path": "target/control-t13/helper-runtime/review-peer.json",
+      "sha256": "ea5ce61caf8b3223ef755ea92922b76ff9c95f6da83aa38fc39f52784fbf4744"
+    },
+    "review-source.json": {
+      "path": "target/control-t13/helper-runtime/review-source.json",
+      "sha256": "c70c2a9788badd6c8905386a79b9039574f056c5821ff716609fd9aa5d424975"
+    },
+    "review-conversation-closed.json": {
+      "path": "target/control-t13/helper-runtime/review-conversation-closed.json",
+      "sha256": "3c9a69d790312dfffe379168453d7bed72cf8f8368eadc65c29d0b87e627049e"
+    },
+    "review-peer-closed.json": {
+      "path": "target/control-t13/helper-runtime/review-peer-closed.json",
+      "sha256": "7077bd1b502c66f0c2f70d5b236e3cf51937ac2eceae085f58d878b75c27d5d5"
+    }
+  },
+  "placement": {
+    "quick_tests": "internal only",
+    "mini_source_checkout_accessed": false,
+    "foreign_agents_or_provider_hosts_stopped": false
+  },
+  "remaining": [
+    "Worker-to-coordinator helper requests and concrete native safety adapters",
+    "Public Files and effectful unified execution",
+    "Fair/shared discovery quanta, paged results, first-seen publication",
+    "Lifetime v2 activation, legacy bridge/fences and lease/store conversion",
+    "Native conversation capture profiles, independent retrieval and separate verified source release",
+    "Remaining native Linux and stalled-filesystem conformance"
+  ]
+}
