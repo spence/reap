@@ -1,0 +1,1244 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "source_revision": "b342e0475a6fd86274db9d85cbc08f834fd6cc2e",
+  "scope": "Fixed same-PID native activity helpers for internal read-only Files, with batched targets and separate stderr",
+  "source_files": {
+    "README.md": "2659070c815e1a0c62ef151569e06ad46fc46f266c939499a725f372b6d9ae99",
+    "docs/specs/job-execution.md": "cf4bf85cbe44e3b6cbd2e9d02e8b57500b6d45ea2d3afb82f53500e731e2c02d",
+    "docs/specs/lifecycle-waits.md": "85b15d666d86fcd5a7c6367e325cf46af97c0b0fc8ff2dca3bb07ee7e93d839f",
+    "docs/specs/worker-grants.md": "bb14d69b777980626af1b1c0cbaeb7fbe5ccac2c9796f0290e206f4f59b7e3bc",
+    "skill/SKILL.md": "4e32d3492160ea7bbb8d5411fdf3074fa408eaff5945fa9be9964066c7bb433a",
+    "src/activity.rs": "988e4048f904ab7c1bd2478327f2372bd7e605b89bf9e17533aca9feea279bdf",
+    "src/dispatch/files_job.rs": "740a4d7fd966ab647d898757d41d8790abf1a1e2a1d70a099470369fb777136f",
+    "src/dispatch/tests.rs": "bdb05af189c4cdf4fe7c2f1ce8618e839c717da134fe6b6c4ccdb8053a1fb4ab",
+    "src/files.rs": "043c5c60a01cc047b7ef9a0b1db70f4ea8ea05374d24b386a1b0f237df518f02",
+    "src/main.rs": "0f1701528820384c6f92377bec82b0761344ddff7d28f8cd11048902bc4bf017",
+    "src/quarantine.rs": "f207bd3b483d83c3c78e764d66959084745c3b12719c31eb962b879211bc57e8",
+    "src/worker.rs": "8fa54bfcb92f4e09e12e3afee2a864723282584da00a08b8c57dabf73d2ebf41",
+    "src/worker/tests.rs": "67ffe187b827f89145ae00a450986b34c5b76d6eb54fb2339dc5c3c93176eaf2",
+    "tools/verify_control_macos.py": "5c6772977448e777cc433da2baaebefea8b1a29e8d2360e7f32ad4d988bc6c15"
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+      "signature": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/activity-jobs/frozen-reviewed/reap-unit\nIdentifier=dev.micro.reap.native-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=36831 flags=0x0(none) hashes=1145+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 3:13:09\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "declaration-tests": {
+      "sha256": "0f2cd4467417aa87c767b121ff2bc2aeba1f76a8a2941e06c269f6cc4724ecda",
+      "signature": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/activity-jobs/frozen-reviewed/declaration-tests\nIdentifier=dev.micro.reap.declaration-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=4068 flags=0x0(none) hashes=121+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 3:13:09\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "reap-release": {
+      "sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/activity-jobs/frozen-reviewed/reap-release\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=7154 flags=0x0(none) hashes=218+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 3:13:09\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "signature": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/activity-jobs/frozen-reviewed/fault.dylib\nIdentifier=dev.micro.reap.native-faults\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=288 flags=0x0(none) hashes=3+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 24, 2026 at 12:51:35\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    }
+  },
+  "leaf_certificates": {
+    "reap-release": {
+      "sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    },
+    "reap-unit": {
+      "sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    },
+    "declaration-tests": {
+      "sha256": "0f2cd4467417aa87c767b121ff2bc2aeba1f76a8a2941e06c269f6cc4724ecda",
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    }
+  },
+  "goal_complete": false,
+  "public_files_job_route_activated": false,
+  "native_activity_adapter_activated": true,
+  "native_git_recovery_activated": false,
+  "live_migration_activated": false,
+  "source_pruning_activated": false,
+  "counts": {
+    "regular_unit": 260,
+    "ignored_unit_explicitly_separate": 5,
+    "lifecycle_entries": 57,
+    "declaration_cases": 23,
+    "python_ingress_verifier": 18,
+    "python_signing_installer": 19,
+    "python_service_installer": 23,
+    "each_host_native_worker": 17,
+    "each_host_native_full_driver_dispatch": 20,
+    "each_host_native_service_with_faults": 13,
+    "each_host_native_launch_with_faults": 13,
+    "each_host_installed_worker": 17,
+    "each_host_installed_production_dispatch": 19,
+    "each_host_installed_declaration": 23,
+    "each_host_installed_preservation": 14,
+    "each_host_installed_public": 8,
+    "each_host_managed_ingress_operations": 3
+  },
+  "source_verification": {
+    "full-rust-reviewed.log": {
+      "path": "target/control-t13/activity-jobs/full-rust-reviewed.log",
+      "sha256": "ac6986cf383fa388f5f24cadc2bcddb2c6369c9cb101108ccc1250f536a67144"
+    },
+    "parent-red.log": {
+      "path": "target/control-t13/activity-jobs/parent-red.log",
+      "sha256": "d4521de633c164dd47c7b0c3a8799142f285eb3231c2bd822db74179908b844d"
+    },
+    "parent-green.log": {
+      "path": "target/control-t13/activity-jobs/parent-green.log",
+      "sha256": "e4149fe419542ef2fdd8c9fe7edc7b29739f22948294589a0e3709085735e5ae"
+    },
+    "path-red.log": {
+      "path": "target/control-t13/activity-jobs/path-red.log",
+      "sha256": "2d5244b11ee0cb84273b6c9e925ad9686b2d0185f7d1b3f498403a2a298aaf2b"
+    },
+    "install-signing.log": {
+      "path": "target/control-t13/activity-jobs/install-signing.log",
+      "sha256": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4"
+    },
+    "ingress-verifier-reviewed.log": {
+      "path": "target/control-t13/activity-jobs/ingress-verifier-reviewed.log",
+      "sha256": "166a19e481e74e542a6a933f18db7892e7ecf92497c833712a8d196b8860492e"
+    },
+    "service-installer-reviewed.log": {
+      "path": "target/control-t13/activity-jobs/service-installer-reviewed.log",
+      "sha256": "223746a79e6eba8062a0515bbc08a0c6ae51387bd18f74f354846d810e2731eb"
+    },
+    "canonical-help.txt": {
+      "path": "target/control-t13/activity-jobs/canonical-help.txt",
+      "sha256": "376c39cff20565a8f8f232691228edb4b704dc19cd1e6ee1fe7727decd296e27"
+    },
+    "freeze-reviewed.log": {
+      "path": "target/control-t13/activity-jobs/freeze-reviewed.log",
+      "sha256": "7c7b2b3aee0d105790826504281f45a3f690d7c3081df5bef0782b22e6c995d5"
+    }
+  },
+  "review": {
+    "peer": "peer-18e1bd85a614b4f8-266845",
+    "conversation": "conversation-18e1bd85a84c5d48-266849",
+    "completed_request": "cmsg-18e1be6aff090c90-268212",
+    "verdict": "ACCEPTED",
+    "transport_recovery": "Two partial approval exports failed with SDK backpressure. Only the completed short verdict is acceptance.",
+    "records": {
+      "review-wait.json": {
+        "path": "target/control-t13/activity-jobs/review-wait.json",
+        "sha256": "876398d38c4297c607e19290b0763c5a57777da3ce7e84965766e9bc0541e7f0"
+      },
+      "review-correction-wait.json": {
+        "path": "target/control-t13/activity-jobs/review-correction-wait.json",
+        "sha256": "048d1eeeca309d02c66be67c905ec01d1297bf720d6870b5380cf15948b7ce66"
+      },
+      "review-b2-wait.json": {
+        "path": "target/control-t13/activity-jobs/review-b2-wait.json",
+        "sha256": "e37cf022e360da7e789fc9983e3e79a3f34c2c39da7a8664f1b4a2fbe2254266"
+      },
+      "review-recovery-wait.json": {
+        "path": "target/control-t13/activity-jobs/review-recovery-wait.json",
+        "sha256": "53fce336b2e3645e03869cc07173d9140acb94451e5d1a1204d5e2c70d38cf06"
+      },
+      "review-short-wait.json": {
+        "path": "target/control-t13/activity-jobs/review-short-wait.json",
+        "sha256": "f1da16b75221ce7793dc6a57892063b02883e659a5608389c833058ae99f723b"
+      },
+      "review-source-final.json": {
+        "path": "target/control-t13/activity-jobs/review-source-final.json",
+        "sha256": "d7232ca9ee5f518644d37d882637c59ed5c857fc4fcc78e37c576c54f997f180"
+      },
+      "review-peer-closed-status.json": {
+        "path": "target/control-t13/activity-jobs/review-peer-closed-status.json",
+        "sha256": "74b3a89dda2d7fd174fce46cb5342b9c61f2a870983c3371fd29a07349fa3efa"
+      }
+    }
+  },
+  "native_checks": {
+    "catalyst": {
+      "local-worker-reviewed": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-worker-reviewed/receipt.json",
+          "sha256": "7a0ad06fb76d28377b96fe2b441dca4c474866a9b70a523d10c83dfa52b26840"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-nqyqsc42",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "worker_binary": "/Users/spencer/src/reap/target/control-t13/activity-jobs/frozen-reviewed/reap-release",
+          "worker_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-dispatch-driver": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-dispatch-driver/receipt.json",
+          "sha256": "58814efd4dc965c6073a43593cea6bd06447a8b7893be6853fcefab864106c36"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-xxi6u293",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-service": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-service/receipt.json",
+          "sha256": "97979301279cad8a129b15648e5e0290394e2747153cefe10393ad5816d27273"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-lq_987ho",
+          "labels_absent": [
+            "user/501/dev.micro.reap.admit.22257.1792923317347799000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923317347799000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923323107071000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923323107071000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923323107071000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923328168361000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923328168361000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923328168361000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923314433185000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923314433185000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923314433185000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923312537019000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923312537019000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923329728034000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923329728034000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923329728034000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923314081658000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923314081658000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923324728516000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923324728516000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923323456317000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923323456317000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923323456317000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923316151703000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923316151703000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923312262354000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923312262354000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923322237434000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923322237434000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923322237434000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923314202698000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923314202698000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923318641925000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923318641925000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923319917364000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923319917364000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923326925337000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923326925337000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923326925337000.control",
+            "user/501/dev.micro.reap.admit.22257.1792923321203064000.writer",
+            "user/501/dev.micro.reap.admit.22257.1792923321203064000.resolver",
+            "user/501/dev.micro.reap.admit.22257.1792923321203064000.control"
+          ],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "skipped_test_driver_cases": [],
+          "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-launch": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-launch/receipt.json",
+          "sha256": "152f60e2eab42cee93245171611ac8583d547b5b8531a0d7cee8fe72fdab314b"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-_g3oagts",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "skipped_test_driver_cases": [],
+          "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-installed-worker": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-installed-worker/receipt.json",
+          "sha256": "16ba457850b6780be8f0e79a4d62fa2a9264db3402d365fd35cee09740deb752"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-p242989j",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "worker_binary": "/Users/spencer/.cargo/bin/reap",
+          "worker_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-installed-dispatch": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-installed-dispatch/receipt.json",
+          "sha256": "2c55c81087fc4fee107af28f9a13cf89b850165cb1aecac7ee67c3e8df86ec6b"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-_wdgianl",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "worker_binary": "/Users/spencer/.cargo/bin/reap",
+          "worker_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "skipped_test_driver_cases": [
+            "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+          ],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-managed-check": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-managed-check/receipt.json",
+          "sha256": "640f8c9f568fc91a338cc08bd9896a5fb89afb1c2de50c3e842efdb454852348"
+        },
+        "value": {
+          "host": "catalyst.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-hnv3bvvb",
+          "cwd": "/Users/spencer/src/reap/target/control-t13/activity-jobs",
+          "operation": "check",
+          "cancellation": false,
+          "workspace_scope": false,
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "service_mode": "managed",
+          "managed_services_preserved": true,
+          "service_cleanup": "none_managed",
+          "production_services_stopped": false,
+          "managed_services": {
+            "domain": "user/501",
+            "profile": {
+              "abandon_process_group": true,
+              "agent_hosts": false,
+              "protocol": 2,
+              "role_profile": "fixed-agentless-v1",
+              "roles": [
+                {
+                  "argument": "control",
+                  "endpoint": "dev.micro.reap.control.v1.501",
+                  "label": "dev.micro.reap.control"
+                },
+                {
+                  "argument": "state-writer",
+                  "endpoint": "dev.micro.reap.writer.v1.501",
+                  "label": "dev.micro.reap.state-writer"
+                },
+                {
+                  "argument": "context-resolver",
+                  "endpoint": "dev.micro.reap.resolver.v1.501",
+                  "label": "dev.micro.reap.context-resolver"
+                }
+              ],
+              "schema": 1,
+              "uid": 501
+            },
+            "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+            "roles": [
+              {
+                "argument": "control",
+                "endpoint": "dev.micro.reap.control.v1.501",
+                "label": "dev.micro.reap.control",
+                "intent": "651e978edd6247318a31f3cef86f2406",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23701,
+                  "start_fraction": 24419,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "context-resolver",
+                "endpoint": "dev.micro.reap.resolver.v1.501",
+                "label": "dev.micro.reap.context-resolver",
+                "intent": "11c47b9e86b54d18aa4970332c64134f",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23720,
+                  "start_fraction": 173963,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "state-writer",
+                "endpoint": "dev.micro.reap.writer.v1.501",
+                "label": "dev.micro.reap.state-writer",
+                "intent": "4d25ada2137f43cf8345345763cb0e15",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23739,
+                  "start_fraction": 380141,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              }
+            ],
+            "ownership_state_sha256": "e1312d44767d0fe3fd9741b106f34af3022d7472d7e5b099cf5cad81dda69042"
+          },
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "client_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "journal_scope": "exact_fixture_key",
+          "journal_key": {
+            "epoch": 1,
+            "generation": "facaf800834c0aaf144d16c28900ac07",
+            "nonce": "db370cd054a15b7d8b857ac41df00fd6"
+          },
+          "journal_record": "j0000000000000001-db370cd054a15b7d8b857ac41df00fd6.json",
+          "journal_record_sha256": "bcfcde6ba67aff3360d9cccd1c17ce1c67515cf9d3fcc7b01a97aaa338712f1f",
+          "verified_job_records": 1,
+          "admission_elapsed_ns": 37592750,
+          "read_only_execution": true,
+          "terminal_exit_code": 0,
+          "terminal_effects": 0,
+          "released_bulk_launch": true,
+          "protected_survivor": true,
+          "job_cli_completed": true,
+          "unknown_job_cli_not_success": true,
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-managed-files": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-managed-files/receipt.json",
+          "sha256": "35f1ed894dacacf1e364a3a49bbdd20609f7addad1baf30eb58766426b827452"
+        },
+        "value": {
+          "host": "catalyst.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-yrvueo12",
+          "cwd": "/Users/spencer/src/reap/target/control-t13/activity-jobs",
+          "operation": "files",
+          "cancellation": false,
+          "workspace_scope": false,
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "service_mode": "managed",
+          "managed_services_preserved": true,
+          "service_cleanup": "none_managed",
+          "production_services_stopped": false,
+          "managed_services": {
+            "domain": "user/501",
+            "profile": {
+              "abandon_process_group": true,
+              "agent_hosts": false,
+              "protocol": 2,
+              "role_profile": "fixed-agentless-v1",
+              "roles": [
+                {
+                  "argument": "control",
+                  "endpoint": "dev.micro.reap.control.v1.501",
+                  "label": "dev.micro.reap.control"
+                },
+                {
+                  "argument": "state-writer",
+                  "endpoint": "dev.micro.reap.writer.v1.501",
+                  "label": "dev.micro.reap.state-writer"
+                },
+                {
+                  "argument": "context-resolver",
+                  "endpoint": "dev.micro.reap.resolver.v1.501",
+                  "label": "dev.micro.reap.context-resolver"
+                }
+              ],
+              "schema": 1,
+              "uid": 501
+            },
+            "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+            "roles": [
+              {
+                "argument": "control",
+                "endpoint": "dev.micro.reap.control.v1.501",
+                "label": "dev.micro.reap.control",
+                "intent": "651e978edd6247318a31f3cef86f2406",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23701,
+                  "start_fraction": 24419,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "context-resolver",
+                "endpoint": "dev.micro.reap.resolver.v1.501",
+                "label": "dev.micro.reap.context-resolver",
+                "intent": "11c47b9e86b54d18aa4970332c64134f",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23720,
+                  "start_fraction": 173963,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "state-writer",
+                "endpoint": "dev.micro.reap.writer.v1.501",
+                "label": "dev.micro.reap.state-writer",
+                "intent": "4d25ada2137f43cf8345345763cb0e15",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23739,
+                  "start_fraction": 380141,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              }
+            ],
+            "ownership_state_sha256": "e1312d44767d0fe3fd9741b106f34af3022d7472d7e5b099cf5cad81dda69042"
+          },
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "client_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "journal_scope": "exact_fixture_key",
+          "journal_key": {
+            "epoch": 1,
+            "generation": "facaf800834c0aaf144d16c28900ac07",
+            "nonce": "7d5f71951615c43a1936e2013a7ebf44"
+          },
+          "journal_record": "j0000000000000001-7d5f71951615c43a1936e2013a7ebf44.json",
+          "journal_record_sha256": "43d5e9c5e285453fdbcac8cc47d138a1007af653020ac15b96a58038172398fa",
+          "verified_job_records": 1,
+          "admission_elapsed_ns": 22099416,
+          "read_only_execution": true,
+          "terminal_exit_code": 0,
+          "terminal_effects": 0,
+          "released_bulk_launch": true,
+          "protected_survivor": true,
+          "job_cli_completed": true,
+          "unknown_job_cli_not_success": true,
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "local-managed-scoped": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/local-managed-scoped/receipt.json",
+          "sha256": "9aaf7109f7b7075be9a751b17071f7487b347e6ae40889824aea7e94d8eb3867"
+        },
+        "value": {
+          "host": "catalyst.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-dosu474k",
+          "cwd": "/Users/spencer/src/reap/target/control-t13/activity-jobs",
+          "operation": "files",
+          "cancellation": false,
+          "workspace_scope": true,
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "service_mode": "managed",
+          "managed_services_preserved": true,
+          "service_cleanup": "none_managed",
+          "production_services_stopped": false,
+          "managed_services": {
+            "domain": "user/501",
+            "profile": {
+              "abandon_process_group": true,
+              "agent_hosts": false,
+              "protocol": 2,
+              "role_profile": "fixed-agentless-v1",
+              "roles": [
+                {
+                  "argument": "control",
+                  "endpoint": "dev.micro.reap.control.v1.501",
+                  "label": "dev.micro.reap.control"
+                },
+                {
+                  "argument": "state-writer",
+                  "endpoint": "dev.micro.reap.writer.v1.501",
+                  "label": "dev.micro.reap.state-writer"
+                },
+                {
+                  "argument": "context-resolver",
+                  "endpoint": "dev.micro.reap.resolver.v1.501",
+                  "label": "dev.micro.reap.context-resolver"
+                }
+              ],
+              "schema": 1,
+              "uid": 501
+            },
+            "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+            "roles": [
+              {
+                "argument": "control",
+                "endpoint": "dev.micro.reap.control.v1.501",
+                "label": "dev.micro.reap.control",
+                "intent": "651e978edd6247318a31f3cef86f2406",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23701,
+                  "start_fraction": 24419,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "context-resolver",
+                "endpoint": "dev.micro.reap.resolver.v1.501",
+                "label": "dev.micro.reap.context-resolver",
+                "intent": "11c47b9e86b54d18aa4970332c64134f",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23720,
+                  "start_fraction": 173963,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "state-writer",
+                "endpoint": "dev.micro.reap.writer.v1.501",
+                "label": "dev.micro.reap.state-writer",
+                "intent": "4d25ada2137f43cf8345345763cb0e15",
+                "identity": {
+                  "boot": "3273B0E4-6FDE-4045-BDE4-2B3B674B1E9C",
+                  "pid": 23739,
+                  "start_fraction": 380141,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              }
+            ],
+            "ownership_state_sha256": "e1312d44767d0fe3fd9741b106f34af3022d7472d7e5b099cf5cad81dda69042"
+          },
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "client_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "journal_scope": "exact_fixture_key",
+          "journal_key": {
+            "epoch": 1,
+            "generation": "facaf800834c0aaf144d16c28900ac07",
+            "nonce": "127240be5e3652ca392f3c94dacc1dc4"
+          },
+          "journal_record": "j0000000000000001-127240be5e3652ca392f3c94dacc1dc4.json",
+          "journal_record_sha256": "7afd517b1576f260fb84037e2a8245c6d5175a4eb1e0e92d6759a78391778c45",
+          "verified_job_records": 1,
+          "admission_elapsed_ns": 30847584,
+          "read_only_execution": true,
+          "terminal_exit_code": 0,
+          "terminal_effects": 0,
+          "released_bulk_launch": true,
+          "protected_survivor": true,
+          "job_cli_completed": true,
+          "unknown_job_cli_not_success": true,
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      }
+    },
+    "catalyst-mini": {
+      "mini-worker-reviewed": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-worker-reviewed/receipt.json",
+          "sha256": "fa89bfc28fd3584ed1ceb016fa069c359b10e66b4a62bcbe31accd15da625e50"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-16uyl9j_",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "worker_binary": "/private/tmp/reap-cores-transport-8yjfimnx/activity-jobs-t14/target/control-t13/activity-jobs/frozen-reviewed/reap-release",
+          "worker_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-dispatch-driver": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-dispatch-driver/receipt.json",
+          "sha256": "f895a6a52b6eabec654593b77be7b28441e647841cb068057c72deac176d3b46"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-bljn8fk2",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-service": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-service/receipt.json",
+          "sha256": "06426a06d789ed61e0f3fa35d024aa2be1fdb475435518e13fe5d0a001684aa1"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-162ggv_p",
+          "labels_absent": [
+            "user/501/dev.micro.reap.admit.71294.1792923395140055000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923395140055000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923395140055000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923398269022000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923398269022000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923398269022000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923396853093000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923396853093000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923396853093000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923390954357000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923390954357000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923398653740000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923398653740000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923398653740000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923405545362000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923405545362000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923405545362000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923393036172000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923393036172000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923394167306000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923394167306000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923401553129000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923401553129000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923401553129000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923389422267000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923389422267000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923389422267000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923387955039000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923387955039000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923399994089000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923399994089000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923392006627000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923392006627000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923402806675000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923402806675000.resolver",
+            "user/501/dev.micro.reap.admit.71294.1792923402806675000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923389214452000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923389214452000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923387811855000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923387811855000.control",
+            "user/501/dev.micro.reap.admit.71294.1792923389299521000.writer",
+            "user/501/dev.micro.reap.admit.71294.1792923389299521000.control"
+          ],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "skipped_test_driver_cases": [],
+          "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-launch": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-launch/receipt.json",
+          "sha256": "e1a6cbd78534859dc0c4f1062694851e556c31f3b2d33d31e7b175832a152a29"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-dcctuwkn",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "skipped_test_driver_cases": [],
+          "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-installed-worker": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-installed-worker/receipt.json",
+          "sha256": "63010100bbf8381a77ef5bb8dd1ff89b8b73ccfc076aa16f32f586092d765729"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-kjod6yca",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "worker_binary": "/Users/spencer/.cargo/bin/reap",
+          "worker_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-installed-dispatch-repeat": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-installed-dispatch-repeat/receipt.json",
+          "sha256": "9430d722094034c1cf2c5fc473b8a1b3112380b5e5bd162466ef18f5c942ecdc"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-cc6kvx4r",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "worker_binary": "/Users/spencer/.cargo/bin/reap",
+          "worker_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "skipped_test_driver_cases": [
+            "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+          ],
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-managed-check": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-managed-check/receipt.json",
+          "sha256": "63c2f74bc40184f48f23f5bedf51adee3dafafe0036163752812f2509b992aa9"
+        },
+        "value": {
+          "host": "catalyst-mini.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-a9nyrl2p",
+          "cwd": "/private/tmp/reap-cores-transport-8yjfimnx/activity-jobs-t14",
+          "operation": "check",
+          "cancellation": false,
+          "workspace_scope": false,
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "service_mode": "managed",
+          "managed_services_preserved": true,
+          "service_cleanup": "none_managed",
+          "production_services_stopped": false,
+          "managed_services": {
+            "domain": "user/501",
+            "profile": {
+              "abandon_process_group": true,
+              "agent_hosts": false,
+              "protocol": 2,
+              "role_profile": "fixed-agentless-v1",
+              "roles": [
+                {
+                  "argument": "control",
+                  "endpoint": "dev.micro.reap.control.v1.501",
+                  "label": "dev.micro.reap.control"
+                },
+                {
+                  "argument": "state-writer",
+                  "endpoint": "dev.micro.reap.writer.v1.501",
+                  "label": "dev.micro.reap.state-writer"
+                },
+                {
+                  "argument": "context-resolver",
+                  "endpoint": "dev.micro.reap.resolver.v1.501",
+                  "label": "dev.micro.reap.context-resolver"
+                }
+              ],
+              "schema": 1,
+              "uid": 501
+            },
+            "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+            "roles": [
+              {
+                "argument": "control",
+                "endpoint": "dev.micro.reap.control.v1.501",
+                "label": "dev.micro.reap.control",
+                "intent": "6417c568648f41e19d008e634bf3c97b",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68325,
+                  "start_fraction": 247157,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "context-resolver",
+                "endpoint": "dev.micro.reap.resolver.v1.501",
+                "label": "dev.micro.reap.context-resolver",
+                "intent": "ffdeba7998ac41fb81105d7ec75e198d",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68352,
+                  "start_fraction": 350852,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "state-writer",
+                "endpoint": "dev.micro.reap.writer.v1.501",
+                "label": "dev.micro.reap.state-writer",
+                "intent": "24c2e00451bb4d84a5d56a99ba6fd0a8",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68373,
+                  "start_fraction": 449804,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              }
+            ],
+            "ownership_state_sha256": "245ff3909098931d16f95d1d07f4e4ee55ad862b1e8fc6e230ab45f878c9500b"
+          },
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "client_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "journal_scope": "exact_fixture_key",
+          "journal_key": {
+            "epoch": 1,
+            "generation": "f8c05a8ebfde698b5b105054ef110a10",
+            "nonce": "ace09affdb69af3d5fecad7a9455a38f"
+          },
+          "journal_record": "j0000000000000001-ace09affdb69af3d5fecad7a9455a38f.json",
+          "journal_record_sha256": "3db4730ec4d002a4bf57a2add7eb658ba9f9101baeb33de18d1415c17588f985",
+          "verified_job_records": 1,
+          "admission_elapsed_ns": 18248750,
+          "read_only_execution": true,
+          "terminal_exit_code": 0,
+          "terminal_effects": 0,
+          "released_bulk_launch": true,
+          "protected_survivor": true,
+          "job_cli_completed": true,
+          "unknown_job_cli_not_success": true,
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-managed-files": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-managed-files/receipt.json",
+          "sha256": "fb7bbc58a7bd403b21b59bcca949fc454a4e2fa59d53388cef8c9e7b614279d6"
+        },
+        "value": {
+          "host": "catalyst-mini.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-xcuh8b8k",
+          "cwd": "/private/tmp/reap-cores-transport-8yjfimnx/activity-jobs-t14",
+          "operation": "files",
+          "cancellation": false,
+          "workspace_scope": false,
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "service_mode": "managed",
+          "managed_services_preserved": true,
+          "service_cleanup": "none_managed",
+          "production_services_stopped": false,
+          "managed_services": {
+            "domain": "user/501",
+            "profile": {
+              "abandon_process_group": true,
+              "agent_hosts": false,
+              "protocol": 2,
+              "role_profile": "fixed-agentless-v1",
+              "roles": [
+                {
+                  "argument": "control",
+                  "endpoint": "dev.micro.reap.control.v1.501",
+                  "label": "dev.micro.reap.control"
+                },
+                {
+                  "argument": "state-writer",
+                  "endpoint": "dev.micro.reap.writer.v1.501",
+                  "label": "dev.micro.reap.state-writer"
+                },
+                {
+                  "argument": "context-resolver",
+                  "endpoint": "dev.micro.reap.resolver.v1.501",
+                  "label": "dev.micro.reap.context-resolver"
+                }
+              ],
+              "schema": 1,
+              "uid": 501
+            },
+            "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+            "roles": [
+              {
+                "argument": "control",
+                "endpoint": "dev.micro.reap.control.v1.501",
+                "label": "dev.micro.reap.control",
+                "intent": "6417c568648f41e19d008e634bf3c97b",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68325,
+                  "start_fraction": 247157,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "context-resolver",
+                "endpoint": "dev.micro.reap.resolver.v1.501",
+                "label": "dev.micro.reap.context-resolver",
+                "intent": "ffdeba7998ac41fb81105d7ec75e198d",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68352,
+                  "start_fraction": 350852,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "state-writer",
+                "endpoint": "dev.micro.reap.writer.v1.501",
+                "label": "dev.micro.reap.state-writer",
+                "intent": "24c2e00451bb4d84a5d56a99ba6fd0a8",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68373,
+                  "start_fraction": 449804,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              }
+            ],
+            "ownership_state_sha256": "245ff3909098931d16f95d1d07f4e4ee55ad862b1e8fc6e230ab45f878c9500b"
+          },
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "client_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "journal_scope": "exact_fixture_key",
+          "journal_key": {
+            "epoch": 1,
+            "generation": "f8c05a8ebfde698b5b105054ef110a10",
+            "nonce": "1eca4cf2f7c630f6713188c58c4dae30"
+          },
+          "journal_record": "j0000000000000001-1eca4cf2f7c630f6713188c58c4dae30.json",
+          "journal_record_sha256": "5bc1ef929da91a51b179077d4d33929cc98a809654cfec8c0870a8644e148a80",
+          "verified_job_records": 1,
+          "admission_elapsed_ns": 13658083,
+          "read_only_execution": true,
+          "terminal_exit_code": 0,
+          "terminal_effects": 0,
+          "released_bulk_launch": true,
+          "protected_survivor": true,
+          "job_cli_completed": true,
+          "unknown_job_cli_not_success": true,
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      },
+      "mini-managed-scoped": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-managed-scoped/receipt.json",
+          "sha256": "d574fc02cf6ce2b3f3a79c989b333e41ea05af89c6c9dd590ceedc39321f6f6d"
+        },
+        "value": {
+          "host": "catalyst-mini.local",
+          "runtime": "/private/tmp/reap-ingress-runtime-xw2k33k3",
+          "cwd": "/private/tmp/reap-cores-transport-8yjfimnx/activity-jobs-t14",
+          "operation": "files",
+          "cancellation": false,
+          "workspace_scope": true,
+          "installed_binary": "/Users/spencer/.cargo/bin/reap",
+          "native_exit": 0,
+          "service_mode": "managed",
+          "managed_services_preserved": true,
+          "service_cleanup": "none_managed",
+          "production_services_stopped": false,
+          "managed_services": {
+            "domain": "user/501",
+            "profile": {
+              "abandon_process_group": true,
+              "agent_hosts": false,
+              "protocol": 2,
+              "role_profile": "fixed-agentless-v1",
+              "roles": [
+                {
+                  "argument": "control",
+                  "endpoint": "dev.micro.reap.control.v1.501",
+                  "label": "dev.micro.reap.control"
+                },
+                {
+                  "argument": "state-writer",
+                  "endpoint": "dev.micro.reap.writer.v1.501",
+                  "label": "dev.micro.reap.state-writer"
+                },
+                {
+                  "argument": "context-resolver",
+                  "endpoint": "dev.micro.reap.resolver.v1.501",
+                  "label": "dev.micro.reap.context-resolver"
+                }
+              ],
+              "schema": 1,
+              "uid": 501
+            },
+            "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+            "roles": [
+              {
+                "argument": "control",
+                "endpoint": "dev.micro.reap.control.v1.501",
+                "label": "dev.micro.reap.control",
+                "intent": "6417c568648f41e19d008e634bf3c97b",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68325,
+                  "start_fraction": 247157,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "context-resolver",
+                "endpoint": "dev.micro.reap.resolver.v1.501",
+                "label": "dev.micro.reap.context-resolver",
+                "intent": "ffdeba7998ac41fb81105d7ec75e198d",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68352,
+                  "start_fraction": 350852,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              },
+              {
+                "argument": "state-writer",
+                "endpoint": "dev.micro.reap.writer.v1.501",
+                "label": "dev.micro.reap.state-writer",
+                "intent": "24c2e00451bb4d84a5d56a99ba6fd0a8",
+                "identity": {
+                  "boot": "E84D22F3-398A-4BF4-A5F1-8945D763C5AC",
+                  "pid": 68373,
+                  "start_fraction": 449804,
+                  "start_seconds": 1792923563,
+                  "uid": 501
+                }
+              }
+            ],
+            "ownership_state_sha256": "245ff3909098931d16f95d1d07f4e4ee55ad862b1e8fc6e230ab45f878c9500b"
+          },
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\n",
+          "installed_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "client_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "journal_scope": "exact_fixture_key",
+          "journal_key": {
+            "epoch": 1,
+            "generation": "f8c05a8ebfde698b5b105054ef110a10",
+            "nonce": "e38110769acae88654a638e4e31487aa"
+          },
+          "journal_record": "j0000000000000001-e38110769acae88654a638e4e31487aa.json",
+          "journal_record_sha256": "ace7ee22308c066bf8dfc6afb80e49cc98999d9355dd9247b4cd12c933006160",
+          "verified_job_records": 1,
+          "admission_elapsed_ns": 17386959,
+          "read_only_execution": true,
+          "terminal_exit_code": 0,
+          "terminal_effects": 0,
+          "released_bulk_launch": true,
+          "protected_survivor": true,
+          "job_cli_completed": true,
+          "unknown_job_cli_not_success": true,
+          "runtime_removed": true,
+          "verification_exit": 0
+        }
+      }
+    }
+  },
+  "installed": {
+    "catalyst": {
+      "host": "catalyst.local",
+      "binary": "/Users/spencer/.cargo/bin/reap",
+      "sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=7154 flags=0x0(none) hashes=218+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 3:13:09\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00"
+      },
+      "internal_device": 16777232,
+      "version": "reap 0.1.0"
+    },
+    "catalyst-mini": {
+      "host": "catalyst-mini.local",
+      "binary": "/Users/spencer/.cargo/bin/reap",
+      "sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/.cargo/bin/reap\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=7154 flags=0x0(none) hashes=218+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 3:13:09\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00"
+      },
+      "internal_device": 16777234,
+      "version": "reap 0.1.0"
+    }
+  },
+  "installed_consumer_logs": {
+    "catalyst": {
+      "declaration": {
+        "path": "target/control-t13/activity-jobs/local-declaration.log",
+        "sha256": "e0e6aebd3881a89370998f54e780b90f3bbd652b6efd340c61575fc8982d7953"
+      },
+      "preservation": {
+        "path": "target/control-t13/activity-jobs/local-preservation.log",
+        "sha256": "120e5df4dd67dcacf3a8c0c6791e6193399a8917355126a723d300fa8461ccd7"
+      },
+      "public": {
+        "path": "target/control-t13/activity-jobs/local-public.log",
+        "sha256": "c8e9bdae82fb6ce4f0442c1994d33ebce8438601c10a2a88af7556dab09e716e"
+      },
+      "install.log": {
+        "path": "target/control-t13/activity-jobs/local-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      },
+      "postinstall.json": {
+        "path": "target/control-t13/activity-jobs/local-postinstall.json",
+        "sha256": "138ff4ad40c1bf0a6efaf6308a6c698721703a604447aa8071d4d00402671775"
+      }
+    },
+    "catalyst-mini": {
+      "declaration": {
+        "path": "target/control-t13/activity-jobs/mini-evidence/mini-declaration.log",
+        "sha256": "6bca3a8b05a26eef43f75c89915ac28839c9b52c3f2c71ae5991f5e08b858d95"
+      },
+      "preservation": {
+        "path": "target/control-t13/activity-jobs/mini-evidence/mini-preservation.log",
+        "sha256": "90711319fd5e18d30889390b6fea6d4250152da700bcf2f35238245ee0a7c0ba"
+      },
+      "public": {
+        "path": "target/control-t13/activity-jobs/mini-evidence/mini-public.log",
+        "sha256": "134e57975d89ca200fd8899716fd25fb0c61ba20618a2632398bcc24ceccccbd"
+      },
+      "install.log": {
+        "path": "target/control-t13/activity-jobs/mini-evidence/mini-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      },
+      "postinstall.json": {
+        "path": "target/control-t13/activity-jobs/mini-evidence/mini-postinstall.json",
+        "sha256": "3c95a1a61d4d42e6d061b5c4401ccc5f84da52f6c0f133b53e48e38dba2be7c3"
+      }
+    }
+  },
+  "verification_limits": {
+    "production_dispatch_exclusion": "Exactly restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches needs a test-only worker gate. The separate full native driver selection includes it on each Mac.",
+    "first_mini_refusal": {
+      "receipt": {
+        "evidence": {
+          "path": "target/control-t13/activity-jobs/mini-evidence/mini-installed-dispatch/receipt.json",
+          "sha256": "2e0f60ded28810260db46153ba6548440b96024766e3dce6e46f54fa2dabf42f"
+        },
+        "value": {
+          "runtime": "/private/tmp/reap-control-runtime-g7cm6lmy",
+          "labels_absent": [],
+          "native_exit": 101,
+          "binary_sha256": "2cb081fc73c1f2c4aa8c177371befbba21da52a16db2263648474648b3bedec7",
+          "worker_binary": "/Users/spencer/.cargo/bin/reap",
+          "worker_sha256": "1384f849802bcf11bf465a507bf20300a34f70b156b52a827f678637fa7d57d8",
+          "skipped_test_driver_cases": [
+            "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+          ],
+          "runtime_removed": false,
+          "verification_exit": 1
+        }
+      },
+      "log": {
+        "path": "target/control-t13/activity-jobs/mini-evidence/mini-installed-dispatch/native.log",
+        "sha256": "557f6aac6bf50bba14057e0660cf6d55b0ab2a8e9a9230c164404857d26ba650"
+      },
+      "observation": "Native activity parsing refused one record. Both candidates survived, effects were zero, and coverage was incomplete. The exact field and cause were not retained or established.",
+      "subsequent_observation": "A path-free separate native field diagnosis found no unknown records. One unchanged full production-compatible rerun passed 19 cases. This is not proof of the first cause.",
+      "diagnosis": {
+        "path": "target/control-t13/activity-jobs/mini-evidence/native-field-diagnosis-filtered.json",
+        "sha256": "e3ffde62211e32794f048c9b3e69ca3a073ce1dc516efb39ca6384d62c788f91"
+      },
+      "follow_up_issue": "ISS-CLASSIFY-NATIVE-ACTIVITY-REFUSALS-WITHOU",
+      "follow_up_state": "new"
+    },
+    "retained_failure_runtimes": {
+      "catalyst": "/private/tmp/reap-control-runtime-plx9zhvx",
+      "catalyst-mini": "/private/tmp/reap-control-runtime-g7cm6lmy"
+    },
+    "linux_native_runtime": "Open; no Linux conformance is claimed.",
+    "cross_device": "Opt-in cross-device bodies are not claimed as cross-device proof.",
+    "future_work": "Public Files activation, Git recovery, other native adapters, lifetime conversion, archive-source integration and release gates remain open."
+  }
+}
