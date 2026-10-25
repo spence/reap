@@ -66,6 +66,8 @@ These commands emit protocol 2 JSON. Exit 0 means completed success; exit 75 mea
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
 A wait timeout does not cancel or resubmit the job. Require terminal success before a dependent step.
 An unavailable broker is not permission for a synchronous fallback.
+Internal Files preview can request supervised native activity evidence. This does not activate
+the public Files job route or permit cleanup from pending or incomplete evidence.
 macOS installation registers the three fixed on-demand roles. Ordinary commands never install them.
 Other filesystem commands retain their current route; full command migration remains open.
 

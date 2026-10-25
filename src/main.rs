@@ -13,6 +13,7 @@
 //! Age alone never triggers deletion anywhere; it only delays deletion that a
 //! marker, manifest, binding, or lease already authorized.
 
+pub mod activity;
 pub mod archive;
 pub mod client;
 mod config;

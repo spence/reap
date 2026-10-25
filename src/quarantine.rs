@@ -677,9 +677,9 @@ pub(crate) fn open_handle_within(dir: &Path) -> Result<Option<PathBuf>, String> 
 
 /// Bounded parser for native `lsof -F0tn`. Process/file sets end with a newline.
 /// Retain one field and one refusal path, not a host-wide vector of open files.
-#[cfg(target_os = "macos")]
-struct ActivityFields<'a> {
-  directory: &'a Path,
+pub(crate) struct ActivityFields {
+  directories: Vec<PathBuf>,
+  active: Vec<bool>,
   pending: Vec<u8>,
   first: Option<PathBuf>,
   process: bool,
@@ -687,11 +687,15 @@ struct ActivityFields<'a> {
   kind: Option<Vec<u8>>,
 }
 
-#[cfg(target_os = "macos")]
-impl<'a> ActivityFields<'a> {
-  fn new(directory: &'a Path) -> Self {
+impl ActivityFields {
+  fn new(directory: &Path) -> Self {
+    Self::multiple(vec![directory.to_path_buf()])
+  }
+
+  pub(crate) fn multiple(directories: Vec<PathBuf>) -> Self {
     Self {
-      directory,
+      active: vec![false; directories.len()],
+      directories,
       pending: Vec::new(),
       first: None,
       process: false,
@@ -700,7 +704,7 @@ impl<'a> ActivityFields<'a> {
     }
   }
 
-  fn push(&mut self, bytes: &[u8]) -> io::Result<()> {
+  pub(crate) fn push(&mut self, bytes: &[u8]) -> io::Result<()> {
     for part in bytes.split_inclusive(|byte| *byte == 0) {
       if self.pending.len().saturating_add(part.len()) > 8192 {
         return Err(io::Error::new(
@@ -752,8 +756,15 @@ impl<'a> ActivityFields<'a> {
               ),
             ));
           }
-          if self.first.is_none() && path.is_absolute() && path.starts_with(self.directory) {
-            self.first = Some(path.to_path_buf());
+          if path.is_absolute() {
+            for (directory, active) in self.directories.iter().zip(&mut self.active) {
+              if path.starts_with(directory) {
+                *active = true;
+                if self.first.is_none() {
+                  self.first = Some(path.to_path_buf());
+                }
+              }
+            }
           }
         }
         _ => {
@@ -775,18 +786,27 @@ impl<'a> ActivityFields<'a> {
   }
 
   fn finish(self) -> io::Result<Option<PathBuf>> {
+    self.complete()?;
+    Ok(self.first)
+  }
+
+  pub(crate) fn finish_all(self) -> io::Result<Vec<bool>> {
+    self.complete()?;
+    Ok(self.active)
+  }
+
+  fn complete(&self) -> io::Result<()> {
     if !self.process || !(self.pending.is_empty() || self.pending == b"\n") {
       return Err(io::Error::new(
         io::ErrorKind::InvalidData,
         "missing complete activity EOF",
       ));
     }
-    Ok(self.first)
+    Ok(())
   }
 }
 
 /// Decode the native `err2nm` terminal errors; the identifier names its probe domain.
-#[cfg(target_os = "macos")]
 fn closed_native_handle(name: &[u8]) -> bool {
   let Some(colon) = name.iter().position(|byte| *byte == b':') else {
     return false;
@@ -800,8 +820,7 @@ fn closed_native_handle(name: &[u8]) -> bool {
     && matches!(status, b": FD unavailable" | b": process unavailable")
 }
 
-#[cfg(target_os = "macos")]
-fn kernel_blocked_lsof(output: &[u8]) -> bool {
+pub(crate) fn kernel_blocked_lsof(output: &[u8]) -> bool {
   String::from_utf8_lossy(output).lines().any(|line| {
     let mut fields = line.split_whitespace();
     let (Some(state), Some(elapsed), Some(command)) = (fields.next(), fields.next(), fields.next())

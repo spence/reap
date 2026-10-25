@@ -14,7 +14,7 @@
   · Binding: `src/quarantine.rs::assess_retire_ignoring_dir_mtimes`,
   `tests/lifecycle_state.rs::retire_preserves_a_quiet_expired_scratch_tree_with_an_open_file`,
   `src/util.rs::tests::guard_probe_timeout_cancels_helpers_without_waiting_on_pipes`.
-- **C2** — After spawn, the macOS activity probe's running/output wait has a five-second
+- **C2** — After spawn, the foreground lifecycle activity probe's running/output wait has a five-second
   budget, including pipes inherited by helpers. Timeout requests termination only of that
   probe's process group; kernel-blocked termination is not synchronously awaited.
   · Binding: `src/util.rs::tests::guard_probe_bounds_a_helper_that_keeps_pipes_after_parent_exit`,
@@ -49,6 +49,10 @@ No timeout authorizes cleanup, releases a foreign process's lock, or supplies hu
 These budgets do not guarantee a deadline for kernel filesystem operations, process creation,
 or every operation within a lifecycle command. A kernel-blocked probe can remain pending after
 termination is requested.
+
+Internal Files preview uses the separate [worker/helper contract](worker-grants.md).
+Its native tools retain the granted helper's exact process identity and slots through exit proof.
+The control response path does not wait for these tools.
 
 ## Checks
 

@@ -335,6 +335,125 @@ fn owned_helpers_use_their_own_tokens_and_keep_worker_reservations() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
+  for case in ["complete", "stderr", "partial", "path_leak"] {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("valuable"), b"activity survivor").unwrap();
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let key = admit(&mut journal);
+    let directory = File::open(&fixture.0).unwrap();
+    let physical_volumes = crate::volumes::resolve(&directory).unwrap();
+    let probe = Task::Probe {
+      probe: crate::activity::Probe::Health,
+      physical_volumes: physical_volumes.clone(),
+    };
+    assert!(matches!(
+      start(&mut journal, &key, 1, probe.clone()).unwrap(),
+      Start::Rejected(_)
+    ));
+    assert!(journal.launch(&key).unwrap().is_none());
+    let scope: crate::dispatch::Scope = serde_json::from_value(serde_json::json!({
+      "project": fixture.0, "physical_volumes": physical_volumes,
+      "objects": [{"path": fixture.0, "identity": ObjectIdentity::read(&directory).unwrap(),
+        "physical_volumes": physical_volumes, "content": null, "missing": []}]
+    }))
+    .unwrap();
+    let mut parent = spawned(
+      start(
+        &mut journal,
+        &key,
+        1,
+        Task::Check {
+          input: Prepared {
+            request: "not a native invocation".into(),
+            context: "private caller".into(),
+            authority: "no effects".into(),
+            volumes: vec![],
+          },
+          scope,
+        },
+      )
+      .unwrap(),
+    );
+    let identity = ProcessIdentity::read(parent.pid()).unwrap().unwrap();
+    let resume = ResumeOwned(identity.clone());
+    // SAFETY: this exact child was created here and its guard resumes it on every exit.
+    assert_eq!(unsafe { libc::kill(identity.pid as i32, libc::SIGSTOP) }, 0);
+    parent.deliver(&mut journal).unwrap();
+    let mut helper = spawned(
+      parent
+        .start_helper(&mut journal, 0, 1, &random_token().unwrap(), probe)
+        .unwrap(),
+    );
+    helper.deliver(&mut journal).unwrap();
+    let (reader, mut writer) = UnixStream::pair().unwrap();
+    reader.set_nonblocking(true).unwrap();
+    helper.stderr = Some(reader);
+    helper.stderr_eof = false;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+      assert!(helper.poll(&mut journal).unwrap().is_none());
+      if let Some(status) = helper.child.try_wait().unwrap() {
+        assert!(status.success());
+        if helper.eof {
+          break;
+        }
+      }
+      assert!(Instant::now() < deadline);
+      std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!helper.release(&mut journal).unwrap());
+    assert!(!journal.launch(&key).unwrap().unwrap().helpers[0]
+      .as_ref()
+      .unwrap()
+      .exited());
+    if case == "stderr" {
+      writer.write_all(b"unavailable native evidence").unwrap();
+    } else if case == "partial" {
+      helper.probe = Some(crate::activity::Capture::Health(
+        b"S 00:01 /bin/ps".to_vec(),
+      ));
+    } else if case == "path_leak" {
+      let (reader, mut writer) = UnixStream::pair().unwrap();
+      reader.set_nonblocking(true).unwrap();
+      helper.pipe = reader;
+      helper.eof = false;
+      helper.probe = Some(crate::activity::Capture::new(
+        &crate::activity::Probe::Handles {
+          directories: vec![fixture.0.clone()],
+        },
+      ));
+      writer
+        .write_all(b"p1\0f4\0tREG\0nrelative/SECRET\0")
+        .unwrap();
+    }
+    drop(writer);
+    let done = complete(&mut helper, &mut journal);
+    assert_eq!(done.exit_code, 0);
+    if case == "complete" {
+      assert!(matches!(
+        done.report,
+        Ok(Report::Probed {
+          evidence: crate::activity::Evidence::Healthy
+        })
+      ));
+    } else {
+      let error = done.report.unwrap_err();
+      assert!(!error.contains("SECRET"));
+    }
+    assert!(helper.release(&mut journal).unwrap());
+    drop(resume);
+    complete(&mut parent, &mut journal);
+    assert!(parent.release(&mut journal).unwrap());
+    assert_eq!(
+      fs::read(fixture.0.join("valuable")).unwrap(),
+      b"activity survivor"
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn helper_runtime_refuses_ungranted_workers_and_retains_cancelled_ungranted_helpers() {
   let fixture = Fixture::new();
   fs::write(fixture.0.join("valuable"), b"ungranted helper survivor").unwrap();
@@ -520,6 +639,7 @@ fn private_helper_client_refuses_wrong_incomplete_and_mismatched_replies() {
       pipe: &mut client,
       resources: &Resources::Resolver,
       request_id: 0,
+      activity_failure: None,
     };
     let result = helpers.run(Task::Resolve {
       directory: PathBuf::from("/private/tmp"),
@@ -652,6 +772,53 @@ fn inject_private<T: Serialize>(owned: &mut Owned, value: &T, journal: &mut Jour
   owned.bytes = (body.len() as u32).to_be_bytes().to_vec();
   owned.bytes.extend_from_slice(&body);
   owned.messages(journal).unwrap();
+}
+
+#[test]
+fn failed_activity_evidence_is_not_retried_for_later_selections() {
+  let (mut client, mut server) = UnixStream::pair().unwrap();
+  let thread = std::thread::spawn(move || {
+    let request: HelperRequest =
+      serde_json::from_slice(&receive_packet(&mut server).unwrap()).unwrap();
+    assert!(matches!(
+      request.task,
+      Task::Probe {
+        probe: crate::activity::Probe::Health,
+        ..
+      }
+    ));
+    let mut capture = crate::activity::Capture::new(&crate::activity::Probe::Handles {
+      directories: vec!["/owned".into()],
+    });
+    let reason = capture
+      .push(b"p1\0f4\0tREG\0nrelative/SECRET\0")
+      .unwrap_err()
+      .to_string();
+    send_packet(
+      &mut server,
+      &serde_json::to_vec(&HelperReply {
+        request_id: request.request_id,
+        result: Err(reason),
+      })
+      .unwrap(),
+    )
+    .unwrap();
+  });
+  let resources = Resources::Bulk {
+    physical_volumes: vec!["fixture-physical".into()],
+  };
+  let mut helpers = Helpers {
+    pipe: &mut client,
+    resources: &resources,
+    request_id: 0,
+    activity_failure: None,
+  };
+  let first = helpers.activity(vec!["/first".into()]).unwrap_err();
+  let second = helpers.activity(vec!["/second".into()]).unwrap_err();
+  assert_eq!(first.to_string(), second.to_string());
+  assert!(!first.to_string().contains("SECRET"));
+  assert_eq!(helpers.request_id, 1);
+  thread.join().unwrap();
 }
 
 #[cfg(target_os = "macos")]

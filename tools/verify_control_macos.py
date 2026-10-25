@@ -35,8 +35,8 @@ def main():
     arguments = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
-    if arguments.worker_binary and arguments.filter != "worker::tests":
-        parser.error("--worker-binary requires the worker selection")
+    if arguments.worker_binary and arguments.filter not in {"worker::tests", "dispatch::tests"}:
+        parser.error("--worker-binary requires the worker or dispatch selection")
 
     source = arguments.test_executable.resolve(strict=True)
     output = arguments.output.absolute()
@@ -72,6 +72,12 @@ def main():
             receipt["worker_binary"] = str(worker)
             receipt["worker_sha256"] = hashlib.sha256(worker.read_bytes()).hexdigest()
         selection = [str(executable), arguments.filter, "--test-threads=1", "--nocapture"]
+        receipt["skipped_test_driver_cases"] = []
+        if arguments.worker_binary and arguments.filter == "dispatch::tests":
+            # the production executable has no test-driver stall gate
+            case = "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+            selection.extend(["--skip", case])
+            receipt["skipped_test_driver_cases"].append(case)
         if arguments.fault_library:
             library = runtime / "fault_fullsync.dylib"
             shutil.copyfile(arguments.fault_library.resolve(strict=True), library)
@@ -127,6 +133,7 @@ def main():
             "util::tests": ["guard_probe_refuses_combined_output_above_the_capture_bound",
                             "streamed_probe_consumes_complete_evidence_above_the_diagnostic_capture_bound"],
             "worker::tests": ["production_resolver_retains_ownership_across_restart_and_never_respawns_a_retry",
+                              "native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence",
                               "ungranted_runtime_exit_has_no_target_result_and_cannot_clear_an_ambiguous_intent",
                               "granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation",
                               "incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence",
@@ -139,6 +146,7 @@ def main():
                           "unknown_virtual_raid_and_incomplete_topologies_refuse",
                           "external_tunneled_nvme_requires_exact_endpoint"],
             "dispatch::tests": ["native_check_pipeline_completes_once_with_local_store_and_protected_survivors",
+                                "native_files_batches_activity_helpers_and_preserves_open_and_retained_work",
                                 "changed_native_scope_caller_config_and_grant_resources_refuse",
                                 "special_oversized_external_and_incomplete_check_inputs_never_report_success",
                                 "restart_retains_surviving_child_and_compaction_preserves_recovery_evidence",

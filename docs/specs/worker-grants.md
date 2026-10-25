@@ -35,9 +35,16 @@
   The coordinator selects the slot, sequence, token, and native child identity; a request supplies none of those ownership facts.
   Task and physical-resource validation precede any new intent or process.
   Helpers cannot request helpers. Duplicate, out-of-order, malformed, or overlapping requests refuse complete assessment.
-  A successful helper reply follows complete result framing, EOF, native child exit, and its durable exit observation.
+  A successful helper reply follows complete result framing or native parser completion, EOF, native exit, and durable exit observation.
   Cancellation, occupied slots, incomplete output, and uncertain ownership cannot become successful helper evidence.
   Coordinator loss closes the private channel; recovery never repeats uncertain work to reconstruct its reply.
+- **C9** — A native activity helper executes only fixed system health or open-handle probes.
+  It replaces its executable without creating another process, after its exact identity-bound grant.
+  Output uses a bounded health capture or streaming activity fields, separate from stderr.
+  Nonempty stderr, invalid or incomplete output, missing EOF, unsuccessful exit, or uncertain release refuses evidence.
+  A selection batches at most 1024 removal paths into one open-handle scan; excess capacity refuses the whole batch.
+  The 64 KiB private-request bound also applies; long paths can require an earlier capacity refusal.
+  A pending native helper retains its process and physical slots; control observation does not wait for its exit.
 
 ## Boundary
 
@@ -66,7 +73,8 @@ Only worker channels accept monotonically numbered helper requests.
 The coordinator supervises the returned helper handles without filesystem or process work in control reply handlers.
 The private request path is not a public service command or permission to run arbitrary executables.
 
-Public Check and internal Files use owned workers. Native Git/activity helper adapters remain open.
+Public Check and internal Files use owned workers. Internal Files uses supervised native activity probes.
+Native Git recovery and public Files activation remain open.
 The parent launcher must retain its owned child handles and supply identities from those children.
 An arbitrary client cannot supply a PID as proof of process ownership.
 The target resolver must supply canonical physical-volume keys, not APFS volume UUIDs or path strings.
@@ -92,6 +100,7 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 
 | Clauses | Executable binding |
 | --- | --- |
+| C9 | `native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence`; `native_files_batches_activity_helpers_and_preserves_open_and_retained_work`; `activity::tests` |
 | C1, C2, C5 | `unresolved_launch_reserves_all_volumes_across_restart_without_blocking_other_volumes` |
 | C2 | `resource_sets_require_sorted_unique_safe_keys`; `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |
 | C1, C3 | `ungranted_child_exits_without_effects_and_ambiguous_intent_is_not_replaced` |

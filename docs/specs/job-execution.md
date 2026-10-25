@@ -54,9 +54,13 @@ The public `files` route is not activated by that internal adapter.
 - **C9** — Files preview consumes descriptor-bound complete inputs within its allocation budget.
   Child symlinks remain leaves; ungranted devices, replaced objects, incomplete enumeration, unsafe declarations, and exhausted budgets cannot establish complete coverage.
   Ancestor device evidence comes from the freshly validated native physical closure.
+  Revalidation requires unchanged ancestor identity, permissions, and policy-file evidence.
+  Unrelated ancestor directory entries do not invalidate a selected inventory.
   Unknown Git or activity evidence remains incomplete; preview does not start ungranted helpers.
   Structured counters remain complete when diagnostic output is discarded. Large complete terminal reports refuse capacity rather than omit counters into success.
-  Binding: `files::tests::structured_preview_fixture`, native files pipeline tests, and installed ingress `--operation files`.
+  Binding: `files::tests::structured_preview_fixture`,
+  `preview_revalidation_distinguishes_parent_entries_from_policy_and_selected_changes`,
+  native files pipeline tests, and installed ingress `--operation files`.
 - **C10** — Files phase and terminal publication retain exact operation identity through restart and replay.
   A surviving bulk child retains its physical reservation. A lost result does not permit a duplicate launch or completed success.
   Binding: `restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches`,

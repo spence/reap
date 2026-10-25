@@ -73,7 +73,11 @@ pub(crate) fn resolve(input: &Prepared) -> io::Result<Scope> {
 }
 
 /// Run only in the once-granted, single-threaded worker; namespace changes are process-local.
-pub(crate) fn assess(input: &Prepared, expected: &Scope) -> io::Result<Terminal> {
+pub(crate) fn assess(
+  input: &Prepared,
+  expected: &Scope,
+  mut helpers: Option<&mut crate::worker::Helpers<'_>>,
+) -> io::Result<Terminal> {
   expected.validate()?;
   let mut context = inspect(input, Some(&expected.physical_volumes))?;
   if context.scope()? != *expected {
@@ -103,6 +107,7 @@ pub(crate) fn assess(input: &Prepared, expected: &Scope) -> io::Result<Terminal>
       &mut stdout,
       &mut stderr,
       &ancestor_devices,
+      helpers.as_deref_mut(),
     );
     reports.push(report);
   }

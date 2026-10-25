@@ -1116,7 +1116,10 @@ It can assess one workspace with governing ancestor policy and required sibling 
 It does not recursively scan unrelated sibling subtrees for display sizing.
 The owned launcher supports two direct helpers with separate durable grants inside the worker's reservation.
 Workers can request helpers over their private channel; the coordinator creates and supervises them.
-This does not activate native Git/activity adapters or a public helper command.
+Internal declaration preview batches activity targets into one supervised native scan per selected root.
+The granted helper becomes the fixed system tool in the same process. Complete parsed output,
+empty stderr, native exit, and durable release precede a successful activity reply.
+Incomplete evidence protects the selection. Native Git recovery and a public helper command remain unavailable.
 Public `files` still uses its foreground route; its activation and caller-migration gates remain open.
 These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.

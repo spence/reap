@@ -396,6 +396,83 @@ fn native_files_rejects_applying_flags_without_poisoning_later_read_jobs() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_files_batches_activity_helpers_and_preserves_open_and_retained_work() {
+  let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+    .map(PathBuf::from)
+    .unwrap_or_else(std::env::temp_dir);
+  let path = base.join(format!("dispatch-activity-{}", random_token().unwrap()));
+  fs::create_dir_all(path.join("home/.config/reap")).unwrap();
+  fs::create_dir(path.join("project")).unwrap();
+  let fixture = Fixture(fs::canonicalize(path).unwrap());
+  let project = fixture.0.join("project");
+  fs::write(
+    project.join(".reap"),
+    br#"{"version":1,"keep":{"reason":"retained root"}}"#,
+  )
+  .unwrap();
+  for name in ["quiet", "active", "retained"] {
+    let directory = project.join(name);
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("valuable"), name.as_bytes()).unwrap();
+    let declaration = if name == "retained" {
+      br#"{"version":1,"keep":{"reason":"unfinished work"},"seal":true}"#.as_slice()
+    } else {
+      br#"{"version":1,"expires":"2020-01-01T00:00:00Z"}"#.as_slice()
+    };
+    fs::write(directory.join(".reap"), declaration).unwrap();
+    for path in [
+      &directory,
+      &directory.join("valuable"),
+      &directory.join(".reap"),
+    ] {
+      filetime::set_file_mtime(path, filetime::FileTime::from_unix_time(1_600_000_000, 0)).unwrap();
+    }
+  }
+  fs::write(fixture.0.join("home/.config/reap/config.json"), serde_json::to_vec(
+    &serde_json::json!({"governed_roots":[project], "reap_file_grace_hours":0, "reap_file_min_age_minutes":0})
+  ).unwrap()).unwrap();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec!["files".into()];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let mut live = Some(File::open(project.join("active/valuable")).unwrap());
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  for planned in [1, 2] {
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal
+      .admit_execution(key.clone(), input.clone(), 1)
+      .unwrap();
+    scheduler.enqueue(&mut journal, key.clone()).unwrap();
+    let result = terminal(&mut journal, &mut scheduler, &key);
+    assert_eq!(result.exit_code, 0, "{}", result.detail);
+    assert_eq!(result.effects, 0);
+    let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+    let report = &detail["reports"][0];
+    assert_eq!(report["coverage_complete"], true, "{}", result.detail);
+    assert_eq!(report["planned_units"], planned, "{}", result.detail);
+    assert_eq!(report["blocked_units"], 2 - planned, "{}", result.detail);
+    let launch = journal.launch(&key).unwrap().unwrap();
+    assert!(launch.released());
+    assert_eq!(launch.helpers[0].as_ref().unwrap().sequence, 2);
+    assert!(launch.helpers[1].is_none());
+    for name in ["quiet", "active", "retained"] {
+      assert_eq!(
+        fs::read(project.join(name).join("valuable")).unwrap(),
+        name.as_bytes()
+      );
+    }
+    drop(live.take());
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn native_files_changed_configuration_and_namespace_refuse_before_assessment() {
   let fixture = Fixture::new();
   fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
@@ -410,14 +487,14 @@ fn native_files_changed_configuration_and_namespace_refuse_before_assessment() {
   input.request = serde_json::to_string(&intent).unwrap();
   let scope = resolve_files(&input).unwrap();
   fs::write(&configuration, b"{\"governed_roots\":[]}").unwrap();
-  assert!(assess_files(&input, &scope).is_err());
+  assert!(assess_files(&input, &scope, None).is_err());
   fs::write(&configuration, bytes).unwrap();
   let mut changed = input.clone();
   let mut intent: Intent = serde_json::from_str(&changed.request).unwrap();
   intent.namespace.home = fixture.0.join("other-home");
   fs::create_dir(&intent.namespace.home).unwrap();
   changed.request = serde_json::to_string(&intent).unwrap();
-  assert!(assess_files(&changed, &scope).is_err());
+  assert!(assess_files(&changed, &scope, None).is_err());
   assert_eq!(
     fs::read(fixture.0.join("project/valuable")).unwrap(),
     b"protected survivor"

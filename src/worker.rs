@@ -42,11 +42,18 @@ pub enum Task {
     input: crate::journal::Prepared,
     scope: crate::dispatch::Scope,
   },
+  Probe {
+    probe: crate::activity::Probe,
+    physical_volumes: Vec<String>,
+  },
 }
 
 impl Task {
   /// Require the result kind belonging to this exact operation.
   fn accepts(&self, report: &Report) -> bool {
+    if let (Self::Probe { probe, .. }, Report::Probed { evidence }) = (self, report) {
+      return probe.accepts(evidence);
+    }
     matches!(
       (self, report),
       (Self::Resolve { .. }, Report::Resolved { .. })
@@ -63,6 +70,11 @@ impl Task {
       Self::Check { scope, .. } | Self::PreviewFiles { scope, .. } => Resources::Bulk {
         physical_volumes: scope.physical_volumes.clone(),
       },
+      Self::Probe {
+        physical_volumes, ..
+      } => Resources::Bulk {
+        physical_volumes: physical_volumes.clone(),
+      },
       _ => Resources::Resolver,
     }
   }
@@ -78,6 +90,10 @@ impl Task {
       Self::Check { input, scope } | Self::PreviewFiles { input, scope } => {
         crate::journal::validate_input(input)?;
         return scope.validate();
+      }
+      Self::Probe { probe, .. } => {
+        probe.validate()?;
+        return self.resources().validate();
       }
     };
     if !directory.is_absolute()
@@ -120,7 +136,7 @@ impl Task {
             physical_volumes: scope.physical_volumes.clone(),
           }) =>
       {
-        return crate::dispatch::assess_files(input, scope)
+        return crate::dispatch::assess_files(input, scope, helpers)
           .map(|terminal| Report::FilesPreviewed { terminal });
       }
       Self::Resolve { .. } => {}
@@ -176,6 +192,9 @@ pub enum Report {
     directory: ObjectIdentity,
     physical_volumes: Vec<String>,
   },
+  Probed {
+    evidence: crate::activity::Evidence,
+  },
   Refused {
     reason: String,
   },
@@ -209,9 +228,46 @@ pub(crate) struct Helpers<'a> {
   pipe: &'a mut UnixStream,
   resources: &'a Resources,
   request_id: u64,
+  activity_failure: Option<String>,
 }
 
 impl Helpers<'_> {
+  /// One complete host-wide scan for this candidate set; never one scan per candidate.
+  pub(crate) fn activity(&mut self, directories: Vec<PathBuf>) -> io::Result<Vec<bool>> {
+    if let Some(reason) = &self.activity_failure {
+      return Err(invalid(reason));
+    }
+    let result = self.inspect_activity(directories);
+    if let Err(reason) = &result {
+      self.activity_failure = Some(reason.to_string().chars().take(2048).collect());
+    }
+    result
+  }
+
+  fn inspect_activity(&mut self, directories: Vec<PathBuf>) -> io::Result<Vec<bool>> {
+    let Resources::Bulk { physical_volumes } = self.resources else {
+      return Err(invalid("activity inspection requires a bulk grant"));
+    };
+    let handles = Task::Probe {
+      probe: crate::activity::Probe::Handles { directories },
+      physical_volumes: physical_volumes.clone(),
+    };
+    handles.validate()?;
+    if serde_json::to_vec(&handles)?.len() > MAX_PACKET {
+      return Err(invalid("activity target set exceeds its bound"));
+    }
+    self.run(Task::Probe {
+      probe: crate::activity::Probe::Health,
+      physical_volumes: physical_volumes.clone(),
+    })?;
+    match self.run(handles)? {
+      Report::Probed {
+        evidence: crate::activity::Evidence::Handles { active },
+      } => Ok(active),
+      _ => Err(invalid("activity helper returned another evidence kind")),
+    }
+  }
+
   pub(crate) fn run(&mut self, task: Task) -> io::Result<Report> {
     task.validate()?;
     if task.resources() != *self.resources {
@@ -281,6 +337,9 @@ pub struct Owned {
   delivery_attempted: bool,
   bytes: Vec<u8>,
   report: Option<Report>,
+  probe: Option<crate::activity::Capture>,
+  stderr: Option<UnixStream>,
+  stderr_eof: bool,
   helper: Option<PendingHelper>,
   last_request: u64,
   incomplete: Option<String>,
@@ -297,6 +356,11 @@ pub struct Completion {
 /// Persist a new reservation before spawn. Retried or recovered intents never spawn again.
 /// Call only in the single owned launcher, outside response loops. Spawn can block in the OS.
 pub fn start(journal: &mut Journal, key: &Key, sequence: u64, task: Task) -> io::Result<Start> {
+  if matches!(task, Task::Probe { .. }) {
+    return Ok(Start::Rejected(
+      "native probes require a granted helper".into(),
+    ));
+  }
   let bytes = match task.validate().and_then(|()| {
     let bytes = serde_json::to_vec(&task)?;
     if bytes.len() > MAX_PACKET {
@@ -321,13 +385,26 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, task: Task) -> io:
     return Ok(Start::Busy);
   };
   let process = launch.worker.token.clone();
-  spawn(key, launch, process, bytes)
+  spawn(key, launch, process, bytes, None)
 }
 
 /// Create only a previously reserved worker or helper. A spawn failure retains its intent.
-fn spawn(key: &Key, launch: Launch, process: String, task: Vec<u8>) -> io::Result<Start> {
+fn spawn(
+  key: &Key,
+  launch: Launch,
+  process: String,
+  task: Vec<u8>,
+  probe: Option<&crate::activity::Probe>,
+) -> io::Result<Start> {
   let (pipe, input) = UnixStream::pair()?;
   pipe.set_nonblocking(true)?;
+  let (stderr, child_stderr) = if probe.is_some() {
+    let (reader, writer) = UnixStream::pair()?;
+    reader.set_nonblocking(true)?;
+    (Some(reader), Stdio::from(OwnedFd::from(writer)))
+  } else {
+    (None, Stdio::null())
+  };
   let mut command = command(&launch, &process)?;
   command.env_clear();
   #[cfg(test)]
@@ -338,7 +415,7 @@ fn spawn(key: &Key, launch: Launch, process: String, task: Vec<u8>) -> io::Resul
     .current_dir("/")
     .stdin(Stdio::from(OwnedFd::from(input)))
     .stdout(Stdio::null())
-    .stderr(Stdio::null())
+    .stderr(child_stderr)
     .spawn()?;
   Ok(Start::Spawned(Owned {
     child,
@@ -350,6 +427,9 @@ fn spawn(key: &Key, launch: Launch, process: String, task: Vec<u8>) -> io::Resul
     delivery_attempted: false,
     bytes: Vec::new(),
     report: None,
+    probe: probe.map(crate::activity::Capture::new),
+    stderr,
+    stderr_eof: probe.is_none(),
     helper: None,
     last_request: 0,
     incomplete: None,
@@ -427,7 +507,11 @@ impl Owned {
       return Err(invalid("helper worker has no matching native grant"));
     }
     journal.reserve_helper(&self.key, &current.token, slot, sequence, token)?;
-    spawn(&self.key, current, token.into(), bytes)
+    let probe = match &task {
+      Task::Probe { probe, .. } => Some(probe),
+      _ => None,
+    };
+    spawn(&self.key, current, token.into(), bytes, probe)
   }
 
   /// Persist this owned child's native identity, then deliver its exact grant and task once.
@@ -460,6 +544,7 @@ impl Owned {
       return Err(invalid("worker completion was already consumed"));
     }
     self.progress_helper(journal)?;
+    self.read_stderr();
     let mut buffer = [0; 8192];
     for _ in 0..POLL_BYTES / buffer.len() {
       if self.eof {
@@ -468,7 +553,18 @@ impl Owned {
       match self.pipe.read(&mut buffer) {
         Ok(0) => self.eof = true,
         Ok(count) => {
-          if self.incomplete.is_none() && self.bytes.len() + count <= MAX_PACKET + 4 {
+          if self.probe.is_some() {
+            if self.incomplete.is_none() {
+              if let Err(reason) = self
+                .probe
+                .as_mut()
+                .expect("probe capture")
+                .push(&buffer[..count])
+              {
+                self.protocol_failure(&reason.to_string());
+              }
+            }
+          } else if self.incomplete.is_none() && self.bytes.len() + count <= MAX_PACKET + 4 {
             self.bytes.extend_from_slice(&buffer[..count]);
             self.messages(journal)?;
           } else {
@@ -484,13 +580,20 @@ impl Owned {
       }
     }
     let status = self.child.try_wait()?;
-    if !self.eof || status.is_none() || self.helper.is_some() {
+    if !self.eof || !self.stderr_eof || status.is_none() || self.helper.is_some() {
       return Ok(None);
     }
     self.finished = true;
     let status = status.expect("observed exit");
     let mut report = match self.incomplete.take() {
       Some(reason) => Err(reason),
+      None if self.probe.is_some() => self
+        .probe
+        .take()
+        .expect("probe capture")
+        .finish()
+        .map(|evidence| Report::Probed { evidence })
+        .map_err(|reason| reason.to_string()),
       None if !self.bytes.is_empty() => Err("worker output has an incomplete frame".into()),
       None => self
         .report
@@ -504,6 +607,31 @@ impl Owned {
       exit_code: status.code().unwrap_or(1),
       report,
     }))
+  }
+
+  /// Drain the separate native stderr channel even after refusal; nonempty stderr vetoes success.
+  fn read_stderr(&mut self) {
+    let mut buffer = [0; 8192];
+    for _ in 0..POLL_BYTES / buffer.len() {
+      if self.stderr_eof {
+        break;
+      }
+      match self
+        .stderr
+        .as_mut()
+        .expect("probe stderr")
+        .read(&mut buffer)
+      {
+        Ok(0) => self.stderr_eof = true,
+        Ok(_) => self.protocol_failure("activity probe reported an error"),
+        Err(reason) if reason.kind() == io::ErrorKind::WouldBlock => break,
+        Err(reason) if reason.kind() == io::ErrorKind::Interrupted => continue,
+        Err(reason) => {
+          self.protocol_failure(&reason.to_string());
+          self.stderr_eof = true;
+        }
+      }
+    }
   }
 
   /// Consume complete frames only. Control requests never substitute for terminal evidence.
@@ -684,6 +812,13 @@ pub fn run(launch: &str, process: &str) -> i32 {
     }
     let bytes = receive_packet(&mut pipe)?;
     let task: Task = serde_json::from_slice(&bytes)?;
+    task.validate()?;
+    if let Task::Probe { probe, .. } = &task {
+      if role[0] != 1 || task.resources() != grant.resources {
+        return Err(invalid("native probe requires its exact helper grant"));
+      }
+      return Err(probe.exec(&pipe));
+    }
     #[cfg(test)]
     if matches!(task, Task::Check { .. } | Task::PreviewFiles { .. }) {
       if let Some(gate) = std::env::var_os("REAP_NATIVE_EXECUTION_GATE") {
@@ -716,6 +851,7 @@ pub fn run(launch: &str, process: &str) -> i32 {
         pipe: &mut pipe,
         resources: &grant.resources,
         request_id: 0,
+        activity_failure: None,
       };
       task.execute(&grant, Some(&mut helpers))
     }
