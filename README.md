@@ -1078,6 +1078,7 @@ reap check [dir]                 # ordinary response budget: one second
 reap check [dir] --wait 30        # explicit completion wait
 reap job show GENERATION:EPOCH:NONCE
 reap job wait GENERATION:EPOCH:NONCE --timeout 30
+reap job cancel GENERATION:EPOCH:NONCE
 ```
 
 These commands emit JSON. Exit 0 requires completed success; exit 75 means pending or unknown.
@@ -1086,6 +1087,10 @@ Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
 require completed success before a dependent step. `--wait` without a value means 30 seconds.
 Waiting does not cancel or resubmit work. Receipts identify protocol 2, operation, mode, and
 requested scope. The requested scope is not native target identity or cleanup permission.
+`job cancel` records a request for the same retained key. A pending acknowledgement does not prove exit or rollback.
+Live and uncertain workers retain their slots until exact absence is proved. The command sends no process signal.
+Observe the same key for its terminal result. A result already durably staged remains unchanged.
+An already successful job retains exit 0. This does not mean that cancellation took effect.
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
 macOS installation registers that broker. Other filesystem commands retain their foreground routes.
 

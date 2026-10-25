@@ -15,11 +15,13 @@ use crate::service::{self, Message, Outcome, Request, Response, Role};
 
 const WAIT_POLL: Duration = Duration::from_millis(50);
 
-/// Read-only job observations. These commands do not submit or cancel work.
+/// Observe jobs or request cancellation without a new target invocation.
 #[derive(Subcommand)]
 pub enum JobCmd {
   /// Show retained job state through the bounded control service.
   Show { id: String },
+  /// Request cancellation; a live worker retains its slot until its exit is proved.
+  Cancel { id: String },
   /// Wait for a terminal observation without cancelling or resubmitting the job.
   Wait {
     id: String,
@@ -30,17 +32,17 @@ pub enum JobCmd {
 
 /// Render one bounded job observation. The ordinary deadline includes argument parsing.
 pub fn run(command: JobCmd, entered: Instant) -> i32 {
-  let (id, timeout) = match command {
-    JobCmd::Show { id } => (id, None),
-    JobCmd::Wait { id, timeout } => (id, Some(timeout)),
+  let id = match &command {
+    JobCmd::Show { id } | JobCmd::Cancel { id } | JobCmd::Wait { id, .. } => id,
   };
-  let receipt = match parse_job_id(&id) {
+  let receipt = match parse_job_id(id) {
     Err(reason) => Receipt::new(State::Invalid, None, Some(reason.into())),
     Ok(key) => {
       let client = Client::default();
-      match timeout {
-        None => client.show_until(key, entered + RESPONSE_BUDGET),
-        Some(timeout) => match entered.checked_add(timeout) {
+      match command {
+        JobCmd::Show { .. } => client.show_until(key, entered + RESPONSE_BUDGET),
+        JobCmd::Cancel { .. } => client.cancel_until(key, entered + RESPONSE_BUDGET),
+        JobCmd::Wait { timeout, .. } => match entered.checked_add(timeout) {
           Some(deadline) => client.wait_until(key, deadline),
           None => Receipt::new(
             State::Invalid,
@@ -350,6 +352,25 @@ impl Client {
     )
   }
 
+  /// Request cancellation of the same key. Acknowledgement does not prove process exit.
+  pub fn cancel(&self, key: Key) -> Receipt {
+    self.cancel_until(key, Instant::now() + RESPONSE_BUDGET)
+  }
+
+  fn cancel_until(&self, key: Key, deadline: Instant) -> Receipt {
+    if journal::validate_key(&key).is_err() {
+      return Receipt::new(
+        State::Invalid,
+        Some(key),
+        Some("invalid request key".into()),
+      );
+    }
+    cancel_response(
+      key.clone(),
+      self.exchange(Role::Control, Request::Cancel { key }, deadline),
+    )
+  }
+
   /// Explicit finite completion wait. Timeout does not cancel, resubmit, or change the key.
   pub fn wait(&self, key: Key, timeout: Duration) -> Receipt {
     let Some(deadline) = Instant::now()
@@ -451,6 +472,9 @@ fn observe(key: Key, decision: Decision) -> Receipt {
         || job.result.is_some() != job.completed_at.is_some()
         || job.completed_at.is_some_and(|at| at < job.created_at)
         || job
+          .cancel_requested_at
+          .is_some_and(|at| at < job.created_at || job.completed_at.is_some_and(|done| done < at))
+        || job
           .result
           .as_ref()
           .is_some_and(|result| result.exit_code == 75 || result.detail.len() > 4096)
@@ -515,6 +539,24 @@ fn observe_response(key: Key, response: Result<Response, Error>, mutation: bool)
     ),
   };
   receipt.observed_at = response.snapshot.observed_at;
+  receipt
+}
+
+fn cancel_response(key: Key, response: Result<Response, Error>) -> Receipt {
+  let mut receipt = observe_response(key, response, true);
+  if receipt.state == State::AcceptanceUnknown {
+    receipt.reason = Some("cancellation acceptance is unknown; observe the same key".into());
+  } else if receipt.state == State::Pending
+    && receipt
+      .job
+      .as_ref()
+      .is_some_and(|job| job.cancel_requested_at.is_none())
+  {
+    receipt.state = State::Unknown;
+    receipt.reason = Some("the broker did not confirm a cancellation request".into());
+  } else if receipt.state == State::NotAccepted {
+    receipt.reason = Some("no retained job; cancellation was not recorded".into());
+  }
   receipt
 }
 

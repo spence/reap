@@ -30,6 +30,10 @@
   key, argv, provenance, caller directory, namespace evidence, and configuration generation.
   An unknown, expired, or changed receipt cannot create work. A retained exact durable request
   can be returned after ticket expiry without creating another job.
+- **C9** — Cancellation adds one immutable request time to an existing nonterminal job through the same synchronized transaction path.
+  It cannot change the immutable input, phase, process ownership, or an existing result.
+  Recovery and exact replay retain the cancellation request. Cancellation cannot admit a missing key.
+  A healthy busy writer accepts bounded queued requests. Startup and unavailable states do not dispatch them.
 
 ## Boundary
 
@@ -86,6 +90,7 @@ No production fault switch or injected library is installed.
 | C1, C7, C8 | `native_blocked_context_open_preserves_resolver_slot_and_abandons_late_capture` |
 | C8 | `native_resolved_admission_binds_caller_namespace_and_replays_after_ticket_expiry`; `native_invalid_namespaces_and_untrusted_receipts_never_create_jobs` |
 | C8 | `native_prepare_capacity_recovers_after_idle_ticket_expiry`; `tools/verify_ingress_macos.py` at the actual installed executable |
+| C9 | `cancellation_is_durable_monotonic_and_never_admits_a_key`; `pending_cancellation_recovers_before_lookup_without_losing_ownership`; cancellation transaction guards; native blocked-sync cancellation cases |
 
 The [T13 evidence](../proof/ADMISSION-T13.md) identifies completed component proof and remaining gates.
 The later [native ingress evidence](../proof/NATIVE-INGRESS-T13.md) proves preparation and admission

@@ -69,6 +69,11 @@ An unavailable broker is not permission for a synchronous fallback.
 macOS installation registers the three fixed on-demand roles. Ordinary commands never install them.
 Other filesystem commands retain their current route; full command migration remains open.
 
+Use `reap job cancel ID` only for a job you own or were assigned. Observe the same key afterward.
+A pending cancellation does not prove exit or rollback. Do not infer cleanup permission or a free worker slot.
+Cancellation sends no process signal. A result already durably staged remains authoritative.
+An already successful job retains exit 0. This does not mean that cancellation took effect.
+
 ## 1. Reclaim cargo build output (the common job)
 
 ```bash

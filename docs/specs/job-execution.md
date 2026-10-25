@@ -62,6 +62,14 @@ The public `files` route is not activated by that internal adapter.
   Binding: `restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches`,
   `durable_resolver_and_bulk_results_recover_across_each_publication_boundary`,
   `native_files_pipeline_retains_operation_results_and_sources_without_cache_writes`.
+- **C11** — A durable cancellation request prevents new execution phases and fresh worker/helper grants.
+  A live or uncertain child retains its reservation until exact absence is proved. Cancellation sends no process signal.
+  After that safe boundary, an unfinished read-only job returns a cancelled failure with zero effects.
+  A result already durably staged before cancellation remains authoritative; cancellation does not replace it.
+  Binding: `cancelled_queued_jobs_finish_without_a_resolver_or_bulk_birth`,
+  `restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches`,
+  `durable_resolver_and_bulk_results_recover_across_each_publication_boundary`,
+  `native_stalled_bulk_keeps_its_slot_without_blocking_ping_or_status`.
 
 ## Bounds and supported closure
 

@@ -43,6 +43,7 @@ impl Progress {
   pub(crate) fn successor(&self, next: &Self) -> bool {
     match (self, next) {
       (Self::Queued, Self::Resolving) | (Self::Resolving, Self::Resolved { .. }) => true,
+      (Self::Queued, Self::Result { terminal }) => terminal == &cancelled(),
       (Self::Queued, Self::ResolvingFiles) | (Self::ResolvingFiles, Self::FilesResolved { .. }) => {
         true
       }
@@ -160,30 +161,39 @@ impl Job {
       let Some(done) = owned.poll()? else {
         return Ok(false);
       };
-      let next = match (&self.progress, done.report) {
-        (Progress::Resolving, Ok(Report::CheckResolved { scope })) if done.exit_code == 0 => {
-          Progress::Resolved { scope }
+      // only a durable `Result` outranks cancellation; this worker result has not been staged
+      let next = if journal.cancel_requested(&self.key) {
+        Progress::Result {
+          terminal: cancelled(),
         }
-        (Progress::Checking { .. }, Ok(Report::Checked { terminal })) if done.exit_code == 0 => {
-          Progress::Result { terminal }
+      } else {
+        match (&self.progress, done.report) {
+          (Progress::Resolving, Ok(Report::CheckResolved { scope })) if done.exit_code == 0 => {
+            Progress::Resolved { scope }
+          }
+          (Progress::Checking { .. }, Ok(Report::Checked { terminal })) if done.exit_code == 0 => {
+            Progress::Result { terminal }
+          }
+          (Progress::ResolvingFiles, Ok(Report::FilesResolved { scope }))
+            if done.exit_code == 0 =>
+          {
+            Progress::FilesResolved { scope }
+          }
+          (Progress::PreviewingFiles { .. }, Ok(Report::FilesPreviewed { terminal }))
+            if done.exit_code == 0 =>
+          {
+            Progress::Result { terminal }
+          }
+          (_, Ok(Report::Refused { reason })) => Progress::Result {
+            terminal: refused(&reason),
+          },
+          (_, Err(reason)) => Progress::Result {
+            terminal: refused(&format!("incomplete worker result: {reason}")),
+          },
+          _ => Progress::Result {
+            terminal: refused("worker phase or exit does not match its result"),
+          },
         }
-        (Progress::ResolvingFiles, Ok(Report::FilesResolved { scope })) if done.exit_code == 0 => {
-          Progress::FilesResolved { scope }
-        }
-        (Progress::PreviewingFiles { .. }, Ok(Report::FilesPreviewed { terminal }))
-          if done.exit_code == 0 =>
-        {
-          Progress::Result { terminal }
-        }
-        (_, Ok(Report::Refused { reason })) => Progress::Result {
-          terminal: refused(&reason),
-        },
-        (_, Err(reason)) => Progress::Result {
-          terminal: refused(&format!("incomplete worker result: {reason}")),
-        },
-        _ => Progress::Result {
-          terminal: refused("worker phase or exit does not match its result"),
-        },
       };
       self.persist(journal, next)?;
       self.launch = journal.launch(&self.key)?;
@@ -201,6 +211,14 @@ impl Job {
         return Ok(false);
       }
       self.launch = journal.launch(&self.key)?;
+    }
+    if journal.cancel_requested(&self.key) && !matches!(self.progress, Progress::Result { .. }) {
+      self.persist(
+        journal,
+        Progress::Result {
+          terminal: cancelled(),
+        },
+      )?;
     }
     let task = match self.progress.clone() {
       Progress::Result { terminal } => {
@@ -305,6 +323,15 @@ impl Job {
       )?,
     }
     Ok(false)
+  }
+}
+
+/// A terminal cancellation is failure, not successful execution or proof of released ownership.
+pub(crate) fn cancelled() -> Terminal {
+  Terminal {
+    exit_code: 1,
+    effects: 0,
+    detail: "{\"outcome\":\"cancelled\"}".into(),
   }
 }
 

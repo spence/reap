@@ -77,6 +77,41 @@ class PublicCheck(unittest.TestCase):
         self.assertEqual(shown.receipt["job"], result.receipt["job"])
         self.assertLess(shown.elapsed, 1.25)
 
+    def test_cancel_preserves_a_completed_result_without_reading_caller_config(self):
+        completed = self.completed(self.project)
+        config = self.user_home / ".config/reap/config.json"
+        config.unlink()
+        os.mkfifo(config)
+        cancelled = self.run_cli("job", "cancel", completed.receipt["job_id"], timeout=2)
+        self.assertEqual(cancelled.returncode, 0, cancelled)
+        self.assertEqual(cancelled.receipt["job"], completed.receipt["job"])
+        self.assertLess(cancelled.elapsed, 1.25)
+        self.assertEqual((self.project / "valuable").read_bytes(), PAYLOAD)
+
+    def test_cancel_missing_key_does_not_admit_work(self):
+        import uuid
+
+        completed = self.completed(self.project)
+        key = completed.receipt["key"]
+        identifier = f"{key['generation']}:{key['epoch']}:{uuid.uuid4().hex}"
+        cancelled = self.run_cli("job", "cancel", identifier, timeout=2)
+        self.assertIn(cancelled.receipt["state"], ("not_accepted", "unknown"))
+        self.assertNotEqual(cancelled.returncode, 0)
+        self.assertIsNone(cancelled.receipt["job"])
+        observed = self.run_cli("job", "show", identifier, timeout=2)
+        self.assertIn(observed.receipt["state"], ("not_accepted", "unknown"))
+        self.assertIsNone(observed.receipt["job"])
+
+    def test_cancel_invalid_key_is_invalid_before_context_preparation(self):
+        config = self.user_home / ".config/reap/config.json"
+        config.unlink()
+        os.mkfifo(config)
+        cancelled = self.run_cli("job", "cancel", "../../not-a-job", timeout=2)
+        self.assertEqual(cancelled.returncode, 2)
+        self.assertEqual(cancelled.receipt["state"], "invalid")
+        self.assertIsNone(cancelled.receipt["key"])
+        self.assertIsNone(cancelled.receipt["next_command"])
+
     def test_outside_project_target_is_a_complete_read_only_assessment(self):
         target = self.root / "shared-target"
         target.mkdir()

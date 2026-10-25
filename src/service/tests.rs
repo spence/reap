@@ -172,6 +172,7 @@ mod native {
         Request::Status => "status",
         Request::Epoch => "epoch",
         Request::Lookup { .. } => "lookup",
+        Request::Cancel { .. } => "cancel",
         Request::AdmitPrepared { .. } => "admit",
         Request::Prepare { .. } => "prepare",
         Request::ValidateReceipt { .. } => "validate_receipt",
@@ -588,121 +589,157 @@ mod native {
   #[test]
   fn native_stalled_bulk_keeps_its_slot_without_blocking_ping_or_status() {
     use crate::client::{Client, State};
-    let fixture = Fixture::with_fault(Some("execution"));
-    fixture.install(Role::ContextResolver);
-    let first = key(&fixture);
-    let mut input = intent(&fixture);
-    let project = fixture.root.join("project");
-    fs::create_dir(&project).unwrap();
-    fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
-    input.argv = vec!["check".into(), project.to_str().unwrap().into()];
-    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
-    fixture.call(Role::ContextResolver, Request::Ping);
-    assert_eq!(
-      client.submit(input.clone(), Some(first.clone())).state,
-      State::Pending
-    );
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !fixture.root.join("gate/entered").exists() {
-      assert!(
-        Instant::now() < deadline,
-        "bulk phase did not reach its owned stall"
+    for cancel in [false, true] {
+      let fixture = Fixture::with_fault(Some("execution"));
+      fixture.install(Role::ContextResolver);
+      let first = key(&fixture);
+      let mut input = intent(&fixture);
+      let project = fixture.root.join("project");
+      fs::create_dir(&project).unwrap();
+      fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+      input.argv = vec!["check".into(), project.to_str().unwrap().into()];
+      let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+      fixture.call(Role::ContextResolver, Request::Ping);
+      assert_eq!(
+        client.submit(input.clone(), Some(first.clone())).state,
+        State::Pending
       );
-      thread::sleep(Duration::from_millis(10));
-    }
-    let writer_pid = fixture.pid(Role::StateWriter).unwrap();
-    let mut second = first.clone();
-    second.nonce = crate::journal::random_token().unwrap();
-    // aliases and a distinct namespace still share the actual physical bulk reservation.
-    std::os::unix::fs::symlink(&project, fixture.root.join("alias")).unwrap();
-    input.argv[1] = fixture.root.join("alias").to_str().unwrap().into();
-    input.namespace.xdg_state_home = Some(fixture.root.join("other-state"));
-    assert_eq!(
-      client.submit(input, Some(second.clone())).state,
-      State::Pending
-    );
-    for _ in 0..32 {
-      for role in [Role::Control, Role::StateWriter] {
-        let start = Instant::now();
-        assert!(matches!(
-          fixture.call(role, Request::Ping).outcome,
-          Outcome::Pong
-        ));
-        assert!(matches!(
-          fixture.call(role, Request::Status).outcome,
-          Outcome::Snapshot
-        ));
-        assert!(start.elapsed() < RESPONSE_BUDGET);
+      let deadline = Instant::now() + Duration::from_secs(10);
+      while !fixture.root.join("gate/entered").exists() {
+        assert!(
+          Instant::now() < deadline,
+          "bulk phase did not reach its owned stall"
+        );
+        thread::sleep(Duration::from_millis(10));
       }
-    }
-    assert_eq!(fixture.pid(Role::StateWriter), Some(writer_pid));
-    assert_pending(&client, first.clone());
-    assert_pending(&client, second.clone());
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-      let launches = live_launches(&fixture);
-      let bulk: Vec<_> = launches
-        .iter()
-        .filter(|launch| {
+      let writer_pid = fixture.pid(Role::StateWriter).unwrap();
+      let mut second = first.clone();
+      second.nonce = crate::journal::random_token().unwrap();
+      // aliases and a distinct namespace still share the actual physical bulk reservation.
+      std::os::unix::fs::symlink(&project, fixture.root.join("alias")).unwrap();
+      input.argv[1] = fixture.root.join("alias").to_str().unwrap().into();
+      input.namespace.xdg_state_home = Some(fixture.root.join("other-state"));
+      assert_eq!(
+        client.submit(input, Some(second.clone())).state,
+        State::Pending
+      );
+      for _ in 0..32 {
+        for role in [Role::Control, Role::StateWriter] {
+          let start = Instant::now();
+          assert!(matches!(
+            fixture.call(role, Request::Ping).outcome,
+            Outcome::Pong
+          ));
+          assert!(matches!(
+            fixture.call(role, Request::Status).outcome,
+            Outcome::Snapshot
+          ));
+          assert!(start.elapsed() < RESPONSE_BUDGET);
+        }
+      }
+      assert_eq!(fixture.pid(Role::StateWriter), Some(writer_pid));
+      assert_pending(&client, first.clone());
+      assert_pending(&client, second.clone());
+      let deadline = Instant::now() + Duration::from_secs(10);
+      loop {
+        let launches = live_launches(&fixture);
+        let bulk: Vec<_> = launches
+          .iter()
+          .filter(|launch| {
+            matches!(launch.resources, crate::launch::Resources::Bulk { .. }) && !launch.released()
+          })
+          .collect();
+        assert_eq!(
+          bulk.len(),
+          1,
+          "one physical domain must have exactly one unresolved bulk owner"
+        );
+        if launches.iter().any(|launch| {
+          matches!(launch.resources, crate::launch::Resources::Resolver) && launch.released()
+        }) {
+          break;
+        }
+        assert!(
+          Instant::now() < deadline,
+          "second resolver did not reach the occupied bulk slot"
+        );
+        thread::sleep(Duration::from_millis(10));
+      }
+      let surviving = live_launches(&fixture)
+        .into_iter()
+        .find(|launch| {
           matches!(launch.resources, crate::launch::Resources::Bulk { .. }) && !launch.released()
         })
-        .collect();
-      assert_eq!(
-        bulk.len(),
-        1,
-        "one physical domain must have exactly one unresolved bulk owner"
-      );
-      if launches.iter().any(|launch| {
-        matches!(launch.resources, crate::launch::Resources::Resolver) && launch.released()
-      }) {
-        break;
+        .unwrap();
+      let observe_request = || {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+          let observed = client.show(first.clone());
+          if let Some(job) = observed.job {
+            assert!(job.result.is_none());
+            if let Some(at) = job.cancel_requested_at {
+              break at;
+            }
+          }
+          assert!(
+            Instant::now() < deadline,
+            "durable cancellation missing; writer: {:?}",
+            fixture.call(Role::StateWriter, Request::Status)
+          );
+          thread::sleep(Duration::from_millis(10));
+        }
+      };
+      let requested_at = if cancel {
+        let cancellation = client.cancel(first.clone());
+        assert!(
+          matches!(
+            cancellation.state,
+            State::Pending | State::AcceptanceUnknown
+          ),
+          "{cancellation:?}"
+        );
+        assert_eq!(cancellation.exit_code(), 75);
+        Some(observe_request())
+      } else {
+        None
+      };
+      fixture.stop(Role::StateWriter);
+      fixture.install(Role::StateWriter);
+      fixture.epoch();
+      assert!(live_launches(&fixture).contains(&surviving));
+      let crate::launch::ProcessState::Granted { identity, .. } = &surviving.worker.state else {
+        panic!("exact granted child required")
+      };
+      if let Some(requested_at) = requested_at {
+        assert_eq!(observe_request(), requested_at);
       }
-      assert!(
-        Instant::now() < deadline,
-        "second resolver did not reach the occupied bulk slot"
+      assert_eq!(
+        crate::launch::ProcessIdentity::read(identity.pid)
+          .unwrap()
+          .as_ref(),
+        Some(identity)
       );
-      thread::sleep(Duration::from_millis(10));
+      assert_pending(&client, first.clone());
+      release_bulk(&fixture);
+      let lost = client.wait(first, Duration::from_secs(10));
+      assert_eq!(
+        lost.state,
+        State::Failed,
+        "cancellation cannot become a successful rerun: {lost:?}"
+      );
+      let result = lost.job.unwrap().result.unwrap();
+      if cancel {
+        assert_eq!(result, crate::dispatch::cancelled());
+      } else {
+        assert!(result.detail.contains("incomplete"));
+      }
+      release_bulk(&fixture);
+      assert_eq!(
+        client.wait(second, Duration::from_secs(10)).state,
+        State::Completed
+      );
+      println!("native stalled bulk: prompt ping/status; one alias/namespace slot; restart retains the child; cancel={cancel}; exact absence releases the slot");
     }
-    let surviving = live_launches(&fixture)
-      .into_iter()
-      .find(|launch| {
-        matches!(launch.resources, crate::launch::Resources::Bulk { .. }) && !launch.released()
-      })
-      .unwrap();
-    fixture.stop(Role::StateWriter);
-    fixture.install(Role::StateWriter);
-    fixture.epoch();
-    assert!(live_launches(&fixture).contains(&surviving));
-    let crate::launch::ProcessState::Granted { identity, .. } = &surviving.worker.state else {
-      panic!("exact granted child required")
-    };
-    assert_eq!(
-      crate::launch::ProcessIdentity::read(identity.pid)
-        .unwrap()
-        .as_ref(),
-      Some(identity)
-    );
-    assert_pending(&client, first.clone());
-    release_bulk(&fixture);
-    let lost = client.wait(first, Duration::from_secs(10));
-    assert_eq!(
-      lost.state,
-      State::Failed,
-      "a lost private result is incomplete, never a successful rerun: {lost:?}"
-    );
-    assert!(lost
-      .job
-      .unwrap()
-      .result
-      .unwrap()
-      .detail
-      .contains("incomplete"));
-    release_bulk(&fixture);
-    assert_eq!(
-      client.wait(second, Duration::from_secs(10)).state,
-      State::Completed
-    );
-    println!("native stalled bulk: prompt memory-only ping/status; one alias/namespace bulk slot; exact child survives owned writer restart; lost result stays incomplete");
   }
 
   #[test]
@@ -1092,6 +1129,33 @@ mod native {
       view.result.is_none(),
       "metadata admission is not completed cleanup"
     );
+    let installed = std::env::var_os("REAP_INSTALLED_INGRESS_BINARY").unwrap();
+    let cancel = std::env::var_os("REAP_INSTALLED_INGRESS_CANCEL").is_some();
+    let cancellation = if cancel {
+      let output = Command::new(&installed)
+        .args(["job", "cancel", &crate::client::job_id(&key)])
+        .env("HOME", root.join("service-home"))
+        .output()
+        .unwrap();
+      assert!(
+        !output.status.success(),
+        "cancellation is not successful target execution: {output:?}"
+      );
+      let receipt: crate::client::Receipt = serde_json::from_slice(&output.stdout).unwrap();
+      assert_eq!(receipt.key, Some(key.clone()));
+      assert!(
+        matches!(
+          receipt.state,
+          crate::client::State::Pending
+            | crate::client::State::Failed
+            | crate::client::State::AcceptanceUnknown
+        ),
+        "{receipt:?}"
+      );
+      Some(receipt)
+    } else {
+      None
+    };
     // the normal binary has no raw prepared-input admission operation.
     let raw_key = Key {
       nonce: crate::journal::random_token().unwrap(),
@@ -1111,12 +1175,19 @@ mod native {
     ));
     let client = crate::client::Client::default();
     let completed = client.wait(key.clone(), Duration::from_secs(10));
-    assert_eq!(
-      completed.state,
-      crate::client::State::Completed,
-      "{completed:?}"
-    );
-    assert_eq!(completed.exit_code(), 0);
+    let expected_state = if cancel {
+      crate::client::State::Failed
+    } else {
+      crate::client::State::Completed
+    };
+    let expected_exit = if cancel { 1 } else { 0 };
+    assert_eq!(completed.state, expected_state, "{completed:?}");
+    assert_eq!(completed.exit_code(), expected_exit);
+    if cancel {
+      let job = completed.job.as_ref().unwrap();
+      assert!(job.cancel_requested_at.is_some());
+      assert_eq!(job.result.as_ref(), Some(&crate::dispatch::cancelled()));
+    }
     assert_eq!(
       fs::read(project.join("valuable")).unwrap(),
       b"installed protected survivor"
@@ -1126,7 +1197,6 @@ mod native {
       matches!(call(Role::Control, Request::Admit { receipt: receipt.clone() }, Instant::now()+RESPONSE_BUDGET).outcome,
       Outcome::Decision { decision: Decision::Present { job } } if Some(&job) == completed.job.as_ref())
     );
-    let installed = std::env::var_os("REAP_INSTALLED_INGRESS_BINARY").unwrap();
     let id = crate::client::job_id(&key);
     let mut cli_receipts = Vec::new();
     for operation in ["show", "wait"] {
@@ -1139,9 +1209,9 @@ mod native {
         .env("HOME", root.join("service-home"))
         .output()
         .unwrap();
-      assert!(output.status.success(), "{output:?}");
+      assert_eq!(output.status.code(), Some(expected_exit), "{output:?}");
       let observed: crate::client::Receipt = serde_json::from_slice(&output.stdout).unwrap();
-      assert_eq!(observed.state, crate::client::State::Completed);
+      assert_eq!(observed.state, expected_state);
       assert_eq!(observed.key, Some(key.clone()));
       assert_eq!(
         observed
@@ -1181,6 +1251,7 @@ mod native {
         "raw_admission_refused":true,"expired_ticket_exact_replay":true,
         "metadata_only":false,"read_only_execution":true,"terminal":completed,"cleanup_granted":false,
         "prepared_key":receipt.key,
+        "cancellation":cancellation,
         "job_cli":cli_receipts,"unknown_job_cli":unknown_receipt,
       }))
       .unwrap(),
@@ -1482,7 +1553,12 @@ mod native {
   fn native_blocked_sync_does_not_ack_early_or_replace_the_writer() {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    for mode in ["file", "directory"] {
+    for (mode, cancel) in [
+      ("file", false),
+      ("directory", false),
+      ("file", true),
+      ("directory", true),
+    ] {
       let fixture = Fixture::with_fault(Some(mode));
       let epoch = fixture.epoch();
       let writer_pid = fixture.pid(Role::StateWriter).unwrap();
@@ -1491,13 +1567,33 @@ mod native {
         epoch: epoch.current,
         nonce: crate::journal::random_token().unwrap(),
       };
+      if cancel {
+        assert!(matches!(
+          fixture
+            .call(
+              Role::Control,
+              Request::AdmitPrepared {
+                key: key.clone(),
+                input: prepared()
+              }
+            )
+            .outcome,
+          Outcome::Decision {
+            decision: Decision::Present { .. }
+          }
+        ));
+      }
       fs::write(fixture.root.join("gate/armed"), b"1").unwrap();
       let name = fixture.control.clone();
       let request = Message {
         protocol: PROTOCOL,
-        request: Request::AdmitPrepared {
-          key: key.clone(),
-          input: prepared(),
+        request: if cancel {
+          Request::Cancel { key: key.clone() }
+        } else {
+          Request::AdmitPrepared {
+            key: key.clone(),
+            input: prepared(),
+          }
         },
       };
       let (sender, received) = mpsc::sync_channel(1);
@@ -1567,8 +1663,8 @@ mod native {
           if matches!(
             response.outcome,
             Outcome::Decision {
-              decision: Decision::Present { .. }
-            }
+              decision: Decision::Present { job }
+            } if !cancel || job.cancel_requested_at.is_some()
           ) {
             break;
           }

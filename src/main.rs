@@ -112,7 +112,7 @@ struct PolicyArgs {
 
 #[derive(Subcommand)]
 enum Cmd {
-  /// Read retained job state or wait for a terminal result.
+  /// Read retained job state, wait for a terminal result, or request cancellation.
   Job {
     #[command(subcommand)]
     cmd: client::JobCmd,

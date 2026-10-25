@@ -67,6 +67,8 @@ pub struct View {
   pub completed_at: Option<u64>,
   pub result: Option<Terminal>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cancel_requested_at: Option<u64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub invocation: Option<crate::invocation::Summary>,
 }
 
@@ -300,6 +302,32 @@ impl Journal {
     })
   }
 
+  /// Record cancellation once without admitting work or changing process ownership or results.
+  pub fn request_cancel(&mut self, key: &Key, now: u64) -> io::Result<Decision> {
+    validate_key(key)?;
+    self.bindings()?;
+    let Some(mut job) = self.job(key)? else {
+      return Ok(if self.admissible(key) {
+        Decision::NotAccepted
+      } else {
+        Decision::Unknown
+      });
+    };
+    if job.view.result.is_none() && job.view.cancel_requested_at.is_none() {
+      job.view.cancel_requested_at = Some(now.max(job.view.created_at));
+      self.update(job.clone())?;
+    }
+    Ok(Decision::Present { job: job.view })
+  }
+
+  /// Memory-only scheduler observation of a durably installed cancellation request.
+  pub(crate) fn cancel_requested(&self, key: &Key) -> bool {
+    self
+      .index
+      .get(key)
+      .is_some_and(|entry| entry.view.cancel_requested_at.is_some())
+  }
+
   /// Persist prepared intent before acceptance. Exact replay does not create another job.
   pub fn admit(&mut self, key: Key, input: Prepared, now: u64) -> io::Result<Decision> {
     match self.replay(&key, &input)? {
@@ -375,6 +403,7 @@ impl Journal {
         created_at: now,
         completed_at: None,
         result: None,
+        cancel_requested_at: None,
         invocation: executing
           .then(|| serde_json::from_str::<crate::invocation::Intent>(&input.request).ok())
           .flatten()
@@ -429,6 +458,9 @@ impl Journal {
       .any(|launch| !launch.released() && launch.resources.conflicts(&resources))
     {
       return Ok(None);
+    }
+    if job.view.cancel_requested_at.is_some() {
+      return Err(invalid("cancelled job cannot create a launch intent"));
     }
     let launch = Launch::new(sequence, resources)?;
     job.launch = Some(launch.clone());
@@ -527,6 +559,9 @@ impl Journal {
     } else if sequence != 1 {
       return Err(invalid("initial helper sequence must be one"));
     }
+    if job.view.cancel_requested_at.is_some() {
+      return Err(invalid("cancelled job cannot create a helper intent"));
+    }
     if launch.origin_boot() != Some(crate::launch::boot_id()?.as_str()) {
       return Err(invalid("helper launch belongs to another or unknown boot"));
     }
@@ -581,7 +616,7 @@ impl Journal {
     let resources = launch.resources.clone();
     let process = find_process(launch, process_token)?;
     let nonce = match &process.state {
-      ProcessState::Intent => random_token()?,
+      ProcessState::Intent if job.view.cancel_requested_at.is_none() => random_token()?,
       ProcessState::Granted {
         identity: previous,
         grant,
@@ -694,7 +729,11 @@ impl Journal {
       .revision
       .checked_add(1)
       .ok_or_else(|| invalid("job revision overflow"))?;
-    job.view.completed_at = Some(now.max(job.view.created_at));
+    job.view.completed_at = Some(
+      now
+        .max(job.view.created_at)
+        .max(job.view.cancel_requested_at.unwrap_or(0)),
+    );
     job.view.result = Some(result);
     job.validate()?;
     self.persist(Document::Job(job.clone()))?;
@@ -970,8 +1009,16 @@ impl Journal {
         next.validate()?;
         let completion = next.launch == previous.launch
           && next.execution == previous.execution
+          && next.view.cancel_requested_at == previous.view.cancel_requested_at
           && next.view.result.is_some()
           && next.view.completed_at.is_some();
+        let mut cancelled = previous.view.clone();
+        cancelled.cancel_requested_at = next.view.cancel_requested_at;
+        let cancellation = previous.view.cancel_requested_at.is_none()
+          && next.view.cancel_requested_at.is_some()
+          && next.view == cancelled
+          && next.launch == previous.launch
+          && next.execution == previous.execution;
         let execution = next.view == previous.view
           && next.execution == previous.execution
           && match (&previous.launch, &next.launch) {
@@ -990,7 +1037,7 @@ impl Journal {
           || next.input != previous.input
           || Some(next.revision) != previous.revision.checked_add(1)
           || previous.view.result.is_some()
-          || (!completion && !execution && !phase)
+          || (!completion && !execution && !phase && !cancellation)
           || next.view.created_at != previous.view.created_at
         {
           return Err(invalid("invalid job transaction"));
@@ -1132,6 +1179,14 @@ impl Job {
         {
           return Err(invalid("invalid execution terminal evidence"));
         }
+        Progress::Result { terminal }
+          if terminal == &crate::dispatch::cancelled()
+            && self.view.cancel_requested_at.is_none() =>
+        {
+          return Err(invalid(
+            "cancelled result has no durable cancellation request",
+          ));
+        }
         _ => {}
       }
       let phase_matches = match progress {
@@ -1172,7 +1227,12 @@ impl Job {
       }
     }
     if self.schema != SCHEMA
-      || self.revision < if self.view.result.is_some() { 2 } else { 1 }
+      || self.revision
+        < if self.view.result.is_some() || self.view.cancel_requested_at.is_some() {
+          2
+        } else {
+          1
+        }
       || self.view.result.is_some() != self.view.completed_at.is_some()
       || self
         .view
@@ -1183,6 +1243,9 @@ impl Job {
         .view
         .completed_at
         .is_some_and(|at| at < self.view.created_at)
+      || self.view.cancel_requested_at.is_some_and(|at| {
+        at < self.view.created_at || self.view.completed_at.is_some_and(|done| done < at)
+      })
       || self.launch.as_ref().is_some_and(|launch| {
         launch.validate().is_err() || (self.view.result.is_some() && !launch.released())
       })

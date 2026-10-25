@@ -464,6 +464,40 @@ fn oversized_combined_task_fails_only_its_job_without_creating_a_bulk_process() 
 
 #[cfg(target_os = "macos")]
 #[test]
+fn cancelled_queued_jobs_finish_without_a_resolver_or_bulk_birth() {
+  for files in [false, true] {
+    let fixture = Fixture::new();
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let mut input = fixture.input();
+    if files {
+      let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+      intent.argv = vec!["files".into()];
+      input.request = serde_json::to_string(&intent).unwrap();
+    }
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal
+      .admit_execution(key.clone(), input.clone(), 1)
+      .unwrap();
+    journal.request_cancel(&key, 2).unwrap();
+    let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+    assert_eq!(terminal(&mut journal, &mut scheduler, &key), cancelled());
+    assert!(journal.launch(&key).unwrap().is_none());
+    let first = journal.lookup(&key).unwrap();
+    assert_eq!(journal.admit_execution(key, input, 20).unwrap(), first);
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"protected survivor"
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches() {
   use std::ffi::{CString, OsString};
   use std::io::Write;
@@ -497,73 +531,94 @@ fn restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches() {
       }
     }
   }
-  let fixture = Fixture::new();
-  let gate = fixture.0.join("gate");
-  fs::create_dir(&gate).unwrap();
-  let fifo = CString::new(gate.join("fifo").as_os_str().as_bytes()).unwrap();
-  // SAFETY: this is a new path in the private fixture this test owns.
-  assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
-  let _restore = RestoreGate(std::env::var_os("REAP_NATIVE_EXECUTION_GATE"));
-  std::env::set_var("REAP_NATIVE_EXECUTION_GATE", &gate);
-  let mut input = fixture.input();
-  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
-  intent.argv = vec!["files".into()];
-  input.request = serde_json::to_string(&intent).unwrap();
-  let root = fixture.0.join("journal");
-  let mut journal = Journal::open(&root).unwrap();
-  let epoch = journal.epoch();
-  let key = Key {
-    generation: epoch.generation,
-    epoch: epoch.current,
-    nonce: random_token().unwrap(),
-  };
-  journal
-    .admit_execution(key.clone(), input.clone(), 1)
-    .unwrap();
-  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
-  let deadline = Instant::now() + Duration::from_secs(10);
-  while !gate.join("entered").exists() {
-    scheduler.tick(&mut journal, 2).unwrap();
-    assert!(Instant::now() < deadline);
-    std::thread::sleep(Duration::from_millis(5));
+  for restart in [false, true] {
+    for cancel in [false, true] {
+      let fixture = Fixture::new();
+      let gate = fixture.0.join("gate");
+      fs::create_dir(&gate).unwrap();
+      let fifo = CString::new(gate.join("fifo").as_os_str().as_bytes()).unwrap();
+      // SAFETY: this is a new path in the private fixture this test owns.
+      assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+      let _restore = RestoreGate(std::env::var_os("REAP_NATIVE_EXECUTION_GATE"));
+      std::env::set_var("REAP_NATIVE_EXECUTION_GATE", &gate);
+      let mut input = fixture.input();
+      let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+      intent.argv = vec!["files".into()];
+      input.request = serde_json::to_string(&intent).unwrap();
+      let root = fixture.0.join("journal");
+      let mut journal = Journal::open(&root).unwrap();
+      let epoch = journal.epoch();
+      let key = Key {
+        generation: epoch.generation,
+        epoch: epoch.current,
+        nonce: random_token().unwrap(),
+      };
+      journal
+        .admit_execution(key.clone(), input.clone(), 1)
+        .unwrap();
+      let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+      let deadline = Instant::now() + Duration::from_secs(10);
+      while !gate.join("entered").exists() {
+        scheduler.tick(&mut journal, 2).unwrap();
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+      }
+      let launched = journal.launch(&key).unwrap().unwrap();
+      assert!(matches!(launched.resources, Resources::Bulk { .. }));
+      assert_eq!(launched.sequence, 2);
+      if cancel {
+        journal.request_cancel(&key, 3).unwrap();
+      }
+      if restart {
+        drop(scheduler);
+        drop(journal);
+        journal = Journal::open(&root).unwrap();
+        scheduler = Scheduler::recover(&mut journal).unwrap();
+      }
+      for _ in 0..4 {
+        scheduler.tick(&mut journal, 3).unwrap();
+      }
+      assert_eq!(journal.launch(&key).unwrap().unwrap(), launched);
+      assert_eq!(journal.cancel_requested(&key), cancel);
+      assert!(
+        matches!(journal.lookup(&key).unwrap(), Decision::Present { job } if job.result.is_none())
+      );
+      let (other, _) = fixture.admit(&mut journal);
+      assert!(journal
+        .reserve_launch(&other, 1, launched.resources.clone())
+        .unwrap()
+        .is_none());
+      OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(gate.join("fifo"))
+        .unwrap()
+        .write_all(b"x")
+        .unwrap();
+      let result = terminal(&mut journal, &mut scheduler, &key);
+      assert_eq!(result.effects, 0);
+      if cancel {
+        assert_eq!(result, cancelled());
+      } else if restart {
+        assert_eq!(result.exit_code, 1);
+        assert!(result.detail.contains("incomplete"));
+      } else {
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(
+          serde_json::from_str::<serde_json::Value>(&result.detail).unwrap()["command"],
+          "files"
+        );
+      }
+      assert_eq!(journal.launch(&key).unwrap().unwrap().sequence, 2);
+      assert!(journal.launch(&key).unwrap().unwrap().released());
+      assert_eq!(
+        fs::read(fixture.0.join("project/valuable")).unwrap(),
+        b"protected survivor"
+      );
+      let first = journal.lookup(&key).unwrap();
+      assert_eq!(journal.admit_execution(key, input, 20).unwrap(), first);
+    }
   }
-  let launched = journal.launch(&key).unwrap().unwrap();
-  assert!(matches!(launched.resources, Resources::Bulk { .. }));
-  assert_eq!(launched.sequence, 2);
-  drop(scheduler);
-  drop(journal);
-  let mut journal = Journal::open(&root).unwrap();
-  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
-  for _ in 0..4 {
-    scheduler.tick(&mut journal, 3).unwrap();
-  }
-  assert_eq!(journal.launch(&key).unwrap().unwrap(), launched);
-  let (other, _) = fixture.admit(&mut journal);
-  assert!(journal
-    .reserve_launch(&other, 1, launched.resources.clone())
-    .unwrap()
-    .is_none());
-  OpenOptions::new()
-    .write(true)
-    .custom_flags(libc::O_NONBLOCK)
-    .open(gate.join("fifo"))
-    .unwrap()
-    .write_all(b"x")
-    .unwrap();
-  let result = terminal(&mut journal, &mut scheduler, &key);
-  assert_ne!(
-    result.exit_code, 0,
-    "lost private-channel results are incomplete"
-  );
-  assert_eq!(result.effects, 0);
-  assert_eq!(journal.launch(&key).unwrap().unwrap().sequence, 2);
-  assert!(journal.launch(&key).unwrap().unwrap().released());
-  assert_eq!(
-    fs::read(fixture.0.join("project/valuable")).unwrap(),
-    b"protected survivor"
-  );
-  let first = journal.lookup(&key).unwrap();
-  assert_eq!(journal.admit_execution(key, input, 20).unwrap(), first);
 }
 
 #[cfg(target_os = "macos")]
@@ -942,110 +997,115 @@ fn restart_retains_surviving_child_and_compaction_preserves_recovery_evidence() 
 #[test]
 fn durable_resolver_and_bulk_results_recover_across_each_publication_boundary() {
   for files in [false, true] {
-    let fixture = Fixture::new();
-    let root = fixture.0.join("journal");
-    let mut journal = Journal::open(&root).unwrap();
-    let (key, input) = if files {
-      let mut input = fixture.input();
-      let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
-      intent.argv = vec!["files".into()];
-      input.request = serde_json::to_string(&intent).unwrap();
-      let epoch = journal.epoch();
-      let key = Key {
-        generation: epoch.generation,
-        epoch: epoch.current,
-        nonce: random_token().unwrap(),
+    for cancel in [false, true] {
+      let fixture = Fixture::new();
+      let root = fixture.0.join("journal");
+      let mut journal = Journal::open(&root).unwrap();
+      let (key, input) = if files {
+        let mut input = fixture.input();
+        let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+        intent.argv = vec!["files".into()];
+        input.request = serde_json::to_string(&intent).unwrap();
+        let epoch = journal.epoch();
+        let key = Key {
+          generation: epoch.generation,
+          epoch: epoch.current,
+          nonce: random_token().unwrap(),
+        };
+        journal
+          .admit_execution(key.clone(), input.clone(), 1)
+          .unwrap();
+        (key, input)
+      } else {
+        fixture.admit(&mut journal)
       };
       journal
-        .admit_execution(key.clone(), input.clone(), 1)
+        .execution_progress(
+          &key,
+          if files {
+            Progress::ResolvingFiles
+          } else {
+            Progress::Resolving
+          },
+        )
         .unwrap();
-      (key, input)
-    } else {
-      fixture.admit(&mut journal)
-    };
-    journal
-      .execution_progress(
+      let Start::Spawned(mut resolver) = worker::start(
+        &mut journal,
         &key,
+        1,
         if files {
-          Progress::ResolvingFiles
+          Task::ResolveFiles { input }
         } else {
-          Progress::Resolving
+          Task::ResolveCheck { input }
         },
       )
-      .unwrap();
-    let Start::Spawned(mut resolver) = worker::start(
-      &mut journal,
-      &key,
-      1,
-      if files {
-        Task::ResolveFiles { input }
-      } else {
-        Task::ResolveCheck { input }
-      },
-    )
-    .unwrap() else {
-      panic!("owned resolver required")
-    };
-    resolver.deliver(&mut journal).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let scope = loop {
-      if let Some(done) = resolver.poll().unwrap() {
-        let scope = match done.report.unwrap() {
-          Report::CheckResolved { scope } if !files => scope,
-          Report::FilesResolved { scope } if files => scope,
-          _ => panic!("resolved scope required"),
-        };
-        break scope;
-      }
-      assert!(Instant::now() < deadline);
-      std::thread::sleep(Duration::from_millis(5));
-    };
-    journal
-      .execution_progress(
-        &key,
-        if files {
-          Progress::FilesResolved { scope }
-        } else {
-          Progress::Resolved { scope }
-        },
-      )
-      .unwrap();
-    drop(resolver);
-    drop(journal);
+      .unwrap() else {
+        panic!("owned resolver required")
+      };
+      resolver.deliver(&mut journal).unwrap();
+      let deadline = Instant::now() + Duration::from_secs(10);
+      let scope = loop {
+        if let Some(done) = resolver.poll().unwrap() {
+          let scope = match done.report.unwrap() {
+            Report::CheckResolved { scope } if !files => scope,
+            Report::FilesResolved { scope } if files => scope,
+            _ => panic!("resolved scope required"),
+          };
+          break scope;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+      };
+      journal
+        .execution_progress(
+          &key,
+          if files {
+            Progress::FilesResolved { scope }
+          } else {
+            Progress::Resolved { scope }
+          },
+        )
+        .unwrap();
+      drop(resolver);
+      drop(journal);
 
-    let mut journal = Journal::open(&root).unwrap();
-    let mut scheduler = Scheduler::recover(&mut journal).unwrap();
-    scheduler.tick(&mut journal, 2).unwrap();
-    let bulk = scheduler.jobs.front_mut().unwrap().owned.as_mut().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let result = loop {
-      if let Some(done) = bulk.poll().unwrap() {
-        let terminal = match done.report.unwrap() {
-          Report::Checked { terminal } if !files => terminal,
-          Report::FilesPreviewed { terminal } if files => terminal,
-          _ => panic!("complete assessment required"),
-        };
-        break terminal;
+      let mut journal = Journal::open(&root).unwrap();
+      let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+      scheduler.tick(&mut journal, 2).unwrap();
+      let bulk = scheduler.jobs.front_mut().unwrap().owned.as_mut().unwrap();
+      let deadline = Instant::now() + Duration::from_secs(10);
+      let result = loop {
+        if let Some(done) = bulk.poll().unwrap() {
+          let terminal = match done.report.unwrap() {
+            Report::Checked { terminal } if !files => terminal,
+            Report::FilesPreviewed { terminal } if files => terminal,
+            _ => panic!("complete assessment required"),
+          };
+          break terminal;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+      };
+      assert_eq!(journal.launch(&key).unwrap().unwrap().sequence, 2);
+      journal
+        .execution_progress(
+          &key,
+          Progress::Result {
+            terminal: result.clone(),
+          },
+        )
+        .unwrap();
+      if cancel {
+        journal.request_cancel(&key, 3).unwrap();
       }
-      assert!(Instant::now() < deadline);
-      std::thread::sleep(Duration::from_millis(5));
-    };
-    assert_eq!(journal.launch(&key).unwrap().unwrap().sequence, 2);
-    journal
-      .execution_progress(
-        &key,
-        Progress::Result {
-          terminal: result.clone(),
-        },
-      )
-      .unwrap();
-    drop(scheduler);
-    drop(journal);
+      drop(scheduler);
+      drop(journal);
 
-    let mut journal = Journal::open(&root).unwrap();
-    let mut scheduler = Scheduler::recover(&mut journal).unwrap();
-    assert_eq!(terminal(&mut journal, &mut scheduler, &key), result);
-    assert_eq!(journal.launch(&key).unwrap().unwrap().sequence, 2);
-    assert!(journal.launch(&key).unwrap().unwrap().released());
+      let mut journal = Journal::open(&root).unwrap();
+      let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+      assert_eq!(terminal(&mut journal, &mut scheduler, &key), result);
+      assert_eq!(journal.launch(&key).unwrap().unwrap().sequence, 2);
+      assert!(journal.launch(&key).unwrap().unwrap().released());
+    }
   }
 }

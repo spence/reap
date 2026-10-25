@@ -15,6 +15,7 @@ fn view(result: Option<Terminal>) -> View {
     created_at: 1,
     completed_at: result.as_ref().map(|_| 2),
     result,
+    cancel_requested_at: None,
     invocation: None,
   }
 }
@@ -68,7 +69,7 @@ fn malformed_or_other_key_terminal_evidence_cannot_return_success() {
     effects: 0,
     detail: "complete".into(),
   });
-  for changed in 0..6 {
+  for changed in 0..8 {
     let mut job = view(terminal.clone());
     match changed {
       0 => job.key.epoch += 1,
@@ -76,13 +77,15 @@ fn malformed_or_other_key_terminal_evidence_cannot_return_success() {
       2 => job.completed_at = Some(0),
       3 => job.result.as_mut().unwrap().exit_code = 75,
       4 => job.result.as_mut().unwrap().detail = "x".repeat(4097),
-      _ => {
+      5 => {
         job.invocation = Some(invocation::Summary {
           operation: "check".into(),
           mode: "apply".into(),
           requested_scope: ".".into(),
         })
       }
+      6 => job.cancel_requested_at = Some(0),
+      _ => job.cancel_requested_at = Some(3),
     }
     let receipt = observe(key(), Decision::Present { job });
     assert_eq!(receipt.state, State::Unknown);
@@ -90,6 +93,45 @@ fn malformed_or_other_key_terminal_evidence_cannot_return_success() {
     assert!(receipt.job.is_none());
     assert!(receipt.job_id.is_none());
   }
+}
+
+#[test]
+fn cancellation_acknowledgement_is_pending_and_missing_confirmation_never_succeeds() {
+  let response = |job| {
+    Ok(Response {
+      protocol: service::PROTOCOL,
+      via: Role::Control,
+      snapshot: service::Snapshot {
+        phase: service::Phase::Ready,
+        epoch: None,
+        observed_at: Some(3),
+        reason: None,
+      },
+      outcome: Outcome::Decision {
+        decision: Decision::Present { job },
+      },
+    })
+  };
+  let mut pending = view(None);
+  pending.cancel_requested_at = Some(2);
+  let acknowledged = cancel_response(key(), response(pending));
+  assert_eq!(acknowledged.state, State::Pending);
+  assert_eq!(acknowledged.exit_code(), 75);
+  assert_eq!(acknowledged.job.unwrap().cancel_requested_at, Some(2));
+  let unconfirmed = cancel_response(key(), response(view(None)));
+  assert_eq!(unconfirmed.state, State::Unknown);
+  assert_eq!(unconfirmed.exit_code(), 75);
+  let lost = cancel_response(
+    key(),
+    Err(Error {
+      kind: ErrorKind::Timeout,
+      may_have_sent: true,
+    }),
+  );
+  assert_eq!(lost.state, State::AcceptanceUnknown);
+  assert_eq!(lost.key, Some(key()));
+  assert!(lost.reason.as_deref().unwrap().contains("cancellation"));
+  assert_eq!(lost.exit_code(), 75);
 }
 
 #[test]

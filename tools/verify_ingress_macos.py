@@ -157,16 +157,19 @@ def cleanup_owned(owned, receipt):
     return safe
 
 
-def validate_execution(evidence, frame, survivor, operation=None):
+def validate_execution(evidence, frame, survivor, operation=None, cancel=False):
     """Bind actual terminal work to its original and prepared request key."""
     assert not evidence["metadata_only"] and evidence["read_only_execution"]
     assert not evidence["cleanup_granted"]
     terminal = evidence["terminal"]
-    assert terminal["state"] == "completed"
+    expected_state = "failed" if cancel else "completed"
+    assert terminal["state"] == expected_state
     assert terminal["key"] == evidence["key"] == evidence["prepared_key"]
     assert evidence["receipt"]["key"] == evidence["key"]
     assert terminal["job"]["key"] == terminal["key"]
-    assert terminal["job"]["result"]["exit_code"] == 0
+    assert type(terminal["job"]["result"]["exit_code"]) is int
+    assert type(terminal["job"]["result"]["effects"]) is int
+    assert terminal["job"]["result"]["exit_code"] == (1 if cancel else 0)
     assert terminal["job"]["result"]["effects"] == 0
     assert evidence["raw_admission_refused"] and evidence["expired_ticket_exact_replay"]
     assert evidence["admission_elapsed_ns"] < 1_000_000_000
@@ -175,6 +178,7 @@ def validate_execution(evidence, frame, survivor, operation=None):
     assert hashlib.sha256(frame[40:]).digest() == frame[8:40]
     job = json.loads(frame[40:])
     assert job["document"] == "Job" and job["view"]["key"] == terminal["key"]
+    assert type(job["view"]["created_at"]) is int and type(job["view"]["completed_at"]) is int
     assert job["view"] == terminal["job"]
     assert job["view"]["completed_at"] >= job["view"]["created_at"]
     assert job["execution"]["phase"] == "result"
@@ -186,8 +190,9 @@ def validate_execution(evidence, frame, survivor, operation=None):
         assert job["view"]["invocation"]["operation"] == operation
         assert job["view"]["invocation"]["mode"] == "read"
         detail = json.loads(terminal["job"]["result"]["detail"])
-        assert detail["command"] == operation
-        if operation == "files":
+        if not cancel:
+            assert detail["command"] == operation
+        if operation == "files" and not cancel:
             assert type(detail["requested_roots"]) is int and type(detail["present_roots"]) is int
             assert detail["requested_roots"] == detail["present_roots"] == 1
             assert len(detail["reports"]) == 1
@@ -199,14 +204,36 @@ def validate_execution(evidence, frame, survivor, operation=None):
             assert report.keys() == expected.keys()
             assert all(type(report[name]) is type(value) and report[name] == value
                        for name, value in expected.items())
-    launch = job["launch"]
-    assert launch["resources"]["slot"] == "bulk"
-    assert launch["worker"]["state"]["phase"] in ("exited", "boot_ended")
-    assert all(helper is None or helper["state"]["phase"] in ("exited", "boot_ended")
-               for helper in launch["helpers"])
+    launch = job.get("launch")
+    if cancel:
+        at = terminal["job"].get("cancel_requested_at")
+        assert type(at) is int and terminal["job"]["created_at"] <= at <= terminal["job"]["completed_at"]
+        assert json.loads(terminal["job"]["result"]["detail"]) == {"outcome": "cancelled"}
+        cancellation = evidence.get("cancellation")
+        assert isinstance(cancellation, dict) and cancellation["protocol"] == 2
+        assert cancellation["key"] == evidence["key"]
+        assert cancellation["state"] in ("pending", "failed", "acceptance_unknown")
+        acknowledged = cancellation.get("job")
+        if cancellation["state"] != "acceptance_unknown":
+            assert isinstance(acknowledged, dict)
+            assert acknowledged["key"] == evidence["key"]
+            assert acknowledged["cancel_requested_at"] == at
+            if cancellation["state"] == "failed":
+                assert acknowledged["result"] == terminal["job"]["result"]
+            else:
+                assert acknowledged["result"] is None
+        else:
+            assert acknowledged is None
+    else:
+        assert launch["resources"]["slot"] == "bulk"
+    if launch is not None:
+        assert launch["resources"]["slot"] in ("bulk", "resolver")
+        assert launch["worker"]["state"]["phase"] in ("exited", "boot_ended")
+        assert all(helper is None or helper["state"]["phase"] in ("exited", "boot_ended")
+                   for helper in launch["helpers"])
     assert survivor == b"installed protected survivor"
     assert len(evidence["job_cli"]) == 2
-    assert all(item["state"] == "completed" and item["key"] == evidence["key"]
+    assert all(item["state"] == expected_state and item["key"] == evidence["key"]
                and item["job"]["result"] == terminal["job"]["result"]
                for item in evidence["job_cli"])
     assert evidence["unknown_job_cli"]["state"] == "unknown"
@@ -222,6 +249,8 @@ def main():
     parser.add_argument("--managed-services", action="store_true",
                         help="use the exact installed owned cohort without registration or shutdown")
     parser.add_argument("--operation", choices=["check", "files"], default="check")
+    parser.add_argument("--cancel", action="store_true",
+                        help="require actual installed cancellation and its durable terminal result")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
@@ -244,6 +273,7 @@ def main():
     helper = None
     managed_before = None
     receipt = {"host": platform.node(), "runtime": str(runtime), "cwd": str(cwd), "operation": args.operation,
+               "cancellation": args.cancel,
                "installed_binary": str(installed), "native_exit": None,
                "service_mode": "managed" if args.managed_services else "isolated"}
     if args.managed_services:
@@ -302,7 +332,8 @@ def main():
         if args.managed_services:
             environment.update(HOME=str(host_home), XDG_STATE_HOME=str(host_home / ".local/state"))
         for name in ("DYLD_INSERT_LIBRARIES", "REAP_INTERNAL_CONFIG_SNAPSHOT",
-                     "REAP_NATIVE_CONTROL_SERVICE", "REAP_NATIVE_CONTROL_PROBE"):
+                     "REAP_NATIVE_CONTROL_SERVICE", "REAP_NATIVE_CONTROL_PROBE",
+                     "REAP_INSTALLED_INGRESS_CANCEL"):
             environment.pop(name, None)
         environment.update({
             "REAP_INSTALLED_INGRESS_PROBE": str(runtime),
@@ -313,6 +344,8 @@ def main():
             "REAP_INSTALLED_INGRESS_EXPECT_CONFIG_SHA256": hashlib.sha256(config).hexdigest(),
             "PWD": "/not-the-native-caller-directory",
         })
+        if args.cancel:
+            environment["REAP_INSTALLED_INGRESS_CANCEL"] = "1"
         with (runtime / "client.log").open("wb") as log:
             run = subprocess.run([str(client), "--exact", "service::tests::native::server_process", "--nocapture"],
                                  env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=20)
@@ -336,7 +369,7 @@ def main():
             receipt.update({"journal_scope": "exact_fixture_key", "journal_key": evidence["key"],
                             "journal_record": record_name, "journal_record_sha256": hashlib.sha256(frame).hexdigest()})
         terminal = validate_execution(evidence, frame,
-                                      (runtime / "check-project/valuable").read_bytes(), args.operation)
+                                      (runtime / "check-project/valuable").read_bytes(), args.operation, args.cancel)
         if args.managed_services:
             (output / "verified-job.json").write_bytes(frame)
             receipt["verified_job_records"] = 1
@@ -346,7 +379,8 @@ def main():
         receipt["read_only_execution"] = True
         receipt["terminal_exit_code"] = terminal["job"]["result"]["exit_code"]
         receipt["terminal_effects"] = terminal["job"]["result"]["effects"]
-        receipt["released_bulk_launch"] = True
+        launch = json.loads(frame[40:]).get("launch")
+        receipt["released_bulk_launch"] = bool(launch and launch["resources"]["slot"] == "bulk")
         receipt["protected_survivor"] = True
         receipt["job_cli_completed"] = True
         receipt["unknown_job_cli_not_success"] = True

@@ -100,6 +100,55 @@ class Ownership(unittest.TestCase):
 
 
 class Evidence(unittest.TestCase):
+    def test_cancellation_requires_a_request_durable_failure_and_proven_child_exit(self):
+        evidence, job = execution_fixture()
+        result = job["view"]["result"]
+        result.update(exit_code=1, detail=json.dumps({"outcome": "cancelled"}))
+        job["view"]["cancel_requested_at"] = 1
+        evidence["terminal"]["state"] = "failed"
+        acknowledged = copy.deepcopy(job["view"])
+        acknowledged.update(result=None, completed_at=None)
+        evidence["cancellation"] = {"protocol": 2, "key": copy.deepcopy(evidence["key"]),
+                                    "state": "pending", "job": acknowledged}
+        evidence["job_cli"] = [copy.deepcopy(evidence["terminal"]), copy.deepcopy(evidence["terminal"])]
+        verify = lambda e, j: VERIFIER.validate_execution(e, frame(j), b"installed protected survivor", "check", True)
+        verify(evidence, job)
+        no_launch = copy.deepcopy(job)
+        del no_launch["launch"]
+        verify(evidence, no_launch)
+        lost = copy.deepcopy(evidence)
+        lost["cancellation"].update(state="acceptance_unknown", job=None)
+        verify(lost, job)
+        for change in ("missing_request", "boolean_time", "wrong_key", "missing_ack", "ack_time",
+                       "success", "result", "worker", "helper", "boolean_exit", "boolean_effects", "pending_result"):
+            bad_evidence, bad_job = copy.deepcopy((evidence, job))
+            if change == "missing_request":
+                del bad_job["view"]["cancel_requested_at"]
+            elif change == "boolean_time":
+                bad_job["view"]["cancel_requested_at"] = True
+            elif change == "wrong_key":
+                bad_evidence["cancellation"]["key"]["nonce"] = "c" * 32
+            elif change == "missing_ack":
+                bad_evidence["cancellation"] = None
+            elif change == "ack_time":
+                bad_evidence["cancellation"]["job"]["cancel_requested_at"] = 0
+            elif change == "success":
+                bad_evidence["terminal"]["state"] = "completed"
+            elif change == "result":
+                bad_job["view"]["result"]["detail"] = json.dumps({"outcome": "complete"})
+            elif change == "worker":
+                bad_job["launch"]["worker"]["state"]["phase"] = "granted"
+            elif change == "helper":
+                bad_job["launch"]["helpers"][0] = {"state": {"phase": "intent"}}
+            elif change == "boolean_exit":
+                bad_job["view"]["result"]["exit_code"] = True
+            elif change == "boolean_effects":
+                bad_job["view"]["result"]["effects"] = False
+            else:
+                bad_evidence["cancellation"]["job"]["result"] = bad_job["view"]["result"]
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                verify(bad_evidence, bad_job)
+
     def test_files_proof_requires_the_exact_operation_and_complete_read_only_report(self):
         evidence, job = execution_fixture()
         payload = {"request": json.dumps({"argv": ["files", "/owned/project"]})}

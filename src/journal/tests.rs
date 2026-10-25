@@ -79,6 +79,140 @@ fn terminal() -> Terminal {
   }
 }
 
+#[test]
+fn cancellation_is_durable_monotonic_and_never_admits_a_key() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let missing = key(&journal);
+  assert_eq!(
+    journal.request_cancel(&missing, 9).unwrap(),
+    Decision::NotAccepted
+  );
+  assert!(journal.index.is_empty());
+  let key = key(&journal);
+  let input = input();
+  journal.admit(key.clone(), input.clone(), 10).unwrap();
+  let cancelled = journal.request_cancel(&key, 9).unwrap();
+  assert!(
+    matches!(&cancelled, Decision::Present { job } if job.cancel_requested_at == Some(10) && job.result.is_none())
+  );
+  let bytes = fs::read(fixture.0.join(job_name(&key))).unwrap();
+  assert_eq!(journal.request_cancel(&key, 100).unwrap(), cancelled);
+  assert_eq!(fs::read(fixture.0.join(job_name(&key))).unwrap(), bytes);
+  assert!(journal.cancel_requested(&key));
+  assert!(journal.launch(&key).unwrap().is_none());
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  assert_eq!(journal.lookup(&key).unwrap(), cancelled);
+  assert_eq!(journal.replay(&key, &input).unwrap(), cancelled);
+  journal.compact(10_000_000, true).unwrap();
+  assert_eq!(journal.lookup(&key).unwrap(), cancelled);
+  journal.complete(&key, terminal(), 8).unwrap();
+  let complete = journal.lookup(&key).unwrap();
+  assert!(matches!(&complete, Decision::Present { job } if job.completed_at == Some(10)));
+  assert_eq!(journal.request_cancel(&key, 20_000_000).unwrap(), complete);
+  assert!(matches!(
+    journal.request_cancel(&missing, 20_000_000).unwrap(),
+    Decision::Unknown
+  ));
+}
+
+#[test]
+fn pending_cancellation_recovers_before_lookup_without_losing_ownership() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let key = key(&journal);
+  journal.admit(key.clone(), input(), 1).unwrap();
+  let launch = journal
+    .reserve_launch(&key, 1, Resources::Resolver)
+    .unwrap()
+    .unwrap();
+  let mut next = journal.job(&key).unwrap().unwrap();
+  next.revision += 1;
+  next.view.cancel_requested_at = Some(2);
+  stage(&fixture.0, &Document::Job(next));
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  assert!(journal.cancel_requested(&key));
+  assert_eq!(journal.launch(&key).unwrap(), Some(launch));
+  assert!(journal
+    .complete(&key, crate::dispatch::cancelled(), 3)
+    .is_err());
+  assert!(!fixture.0.join(TRANSACTION).exists());
+  assert!(
+    matches!(journal.lookup(&key).unwrap(), Decision::Present { job } if job.result.is_none())
+  );
+}
+
+#[test]
+fn cancellation_transactions_cannot_clear_or_replace_the_request_or_publish_a_result() {
+  for change in 0..3 {
+    let fixture = Fixture::new();
+    let mut journal = Journal::open(&fixture.0).unwrap();
+    let key = key(&journal);
+    journal.admit(key.clone(), input(), 1).unwrap();
+    journal.request_cancel(&key, 2).unwrap();
+    let mut next = journal.job(&key).unwrap().unwrap();
+    next.revision += 1;
+    match change {
+      0 => next.view.cancel_requested_at = None,
+      1 => next.view.cancel_requested_at = Some(3),
+      _ => {
+        next.view.cancel_requested_at = Some(3);
+        next.view.completed_at = Some(3);
+        next.view.result = Some(terminal());
+      }
+    }
+    stage(&fixture.0, &Document::Job(next));
+    drop(journal);
+    assert!(Journal::open(&fixture.0).is_err());
+    assert!(fixture.0.join(TRANSACTION).exists());
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn cancellation_prevents_fresh_grants_but_preserves_prior_grants_and_uncertain_slots() {
+  for granted in [false, true] {
+    let fixture = Fixture::new();
+    let mut journal = Journal::open(&fixture.0).unwrap();
+    let key = key(&journal);
+    journal.admit(key.clone(), input(), 1).unwrap();
+    let launch = journal
+      .reserve_launch(&key, 1, Resources::Resolver)
+      .unwrap()
+      .unwrap();
+    let identity = ProcessIdentity::read(std::process::id()).unwrap().unwrap();
+    let prior = granted.then(|| {
+      journal
+        .grant_process(&key, &launch.token, &launch.worker.token, identity.clone())
+        .unwrap()
+    });
+    journal.request_cancel(&key, 2).unwrap();
+    let grant = journal.grant_process(&key, &launch.token, &launch.worker.token, identity);
+    if let Some(prior) = prior {
+      assert_eq!(grant.unwrap().nonce, prior.nonce);
+      assert!(journal
+        .reserve_helper(&key, &launch.token, 0, 1, &random_token().unwrap())
+        .is_err());
+    } else {
+      assert!(grant.is_err());
+    }
+    let waiting = Key {
+      nonce: random_token().unwrap(),
+      ..key.clone()
+    };
+    journal.admit(waiting.clone(), input(), 1).unwrap();
+    assert!(journal
+      .reserve_launch(&waiting, 1, Resources::Resolver)
+      .unwrap()
+      .is_none());
+    assert!(journal
+      .complete(&key, crate::dispatch::cancelled(), 3)
+      .is_err());
+  }
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn prior_boot_intents_release_without_pids_but_same_boot_and_legacy_unknown_intents_stay() {
@@ -353,6 +487,7 @@ fn pending_durable_admission_is_recovered_without_a_second_identity() {
       created_at: 1,
       completed_at: None,
       result: None,
+      cancel_requested_at: None,
       invocation: None,
     },
   };

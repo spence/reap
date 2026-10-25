@@ -106,6 +106,9 @@ pub enum Request {
   Lookup {
     key: Key,
   },
+  Cancel {
+    key: Key,
+  },
   Prepare {
     key: Key,
     input: Intent,
@@ -258,13 +261,13 @@ fn start(
       request => {
         let allowed = match role {
           Role::ContextResolver => matches!(request, Request::Prepare { .. }),
-          _ => matches!(request, Request::Epoch | Request::Lookup { .. }) || is_admission(&request),
+          _ => matches!(request, Request::Epoch | Request::Lookup { .. }) || is_mutation(&request),
         };
         if !allowed {
           send_immediate(reply, role, state, Outcome::Invalid);
           return;
         }
-        if role == Role::StateWriter && state.phase != Phase::Ready {
+        if role == Role::StateWriter && !matches!(state.phase, Phase::Ready | Phase::Busy) {
           send_immediate(
             reply,
             role,
@@ -576,7 +579,7 @@ fn write_state(
       );
       continue;
     }
-    let mutation = is_admission(&work.request);
+    let mutation = is_mutation(&work.request);
     busy(&shared);
     let now = now();
     let result = journal
@@ -587,6 +590,9 @@ fn write_state(
         }),
         Request::Lookup { key } => journal
           .lookup(&key)
+          .map(|decision| Outcome::Decision { decision }),
+        Request::Cancel { key } => journal
+          .request_cancel(&key, now)
           .map(|decision| Outcome::Decision { decision }),
         Request::Admit { receipt } => {
           admit_resolved(&mut journal, receipt, resolver, work.deadline, now)
@@ -695,7 +701,7 @@ fn forward(receiver: mpsc::Receiver<Work>, shared: Arc<Mutex<Snapshot>>, writer:
       );
       continue;
     }
-    let mutation = is_admission(&work.request);
+    let mutation = is_mutation(&work.request);
     busy(&shared);
     let bytes = serde_json::to_vec(&Message {
       protocol: PROTOCOL,
@@ -826,7 +832,7 @@ fn now() -> u64 {
 
 fn valid(request: &Request) -> bool {
   match request {
-    Request::Lookup { key } => crate::journal::validate_key(key).is_ok(),
+    Request::Lookup { key } | Request::Cancel { key } => crate::journal::validate_key(key).is_ok(),
     Request::Prepare { key, input } => {
       crate::journal::validate_key(key).is_ok() && invocation::valid_intent(input)
     }
@@ -841,9 +847,9 @@ fn valid(request: &Request) -> bool {
   }
 }
 
-fn is_admission(request: &Request) -> bool {
+fn is_mutation(request: &Request) -> bool {
   match request {
-    Request::Admit { .. } => true,
+    Request::Admit { .. } | Request::Cancel { .. } => true,
     #[cfg(test)]
     Request::AdmitPrepared { .. } => true,
     _ => false,
