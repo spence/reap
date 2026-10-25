@@ -62,6 +62,9 @@ Use `reap check [PATH] --wait 30` when the next step needs completed validation.
 `--wait` without a value means 30 seconds. A pending receipt is not successful validation.
 `reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
 `reap job wait GENERATION:EPOCH:NONCE --timeout 30` explicitly waits for completion.
+If terminal detail has `paged_result`, use `reap job page ID INDEX` for each zero-based index.
+Concatenate page text in order. Compare the UTF-8 byte length and SHA-256 digest of the concatenated text with that manifest.
+Page retrieval starts no work and preserves the original job outcome. Missing pages are not successful retrieval.
 These commands emit protocol 2 JSON. Exit 0 means completed success; exit 75 means pending or unknown.
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
 A wait timeout does not cancel or resubmit the job. Require terminal success before a dependent step.

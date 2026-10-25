@@ -1078,6 +1078,7 @@ reap check [dir]                 # ordinary response budget: one second
 reap check [dir] --wait 30        # explicit completion wait
 reap job show GENERATION:EPOCH:NONCE
 reap job wait GENERATION:EPOCH:NONCE --timeout 30
+reap job page GENERATION:EPOCH:NONCE 0
 reap job cancel GENERATION:EPOCH:NONCE
 ```
 
@@ -1087,6 +1088,11 @@ Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
 require completed success before a dependent step. `--wait` without a value means 30 seconds.
 Waiting does not cancel or resubmit work. Receipts identify protocol 2, operation, mode, and
 requested scope. The requested scope is not native target identity or cleanup permission.
+Large complete results use [retained pages](docs/specs/result-pages.md).
+`job page ID INDEX` returns one zero-based page without another execution request.
+Concatenate page text in index order.
+Compare the UTF-8 byte length and SHA-256 digest of the concatenated text with the terminal's `paged_result` manifest.
+Each page retains the original job outcome. An unavailable or missing page is not successful retrieval.
 `job cancel` records a request for the same retained key. A pending acknowledgement does not prove exit or rollback.
 Live and uncertain workers retain their slots until exact absence is proved. The command sends no process signal.
 Observe the same key for its terminal result. A result already durably staged remains unchanged.

@@ -58,7 +58,8 @@ The public `files` route is not activated by that internal adapter.
   Unrelated ancestor directory entries do not invalidate a selected inventory.
   Unknown Git or activity evidence remains incomplete; preview does not start ungranted helpers.
   Git tracking uses the [bound index snapshot contract](git-tracking.md); it starts no Git process.
-  Structured counters remain complete when diagnostic output is discarded. Large complete terminal reports refuse capacity rather than omit counters into success.
+  Structured counters remain complete when diagnostic output is discarded.
+  Complete large results use the [bounded page contract](result-pages.md); excess capacity never becomes truncated success.
   Binding: `files::tests::structured_preview_fixture`,
   `preview_revalidation_distinguishes_parent_entries_from_policy_and_selected_changes`,
   native files pipeline tests, and installed ingress `--operation files`.
@@ -95,9 +96,12 @@ Restart loads its live execution index once. A scheduler tick polls only these b
 it does not enumerate the disk or journal directory.
 
 The resolver admits at most 128 dependency observations and 32 KiB of scope evidence.
-The worker packet remains at most 64 KiB. A complete terminal detail is at most 4096 bytes.
+The worker packet remains at most 64 KiB. A terminal summary is at most 4096 bytes.
+Complete Files JSON results use ordered frames and atomic retained pages up to 512 KiB.
 Larger assessments fail explicitly; output is not truncated into success.
-Existing journal framing, metadata capacity, completion reserve, and result retention remain in force.
+Executable Files jobs reserve a 2 MiB record for the payload and immutable input.
+Other jobs retain the 128 KiB record bound and completion reservation.
+Journal framing, metadata capacity, completion reserve, and result retention remain in force.
 
 The path supports an existing directory, Cargo target marker selection, bounded ancestor project selection,
 and the legacy parser's versions, defaults, store validation, and policy normalization.
@@ -140,7 +144,7 @@ Unmatched sibling subtrees are not measured for display. Unmeasured ancestors do
 Configured root aliases remain resolver dependencies; this profile does not narrow their physical reservations.
 Incomplete evidence still protects the whole request; independent partial progress is not yet supported.
 Native activity and bounded index tracking supply their separate evidence.
-Git recovery, paged large reports, first-seen observation publication, fair discovery quanta,
+Git recovery, first-seen observation publication, fair discovery quanta,
 legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.
 No recovery path reruns an uncertain mutating operation; none is supported by this dispatcher.

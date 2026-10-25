@@ -216,6 +216,94 @@ fn native_check_pipeline_completes_once_with_local_store_and_protected_survivors
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_files_multiroot_result_preserves_every_report_beyond_the_inline_limit() {
+  let fixture = Fixture::new();
+  let roots: Vec<_> = (0..24)
+    .map(|index| fixture.0.join(format!("retained-root-{index:02}")))
+    .collect();
+  for root in &roots {
+    fs::create_dir(root).unwrap();
+    fs::write(root.join("valuable"), b"retained result sentinel").unwrap();
+    fs::write(
+      root.join(".reap"),
+      br#"{"version":1,"keep":{"reason":"retained work"}}"#,
+    )
+    .unwrap();
+  }
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({"governed_roots":roots,"reap_file_grace_hours":0}))
+      .unwrap(),
+  )
+  .unwrap();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec!["files".into()];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal
+    .admit_execution(key.clone(), input.clone(), 1)
+    .unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let result = terminal(&mut journal, &mut scheduler, &key);
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 0);
+  let manifest = crate::result_pages::descriptor(&result.detail)
+    .unwrap()
+    .unwrap();
+  assert!(manifest.bytes > crate::result_pages::INLINE_BYTES);
+  let mut body = String::new();
+  for index in 0..manifest.pages {
+    let (_, page) = journal.result_page(&key, index).unwrap().unwrap();
+    crate::result_pages::validate_page(&result.detail, &page).unwrap();
+    body.push_str(&page.text);
+  }
+  assert_eq!(body.len(), manifest.bytes);
+  assert!(journal.result_page(&key, manifest.pages).unwrap().is_none());
+  let detail: serde_json::Value = serde_json::from_str(&body).unwrap();
+  assert_eq!(detail["requested_roots"], roots.len());
+  assert_eq!(detail["present_roots"], roots.len());
+  assert_eq!(detail["reports"].as_array().unwrap().len(), roots.len());
+  assert_eq!(detail["selections"].as_array().unwrap().len(), roots.len());
+  assert!(detail["reports"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .all(|report| report["coverage_complete"] == true));
+  for root in &roots {
+    assert_eq!(
+      fs::read(root.join("valuable")).unwrap(),
+      b"retained result sentinel"
+    );
+  }
+  let first = journal.lookup(&key).unwrap();
+  let pages: Vec<_> = (0..manifest.pages)
+    .map(|index| journal.result_page(&key, index).unwrap().unwrap().1)
+    .collect();
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  assert_eq!(
+    journal.admit_execution(key.clone(), input, 20).unwrap(),
+    first
+  );
+  assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+  for page in pages {
+    assert_eq!(
+      journal.result_page(&key, page.index).unwrap().unwrap().1,
+      page
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn native_files_pipeline_retains_operation_results_and_sources_without_cache_writes() {
   let fixture = Fixture::new();
   fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
@@ -1348,7 +1436,7 @@ fn durable_resolver_and_bulk_results_recover_across_each_publication_boundary() 
         if let Some(done) = bulk.poll(&mut journal).unwrap() {
           let terminal = match done.report.unwrap() {
             Report::Checked { terminal } if !files => terminal,
-            Report::FilesPreviewed { terminal } if files => terminal,
+            Report::FilesPreviewed { terminal, .. } if files => terminal,
             _ => panic!("complete assessment required"),
           };
           break terminal;

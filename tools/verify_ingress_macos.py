@@ -102,9 +102,9 @@ def execution_record(root, evidence, managed=False):
             before = os.fstat(source.fileno())
             assert stat.S_ISREG(before.st_mode) and before.st_uid == os.geteuid() \
                 and before.st_nlink == 1 and not before.st_mode & 0o022, "unsafe fixture journal record"
-            data = source.read(128 * 1024 + 1)
+            data = source.read(2 * 1024 * 1024 + 1)
             after = os.fstat(source.fileno())
-            assert len(data) <= 128 * 1024 and len(data) == before.st_size, "fixture journal record exceeds its bound"
+            assert len(data) <= 2 * 1024 * 1024 and len(data) == before.st_size, "fixture journal record exceeds its bound"
             assert (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) == (
                 after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns), "fixture journal record changed"
             return data, name
@@ -157,7 +157,7 @@ def cleanup_owned(owned, receipt):
     return safe
 
 
-def validate_execution(evidence, frame, survivor, operation=None, cancel=False, workspace_scope=False):
+def validate_execution(evidence, frame, survivor, operation=None, cancel=False, workspace_scope=False, result_pages=False):
     """Bind actual terminal work to its original and prepared request key."""
     assert not evidence["metadata_only"] and evidence["read_only_execution"]
     assert not evidence["cleanup_granted"]
@@ -173,10 +173,12 @@ def validate_execution(evidence, frame, survivor, operation=None, cancel=False, 
     assert terminal["job"]["result"]["effects"] == 0
     assert evidence["raw_admission_refused"] and evidence["expired_ticket_exact_replay"]
     assert evidence["admission_elapsed_ns"] < 1_000_000_000
-    assert len(frame) <= 128 * 1024 and frame[:4] == b"REJ1"
+    assert len(frame) <= 2 * 1024 * 1024 and frame[:4] == b"REJ1"
     assert int.from_bytes(frame[4:8], "big") == len(frame) - 40
     assert hashlib.sha256(frame[40:]).digest() == frame[8:40]
     job = json.loads(frame[40:])
+    paged_profile = job.get("execution") is not None and job["view"].get("invocation", {}).get("operation") == "files"
+    assert len(frame) <= (2 * 1024 * 1024 if paged_profile else 128 * 1024)
     assert job["document"] == "Job" and job["view"]["key"] == terminal["key"]
     assert type(job["view"]["created_at"]) is int and type(job["view"]["completed_at"]) is int
     assert job["view"] == terminal["job"]
@@ -190,13 +192,40 @@ def validate_execution(evidence, frame, survivor, operation=None, cancel=False, 
         assert job["view"]["invocation"]["operation"] == operation
         assert job["view"]["invocation"]["mode"] == "read"
         detail = json.loads(terminal["job"]["result"]["detail"])
+        if result_pages:
+            assert set(detail) == {"paged_result"}
+            manifest = detail["paged_result"]
+            assert set(manifest) == {"bytes", "pages", "sha256"}
+            assert type(manifest["bytes"]) is int and 4096 < manifest["bytes"] <= 512 * 1024
+            assert type(manifest["pages"]) is int and 1 <= manifest["pages"] <= 65
+            assert re.fullmatch(r"[0-9a-f]{64}", manifest["sha256"])
+            receipts = evidence["result_pages_cli"]
+            assert len(receipts) == manifest["pages"]
+            texts = []
+            for index, item in enumerate(receipts):
+                assert item["protocol"] == 2 and item["state"] == "completed"
+                assert item["key"] == terminal["key"] and item["job"] == terminal["job"]
+                page = item["page"]
+                assert type(page["index"]) is int and page["index"] == index
+                assert page["manifest"] == manifest
+                assert isinstance(page["text"], str) and 0 < len(page["text"].encode()) <= 8192
+                texts.append(page["text"])
+            assert job["pages"] == texts
+            missing = evidence["missing_page_cli"]
+            assert missing["key"] == terminal["key"] and missing["state"] != "completed" and missing.get("page") is None
+            unknown = evidence["unknown_page_cli"]
+            assert unknown["state"] == "unknown" and unknown["job"] is None and unknown.get("page") is None
+            assert unknown["key"] == evidence["unknown_job_cli"]["key"] != terminal["key"]
+            body = "".join(texts).encode()
+            assert len(body) == manifest["bytes"] and hashlib.sha256(body).hexdigest() == manifest["sha256"]
+            detail = json.loads(body)
         if not cancel:
             assert detail["command"] == operation
         if operation == "files" and not cancel:
             assert type(detail["requested_roots"]) is int and type(detail["present_roots"]) is int
-            assert detail["requested_roots"] == detail["present_roots"] == 1
-            assert len(detail["reports"]) == 1
-            report = detail["reports"][0]
+            roots = 24 if result_pages else 1
+            assert detail["requested_roots"] == detail["present_roots"] == roots
+            assert len(detail["reports"]) == roots
             expected = {"exit_code": 0, "roots": 1, "declarations": 0, "honored": 0,
                         "invalid": 0, "undeclared": 2, "planned_units": 0, "blocked_units": 0,
                         "completed_units": 0, "unknown_residual_units": 0, "planned_bytes": 0,
@@ -206,9 +235,18 @@ def validate_execution(evidence, frame, survivor, operation=None, cancel=False, 
                 selected = pathlib.PurePath(request["argv"][1])
                 assert selected.is_absolute() and selected.name == "workspace"
                 assert detail["selections"] == [{"path": str(selected), "governed_root": str(selected.parent)}]
-            assert report.keys() == expected.keys()
-            assert all(type(report[name]) is type(value) and report[name] == value
-                       for name, value in expected.items())
+            if result_pages:
+                # a governed-root policy does not declare its loose sentinel
+                expected.update(declarations=1, honored=1, undeclared=1)
+                base = pathlib.PurePath(request["namespace"]["home"]).parent
+                targets = {str(base / f"page-root-{index:02}") for index in range(24)}
+                assert len(detail["selections"]) == roots
+                assert {item["path"] for item in detail["selections"]} == targets
+                assert all(item["path"] == item["governed_root"] for item in detail["selections"])
+            for report in detail["reports"]:
+                assert report.keys() == expected.keys()
+                assert all(type(report[name]) is type(value) and report[name] == value
+                           for name, value in expected.items())
     launch = job.get("launch")
     if cancel:
         at = terminal["job"].get("cancel_requested_at")
@@ -258,9 +296,13 @@ def main():
                         help="require actual installed cancellation and its durable terminal result")
     parser.add_argument("--workspace-scope", action="store_true",
                         help="require scoped Files discovery with ancestor policy and an unrelated FIFO")
+    parser.add_argument("--result-pages", action="store_true",
+                        help="require complete multi-root Files output through the installed page command")
     args = parser.parse_args()
     if args.workspace_scope and (args.operation != "files" or args.cancel):
         parser.error("--workspace-scope requires --operation files without --cancel")
+    if args.result_pages and (args.operation != "files" or args.cancel or args.workspace_scope):
+        parser.error("--result-pages requires whole-root Files without cancellation")
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
     host_home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir) if args.managed_services else pathlib.Path.home()
@@ -317,8 +359,9 @@ def main():
         receipt["client_sha256"] = sha256(client)
         home = runtime / "caller-home"
         (home / ".config/reap").mkdir(parents=True)
-        config = json.dumps({"roots": ["~/caller-only"], "governed_roots":
-                             [str(runtime / "check-project")] if args.operation == "files" else [],
+        governed = ([str(runtime / f"page-root-{index:02}") for index in range(24)] if args.result_pages
+                    else [str(runtime / "check-project")] if args.operation == "files" else [])
+        config = json.dumps({"roots": ["~/caller-only"], "governed_roots": governed,
                              "reap_file_grace_hours": 0}).encode()
         (home / ".config/reap/config.json").write_bytes(config)
         if not args.managed_services:
@@ -344,7 +387,8 @@ def main():
             environment.update(HOME=str(host_home), XDG_STATE_HOME=str(host_home / ".local/state"))
         for name in ("DYLD_INSERT_LIBRARIES", "REAP_INTERNAL_CONFIG_SNAPSHOT",
                      "REAP_NATIVE_CONTROL_SERVICE", "REAP_NATIVE_CONTROL_PROBE",
-                     "REAP_INSTALLED_INGRESS_CANCEL", "REAP_INSTALLED_INGRESS_FILES_SCOPE"):
+                     "REAP_INSTALLED_INGRESS_CANCEL", "REAP_INSTALLED_INGRESS_FILES_SCOPE",
+                     "REAP_INSTALLED_INGRESS_RESULT_PAGES"):
             environment.pop(name, None)
         environment.update({
             "REAP_INSTALLED_INGRESS_PROBE": str(runtime),
@@ -359,6 +403,8 @@ def main():
             environment["REAP_INSTALLED_INGRESS_CANCEL"] = "1"
         if args.workspace_scope:
             environment["REAP_INSTALLED_INGRESS_FILES_SCOPE"] = "1"
+        if args.result_pages:
+            environment["REAP_INSTALLED_INGRESS_RESULT_PAGES"] = "1"
         with (runtime / "client.log").open("wb") as log:
             run = subprocess.run([str(client), "--exact", "service::tests::native::server_process", "--nocapture"],
                                  env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=20)
@@ -383,7 +429,11 @@ def main():
                             "journal_record": record_name, "journal_record_sha256": hashlib.sha256(frame).hexdigest()})
         terminal = validate_execution(evidence, frame,
                                       (runtime / "check-project/valuable").read_bytes(), args.operation, args.cancel,
-                                      args.workspace_scope)
+                                      args.workspace_scope, args.result_pages)
+        if args.result_pages:
+            for index in range(24):
+                assert (runtime / f"page-root-{index:02}/valuable").read_bytes() == b"installed paged survivor"
+            receipt["result_pages"] = len(evidence["result_pages_cli"])
         if args.workspace_scope:
             project = runtime / "check-project"
             assert (project / "workspace/valuable").read_bytes() == b"scoped protected survivor"

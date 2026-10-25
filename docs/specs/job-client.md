@@ -46,6 +46,10 @@
   Unknown or unadmitted keys do not become cancellation records. An existing terminal result remains unchanged.
   Use `job show` or `job wait` to establish the actual terminal outcome.
   An already successful job retains exit 0. This does not mean that cancellation took effect.
+- **C11** — `job page ID INDEX` reads one completed retained result page within the ordinary one-second budget.
+  It follows the [bounded result page contract](result-pages.md), preserves the original job outcome,
+  and never admits another job or fetches other pages implicitly.
+  Missing, unknown, changed, or incomplete page evidence cannot establish successful retrieval.
 
 ## Executable bindings
 
@@ -66,13 +70,14 @@ These are named code bindings, not an automated specification-fixture registrati
 | C1, C8 | `native_client_waits_for_cold_writer_within_original_admission_budget` |
 | C9 | `native_invocation_summary_survives_restart_and_exact_replay`; `test_actual_cwd_and_requested_scope_survive_public_lookup`; malformed-summary client cases |
 | C10 | `cancellation_acknowledgement_is_pending_and_missing_confirmation_never_succeeds`; native stalled-bulk cancellation and sync-fault cases |
+| C11 | `result_page_receipts_keep_the_original_outcome_and_reject_missing_or_changed_evidence`; native page service and installed ingress `--result-pages` |
 
 The native integration must use the real resolver, writer, and worker protocol. Pure state mapping
 does not prove cumulative timing, context capture, process ownership, or actual job execution.
 
 ## Delivery boundary
 
-`check`, `job show ID`, `job wait ID`, and `job cancel ID` use this client and emit JSON receipts.
+`check`, `job show ID`, `job wait ID`, `job page ID INDEX`, and `job cancel ID` use this client and emit JSON receipts.
 Other filesystem commands retain their current route. The client does not register platform services,
 grant cleanup permission, migrate lifetimes, or release conversation sources. Native Linux conformance remains open.
 The full CLI and operator migration must preserve terminal-versus-pending semantics before activation.

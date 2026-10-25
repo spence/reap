@@ -136,8 +136,10 @@ impl Task {
             physical_volumes: scope.physical_volumes.clone(),
           }) =>
       {
-        return crate::dispatch::assess_files(input, scope, helpers)
-          .map(|terminal| Report::FilesPreviewed { terminal });
+        let mut terminal = crate::dispatch::assess_files(input, scope, helpers)?;
+        let (detail, pages) = crate::result_pages::prepare(terminal.detail)?;
+        terminal.detail = detail;
+        return Ok(Report::FilesPreviewed { terminal, pages });
       }
       Self::Resolve { .. } => {}
       _ => {
@@ -187,6 +189,9 @@ pub enum Report {
   },
   FilesPreviewed {
     terminal: crate::journal::Terminal,
+    // ordered private frames carry pages before this final report; the receiver restores them
+    #[serde(skip)]
+    pages: Vec<String>,
   },
   Resolved {
     directory: ObjectIdentity,
@@ -211,8 +216,15 @@ struct HelperRequest {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Message {
+  Page(PageFrame),
   Request(HelperRequest),
   Result(Report),
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct PageFrame {
+  result_page: crate::result_pages::Fragment,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -342,6 +354,9 @@ pub struct Owned {
   delivery_attempted: bool,
   bytes: Vec<u8>,
   report: Option<Report>,
+  pages: Vec<String>,
+  page_bytes: usize,
+  output_allowed: bool,
   probe: Option<crate::activity::Capture>,
   stderr: Option<UnixStream>,
   stderr_eof: bool,
@@ -422,6 +437,10 @@ fn spawn(
     .stdout(Stdio::null())
     .stderr(child_stderr)
     .spawn()?;
+  let output_allowed = matches!(
+    serde_json::from_slice::<Task>(&task),
+    Ok(Task::PreviewFiles { .. })
+  );
   Ok(Start::Spawned(Owned {
     child,
     pipe,
@@ -432,6 +451,9 @@ fn spawn(
     delivery_attempted: false,
     bytes: Vec::new(),
     report: None,
+    pages: vec![],
+    page_bytes: 0,
+    output_allowed,
     probe: probe.map(crate::activity::Capture::new),
     stderr,
     stderr_eof: probe.is_none(),
@@ -669,9 +691,15 @@ impl Owned {
       };
       self.bytes.drain(..length + 4);
       match message {
-        Message::Result(report) => {
+        Message::Result(mut report) => {
           if self.helper.is_some() {
             self.protocol_failure("worker result precedes its helper reply");
+            return Ok(());
+          }
+          if let Report::FilesPreviewed { pages, .. } = &mut report {
+            *pages = std::mem::take(&mut self.pages);
+          } else if !self.pages.is_empty() {
+            self.protocol_failure("result pages belong to another worker operation");
             return Ok(());
           }
           if let Err(reason) = validate_report(&report) {
@@ -679,6 +707,23 @@ impl Owned {
             return Ok(());
           }
           self.report = Some(report);
+        }
+        Message::Page(frame) => {
+          let page = frame.result_page;
+          if !self.output_allowed
+            || self.process != self.launch.worker.token
+            || self.helper.is_some()
+            || page.index != self.pages.len()
+            || self.pages.len() >= crate::result_pages::MAX_PAGES
+            || page.text.is_empty()
+            || page.text.len() > crate::result_pages::PAGE_BYTES
+            || page.text.len() > crate::result_pages::MAX_BYTES.saturating_sub(self.page_bytes)
+          {
+            self.protocol_failure("invalid, overlapping, or out-of-order result page");
+            return Ok(());
+          }
+          self.page_bytes += page.text.len();
+          self.pages.push(page.text);
         }
         Message::Request(request) => self.request_helper(journal, request)?,
       }
@@ -689,6 +734,7 @@ impl Owned {
   fn request_helper(&mut self, journal: &mut Journal, request: HelperRequest) -> io::Result<()> {
     if self.process != self.launch.worker.token
       || self.helper.is_some()
+      || !self.pages.is_empty()
       || Some(request.request_id) != self.last_request.checked_add(1)
     {
       self.protocol_failure("nested, overlapping, or out-of-order helper request");
@@ -870,13 +916,26 @@ pub fn run(launch: &str, process: &str) -> i32 {
       1,
     ),
   };
-  match serde_json::to_vec(&report)
-    .map_err(io::Error::other)
-    .and_then(|bytes| send_packet(&mut pipe, &bytes))
-  {
+  match send_report(&mut pipe, &report) {
     Ok(()) => code,
     Err(_) => 1,
   }
+}
+
+fn send_report(pipe: &mut UnixStream, report: &Report) -> io::Result<()> {
+  validate_report(report)?;
+  if let Report::FilesPreviewed { pages, .. } = report {
+    for (index, text) in pages.iter().enumerate() {
+      let frame = PageFrame {
+        result_page: crate::result_pages::Fragment {
+          index,
+          text: text.clone(),
+        },
+      };
+      send_packet(pipe, &serde_json::to_vec(&frame)?)?;
+    }
+  }
+  send_packet(pipe, &serde_json::to_vec(report)?)
 }
 
 fn command(launch: &Launch, process: &str) -> io::Result<Command> {
@@ -944,12 +1003,15 @@ fn validate_report(report: &Report) -> io::Result<()> {
     {
       return Err(invalid("invalid read-only check result"));
     }
-    Report::FilesPreviewed { terminal }
+    Report::FilesPreviewed { terminal, .. }
       if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code == 75 =>
     {
       return Err(invalid("invalid read-only files result"));
     }
     _ => {}
+  }
+  if let Report::FilesPreviewed { terminal, pages } = report {
+    crate::result_pages::validate(&terminal.detail, pages)?;
   }
   if let Report::Resolved {
     directory,

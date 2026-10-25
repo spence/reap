@@ -20,6 +20,8 @@ const WAIT_POLL: Duration = Duration::from_millis(50);
 pub enum JobCmd {
   /// Show retained job state through the bounded control service.
   Show { id: String },
+  /// Read one retained result page without another execution request.
+  Page { id: String, index: usize },
   /// Request cancellation; a live worker retains its slot until its exit is proved.
   Cancel { id: String },
   /// Wait for a terminal observation without cancelling or resubmitting the job.
@@ -33,7 +35,10 @@ pub enum JobCmd {
 /// Render one bounded job observation. The ordinary deadline includes argument parsing.
 pub fn run(command: JobCmd, entered: Instant) -> i32 {
   let id = match &command {
-    JobCmd::Show { id } | JobCmd::Cancel { id } | JobCmd::Wait { id, .. } => id,
+    JobCmd::Show { id }
+    | JobCmd::Page { id, .. }
+    | JobCmd::Cancel { id }
+    | JobCmd::Wait { id, .. } => id,
   };
   let receipt = match parse_job_id(id) {
     Err(reason) => Receipt::new(State::Invalid, None, Some(reason.into())),
@@ -41,6 +46,7 @@ pub fn run(command: JobCmd, entered: Instant) -> i32 {
       let client = Client::default();
       match command {
         JobCmd::Show { .. } => client.show_until(key, entered + RESPONSE_BUDGET),
+        JobCmd::Page { index, .. } => client.page_until(key, index, entered + RESPONSE_BUDGET),
         JobCmd::Cancel { .. } => client.cancel_until(key, entered + RESPONSE_BUDGET),
         JobCmd::Wait { timeout, .. } => match entered.checked_add(timeout) {
           Some(deadline) => client.wait_until(key, deadline),
@@ -152,6 +158,8 @@ pub struct Receipt {
   pub next_command: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub invocation: Option<invocation::Summary>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub page: Option<crate::result_pages::Page>,
 }
 
 impl Receipt {
@@ -180,6 +188,7 @@ impl Receipt {
       reason,
       next_command,
       invocation: None,
+      page: None,
     }
   }
 }
@@ -333,6 +342,26 @@ impl Client {
     self.show_until(key, Instant::now() + RESPONSE_BUDGET)
   }
 
+  /// Read one retained page within the ordinary response budget; never submit work.
+  pub fn page(&self, key: Key, index: usize) -> Receipt {
+    self.page_until(key, index, Instant::now() + RESPONSE_BUDGET)
+  }
+
+  fn page_until(&self, key: Key, index: usize, deadline: Instant) -> Receipt {
+    if journal::validate_key(&key).is_err() || index >= crate::result_pages::MAX_PAGES {
+      return Receipt::new(
+        State::Invalid,
+        Some(key),
+        Some("invalid result page request".into()),
+      );
+    }
+    page_response(
+      key.clone(),
+      index,
+      self.exchange(Role::Control, Request::Page { key, index }, deadline),
+    )
+  }
+
   fn show_until(&self, key: Key, deadline: Instant) -> Receipt {
     if journal::validate_key(&key).is_err() {
       return Receipt::new(
@@ -474,10 +503,9 @@ fn observe(key: Key, decision: Decision) -> Receipt {
         || job
           .cancel_requested_at
           .is_some_and(|at| at < job.created_at || job.completed_at.is_some_and(|done| done < at))
-        || job
-          .result
-          .as_ref()
-          .is_some_and(|result| result.exit_code == 75 || result.detail.len() > 4096)
+        || job.result.as_ref().is_some_and(|result| {
+          result.exit_code == 75 || crate::result_pages::descriptor(&result.detail).is_err()
+        })
       {
         return Receipt::new(
           State::Unknown,
@@ -539,6 +567,41 @@ fn observe_response(key: Key, response: Result<Response, Error>, mutation: bool)
     ),
   };
   receipt.observed_at = response.snapshot.observed_at;
+  receipt
+}
+
+fn page_response(key: Key, index: usize, response: Result<Response, Error>) -> Receipt {
+  let mut page = None;
+  let response = response.map(|mut response| {
+    if let Outcome::Page { job, page: output } = response.outcome {
+      page = Some(output);
+      response.outcome = Outcome::Decision {
+        decision: Decision::Present { job },
+      };
+    }
+    response
+  });
+  let mut receipt = observe_response(key.clone(), response, false);
+  if matches!(receipt.state, State::Completed | State::Failed) {
+    let valid = page.as_ref().is_some_and(|page| {
+      page.index == index
+        && receipt
+          .job
+          .as_ref()
+          .and_then(|job| job.result.as_ref())
+          .is_some_and(|terminal| {
+            crate::result_pages::validate_page(&terminal.detail, page).is_ok()
+          })
+    });
+    if !valid {
+      return Receipt::new(
+        State::Unknown,
+        Some(key),
+        Some("incomplete or mismatched result page evidence".into()),
+      );
+    }
+    receipt.page = page;
+  }
   receipt
 }
 

@@ -2,6 +2,7 @@
 mod native {
   use super::super::*;
   use crate::control::RESPONSE_BUDGET;
+  use sha2::{Digest, Sha256};
   use std::cell::Cell;
   use std::fs;
   use std::path::Path;
@@ -172,6 +173,7 @@ mod native {
         Request::Status => "status",
         Request::Epoch => "epoch",
         Request::Lookup { .. } => "lookup",
+        Request::Page { .. } => "page",
         Request::Cancel { .. } => "cancel",
         Request::AdmitPrepared { .. } => "admit",
         Request::Prepare { .. } => "prepare",
@@ -422,6 +424,90 @@ mod native {
     let response = fixture.call(Role::ContextResolver, Request::Prepare { key, input });
     assert!(matches!(response.outcome, Outcome::Prepared { .. }));
     println!("native ingress: caller namespace/config bound; no cleanup grant; expired receipt cannot create work; exact durable retry survives");
+  }
+
+  #[test]
+  fn native_result_pages_keep_complete_reports_and_survive_writer_restart() {
+    use crate::client::{Client, State};
+    for unknown_git in [false, true] {
+      let fixture = Fixture::new();
+      fixture.install(Role::ContextResolver);
+      let roots: Vec<_> = (0..24)
+        .map(|index| fixture.root.join(format!("page-root-{index:02}")))
+        .collect();
+      for root in &roots {
+        fs::create_dir(root).unwrap();
+        fs::write(root.join("valuable"), b"native paged survivor").unwrap();
+        fs::write(
+          root.join(".reap"),
+          br#"{"version":1,"keep":{"reason":"retained work"}}"#,
+        )
+        .unwrap();
+      }
+      if unknown_git {
+        fs::write(roots[0].join(".git"), b"gitdir: missing\n").unwrap();
+      }
+      let mut input = intent(&fixture);
+      fs::create_dir_all(input.namespace.home.join(".config/reap")).unwrap();
+      fs::write(
+        input.namespace.home.join(".config/reap/config.json"),
+        serde_json::to_vec(&serde_json::json!({"governed_roots":roots,"reap_file_grace_hours":0}))
+          .unwrap(),
+      )
+      .unwrap();
+      input.argv = vec!["files".into()];
+      let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+      fixture.call(Role::ContextResolver, Request::Ping);
+      let key = key(&fixture);
+      let accepted = client.submit(input, Some(key.clone()));
+      assert_eq!(accepted.state, State::Pending, "{accepted:?}");
+      let completed = client.wait(key.clone(), Duration::from_secs(10));
+      let expected = if unknown_git {
+        State::Failed
+      } else {
+        State::Completed
+      };
+      assert_eq!(completed.state, expected, "{completed:?}");
+      let detail = &completed
+        .job
+        .as_ref()
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .detail;
+      let manifest = crate::result_pages::descriptor(detail).unwrap().unwrap();
+      let mut body = String::new();
+      for index in 0..manifest.pages {
+        let receipt = client.page(key.clone(), index);
+        assert_eq!(receipt.state, expected, "{receipt:?}");
+        assert_eq!(receipt.exit_code(), if unknown_git { 1 } else { 0 });
+        assert_eq!(receipt.job, completed.job);
+        body.push_str(&receipt.page.unwrap().text);
+      }
+      assert_eq!(body.len(), manifest.bytes);
+      assert_eq!(
+        format!("{:x}", Sha256::digest(body.as_bytes())),
+        manifest.sha256
+      );
+      let report: serde_json::Value = serde_json::from_str(&body).unwrap();
+      assert_eq!(report["reports"].as_array().unwrap().len(), roots.len());
+      assert_ne!(client.page(key.clone(), manifest.pages).exit_code(), 0);
+      fixture.stop(Role::StateWriter);
+      fixture.install(Role::StateWriter);
+      fixture.epoch();
+      let page = client.page(key.clone(), 0);
+      assert_eq!(page.state, expected, "{page:?}");
+      assert_eq!(page.job, completed.job);
+      assert!(body.starts_with(&page.page.unwrap().text));
+      assert_eq!(client.show(key).job, completed.job);
+      for root in roots {
+        assert_eq!(
+          fs::read(root.join("valuable")).unwrap(),
+          b"native paged survivor"
+        );
+      }
+    }
   }
 
   #[test]
@@ -1068,7 +1154,21 @@ mod native {
       std::env::var("REAP_INSTALLED_INGRESS_OPERATION").unwrap_or_else(|_| "check".into());
     assert!(matches!(operation.as_str(), "check" | "files"));
     let scoped = std::env::var_os("REAP_INSTALLED_INGRESS_FILES_SCOPE").is_some();
+    let paged = std::env::var_os("REAP_INSTALLED_INGRESS_RESULT_PAGES").is_some();
     assert!(!scoped || operation == "files");
+    assert!(!paged || (operation == "files" && !scoped));
+    if paged {
+      for index in 0..24 {
+        let directory = root.join(format!("page-root-{index:02}"));
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("valuable"), b"installed paged survivor").unwrap();
+        fs::write(
+          directory.join(".reap"),
+          br#"{"version":1,"keep":{"reason":"retained work"}}"#,
+        )
+        .unwrap();
+      }
+    }
     let selected = if scoped {
       let selected = project.join("workspace");
       fs::create_dir(&selected).unwrap();
@@ -1092,7 +1192,11 @@ mod native {
       project.clone()
     };
     let input = Intent {
-      argv: vec![operation.clone(), selected.to_str().unwrap().into()],
+      argv: if paged {
+        vec![operation.clone()]
+      } else {
+        vec![operation.clone(), selected.to_str().unwrap().into()]
+      },
       namespace: invocation::Namespace {
         home: root.join("caller-home"),
         xdg_state_home: Some(root.join("caller-state")),
@@ -1228,6 +1332,52 @@ mod native {
       Outcome::Decision { decision: Decision::Present { job } } if Some(&job) == completed.job.as_ref())
     );
     let id = crate::client::job_id(&key);
+    let mut result_pages_cli = Vec::new();
+    let mut missing_page_cli = None;
+    if paged {
+      let terminal = completed.job.as_ref().unwrap().result.as_ref().unwrap();
+      let manifest = crate::result_pages::descriptor(&terminal.detail)
+        .unwrap()
+        .unwrap();
+      let mut body = String::new();
+      for index in 0..manifest.pages {
+        let output = Command::new(&installed)
+          .args(["job", "page", &id, &index.to_string()])
+          .env("HOME", root.join("service-home"))
+          .output()
+          .unwrap();
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        let receipt: crate::client::Receipt = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(receipt.job, completed.job);
+        let page = receipt.page.as_ref().unwrap();
+        assert_eq!(page.index, index);
+        assert_eq!(page.manifest, manifest);
+        body.push_str(&page.text);
+        result_pages_cli.push(receipt);
+      }
+      assert_eq!(body.len(), manifest.bytes);
+      assert_eq!(
+        format!("{:x}", Sha256::digest(body.as_bytes())),
+        manifest.sha256
+      );
+      let detail: serde_json::Value = serde_json::from_str(&body).unwrap();
+      assert_eq!(detail["reports"].as_array().unwrap().len(), 24);
+      let missing = Command::new(&installed)
+        .args(["job", "page", &id, &manifest.pages.to_string()])
+        .output()
+        .unwrap();
+      assert!(!missing.status.success());
+      let missing: crate::client::Receipt = serde_json::from_slice(&missing.stdout).unwrap();
+      assert!(missing.page.is_none());
+      assert_eq!(missing.key, Some(key.clone()));
+      missing_page_cli = Some(missing);
+      for index in 0..24 {
+        assert_eq!(
+          fs::read(root.join(format!("page-root-{index:02}/valuable"))).unwrap(),
+          b"installed paged survivor"
+        );
+      }
+    }
     let mut cli_receipts = Vec::new();
     for operation in ["show", "wait"] {
       let mut command = Command::new(&installed);
@@ -1273,6 +1423,19 @@ mod native {
     let unknown_receipt: crate::client::Receipt = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(unknown_receipt.state, crate::client::State::Unknown);
     assert!(unknown_receipt.job.is_none());
+    let unknown_page_cli = if paged {
+      let output = Command::new(&installed)
+        .args(["job", "page", &crate::client::job_id(&unknown), "0"])
+        .output()
+        .unwrap();
+      assert_eq!(output.status.code(), Some(75));
+      let receipt: crate::client::Receipt = serde_json::from_slice(&output.stdout).unwrap();
+      assert_eq!(receipt.state, crate::client::State::Unknown);
+      assert!(receipt.page.is_none());
+      Some(receipt)
+    } else {
+      None
+    };
     fs::write(
       root.join("client-receipt.json"),
       serde_json::to_vec_pretty(&serde_json::json!({
@@ -1283,6 +1446,8 @@ mod native {
         "prepared_key":receipt.key,
         "cancellation":cancellation,
         "job_cli":cli_receipts,"unknown_job_cli":unknown_receipt,
+        "result_pages_cli":result_pages_cli,
+        "missing_page_cli":missing_page_cli,"unknown_page_cli":unknown_page_cli,
       }))
       .unwrap(),
     )
@@ -1671,6 +1836,16 @@ mod native {
       let writer = fixture.call(Role::StateWriter, Request::Status);
       assert_eq!(writer.snapshot.phase, Phase::Busy);
       assert_eq!(writer.snapshot.epoch.unwrap(), epoch);
+      let page_client =
+        crate::client::Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+      let started = Instant::now();
+      let page = page_client.page(key.clone(), 0);
+      assert_ne!(page.exit_code(), 0);
+      assert!(page.page.is_none());
+      assert!(
+        started.elapsed() < Duration::from_millis(1250),
+        "stalled page lookup exceeded its deadline"
+      );
       fixture.stop(Role::Control);
       fixture.install(Role::Control);
       assert!(matches!(

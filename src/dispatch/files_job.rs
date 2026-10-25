@@ -124,7 +124,7 @@ pub(crate) fn assess(
     "stderr": String::from_utf8_lossy(&stderr.bytes),
     "diagnostics_truncated": stdout.truncated || stderr.truncated,
   }))?;
-  if detail.len() > 4096 {
+  if detail.len() > crate::result_pages::MAX_BYTES {
     return Err(invalid(
       "capacity-incomplete: complete declaration report exceeds its bound",
     ));

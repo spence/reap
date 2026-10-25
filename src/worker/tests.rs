@@ -575,6 +575,157 @@ fn incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence()
   );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profile() {
+  let fixture = Fixture::new();
+  fs::write(fixture.0.join("valuable"), b"paged framing survivor").unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let key = admit(&mut journal);
+  let mut owned = spawned(
+    start(
+      &mut journal,
+      &key,
+      1,
+      Task::Resolve {
+        directory: fixture.0.clone(),
+      },
+    )
+    .unwrap(),
+  );
+  owned.deliver(&mut journal).unwrap();
+  assert_eq!(complete(&mut owned, &mut journal).exit_code, 0);
+  assert!(!owned.output_allowed);
+  let body = serde_json::to_string(&format!("{}{}", "a".repeat(10000), "b".repeat(10000))).unwrap();
+  let (detail, pages) = crate::result_pages::prepare(body.clone()).unwrap();
+  let terminal = crate::journal::Terminal {
+    exit_code: 0,
+    effects: 0,
+    detail,
+  };
+  let report = Report::FilesPreviewed {
+    terminal: terminal.clone(),
+    pages: vec![],
+  };
+  let frame = |body: Vec<u8>| {
+    let mut bytes = (body.len() as u32).to_be_bytes().to_vec();
+    bytes.extend(body);
+    bytes
+  };
+  let fragments: Vec<_> = pages
+    .iter()
+    .enumerate()
+    .map(|(index, text)| {
+      frame(
+        serde_json::to_vec(&PageFrame {
+          result_page: crate::result_pages::Fragment {
+            index,
+            text: text.clone(),
+          },
+        })
+        .unwrap(),
+      )
+    })
+    .collect();
+  let ending = frame(serde_json::to_vec(&report).unwrap());
+  let before = journal.launch(&key).unwrap();
+  for case in [
+    "complete",
+    "missing",
+    "duplicate",
+    "changed",
+    "other_profile",
+    "other_result",
+    "trailing",
+  ] {
+    let mut stream = Vec::new();
+    for (index, fragment) in fragments.iter().enumerate() {
+      if case == "missing" && index == fragments.len() - 1 {
+        continue;
+      }
+      if case == "changed" && index == 0 {
+        stream.extend(frame(
+          serde_json::to_vec(&PageFrame {
+            result_page: crate::result_pages::Fragment {
+              index,
+              text: "changed".into(),
+            },
+          })
+          .unwrap(),
+        ));
+      } else {
+        stream.extend(fragment);
+      }
+      if case == "duplicate" && index == 0 {
+        stream.extend(fragment);
+      }
+    }
+    if case == "other_result" {
+      stream.extend(frame(
+        serde_json::to_vec(&Report::Refused {
+          reason: "another operation".into(),
+        })
+        .unwrap(),
+      ));
+    } else {
+      stream.extend(&ending);
+    }
+    if case == "trailing" {
+      stream.push(0);
+    }
+    let (pipe, mut peer) = UnixStream::pair().unwrap();
+    pipe.set_nonblocking(true).unwrap();
+    let sender = std::thread::spawn(move || {
+      peer.write_all(&stream).unwrap();
+      peer
+    });
+    owned.pipe = pipe;
+    owned.bytes.clear();
+    owned.pages.clear();
+    owned.page_bytes = 0;
+    owned.output_allowed = case != "other_profile";
+    owned.report = None;
+    owned.incomplete = None;
+    owned.eof = false;
+    owned.finished = false;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !sender.is_finished() {
+      assert!(
+        owned.poll(&mut journal).unwrap().is_none(),
+        "EOF is required: {case}"
+      );
+      assert!(
+        Instant::now() < deadline,
+        "owned page sender did not drain: {case}"
+      );
+      std::thread::sleep(Duration::from_millis(1));
+    }
+    let peer = sender.join().unwrap();
+    assert!(
+      owned.poll(&mut journal).unwrap().is_none(),
+      "EOF is required: {case}"
+    );
+    drop(peer);
+    let done = complete(&mut owned, &mut journal);
+    match done.report {
+      Ok(Report::FilesPreviewed {
+        terminal: actual,
+        pages: actual_pages,
+      }) if case == "complete" => {
+        assert_eq!(actual, terminal);
+        assert_eq!(actual_pages.concat(), body);
+      }
+      Err(_) if case != "complete" => {}
+      other => panic!("unexpected paged framing result for {case}: {other:?}"),
+    }
+    assert_eq!(journal.launch(&key).unwrap(), before);
+  }
+  assert_eq!(
+    fs::read(fixture.0.join("valuable")).unwrap(),
+    b"paged framing survivor"
+  );
+}
+
 #[test]
 fn private_helper_client_refuses_wrong_incomplete_and_mismatched_replies() {
   for case in [

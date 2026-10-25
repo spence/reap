@@ -106,6 +106,10 @@ pub enum Request {
   Lookup {
     key: Key,
   },
+  Page {
+    key: Key,
+    index: usize,
+  },
   Cancel {
     key: Key,
   },
@@ -159,11 +163,25 @@ pub enum Phase {
 pub enum Outcome {
   Pong,
   Snapshot,
-  Epoch { epoch: Epoch },
-  Decision { decision: Decision },
-  Prepared { receipt: Receipt },
-  Validation { valid: bool },
-  Unavailable { admission_possible: bool },
+  Epoch {
+    epoch: Epoch,
+  },
+  Decision {
+    decision: Decision,
+  },
+  Page {
+    job: crate::journal::View,
+    page: crate::result_pages::Page,
+  },
+  Prepared {
+    receipt: Receipt,
+  },
+  Validation {
+    valid: bool,
+  },
+  Unavailable {
+    admission_possible: bool,
+  },
   Invalid,
 }
 
@@ -261,7 +279,12 @@ fn start(
       request => {
         let allowed = match role {
           Role::ContextResolver => matches!(request, Request::Prepare { .. }),
-          _ => matches!(request, Request::Epoch | Request::Lookup { .. }) || is_mutation(&request),
+          _ => {
+            matches!(
+              request,
+              Request::Epoch | Request::Lookup { .. } | Request::Page { .. }
+            ) || is_mutation(&request)
+          }
         };
         if !allowed {
           send_immediate(reply, role, state, Outcome::Invalid);
@@ -591,6 +614,13 @@ fn write_state(
         Request::Lookup { key } => journal
           .lookup(&key)
           .map(|decision| Outcome::Decision { decision }),
+        Request::Page { key, index } => match journal.result_page(&key, index)? {
+          Some((job, page)) => Ok(Outcome::Page { job, page }),
+          None => match journal.lookup(&key)? {
+            Decision::Present { job } if job.result.is_some() => Ok(Outcome::Invalid),
+            decision => Ok(Outcome::Decision { decision }),
+          },
+        },
         Request::Cancel { key } => journal
           .request_cancel(&key, now)
           .map(|decision| Outcome::Decision { decision }),
@@ -833,6 +863,9 @@ fn now() -> u64 {
 fn valid(request: &Request) -> bool {
   match request {
     Request::Lookup { key } | Request::Cancel { key } => crate::journal::validate_key(key).is_ok(),
+    Request::Page { key, index } => {
+      crate::journal::validate_key(key).is_ok() && *index < crate::result_pages::MAX_PAGES
+    }
     Request::Prepare { key, input } => {
       crate::journal::validate_key(key).is_ok() && invocation::valid_intent(input)
     }

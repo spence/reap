@@ -100,6 +100,59 @@ class Ownership(unittest.TestCase):
 
 
 class Evidence(unittest.TestCase):
+    def test_paged_files_proof_requires_all_installed_pages_and_complete_root_reports(self):
+        evidence, job = execution_fixture()
+        roots = [f"/owned/page-root-{index:02}" for index in range(24)]
+        payload = {"request": json.dumps({"argv": ["files"], "namespace": {"home": "/owned/caller-home"}})}
+        job["input"] = payload
+        evidence["receipt"]["input"] = payload
+        job["view"]["invocation"] = {"operation": "files", "mode": "read"}
+        report = {"exit_code": 0, "coverage_complete": True, "roots": 1, "declarations": 1,
+                  "honored": 1, "invalid": 0, "undeclared": 1, "planned_units": 0,
+                  "blocked_units": 0, "planned_bytes": 0, "completed_bytes": 0,
+                  "completed_units": 0, "unknown_residual_units": 0}
+        detail = {"command": "files", "requested_roots": 24, "present_roots": 24,
+                  "reports": [copy.deepcopy(report) for _ in roots],
+                  "selections": [{"path": root, "governed_root": root} for root in roots]}
+        body = json.dumps(detail).encode()
+        texts = [body[offset:offset + 8192].decode() for offset in range(0, len(body), 8192)]
+        manifest = {"pages": len(texts), "bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()}
+        job["pages"] = texts
+        job["view"]["result"]["detail"] = json.dumps({"paged_result": manifest})
+        evidence["terminal"]["job"] = job["view"]
+        evidence["job_cli"] = [copy.deepcopy(evidence["terminal"]), copy.deepcopy(evidence["terminal"])]
+        evidence["result_pages_cli"] = [{"protocol": 2, "state": "completed", "key": copy.deepcopy(evidence["key"]),
+                                         "job": copy.deepcopy(job["view"]),
+                                         "page": {"index": index, "manifest": copy.deepcopy(manifest), "text": text}}
+                                        for index, text in enumerate(texts)]
+        evidence["missing_page_cli"] = {"state": "unavailable", "key": copy.deepcopy(evidence["key"])}
+        unknown = {**evidence["key"], "generation": "c" * 32}
+        evidence["unknown_job_cli"]["key"] = unknown
+        evidence["unknown_page_cli"] = {"state": "unknown", "job": None, "key": unknown}
+        verify = lambda e, j: VERIFIER.validate_execution(e, frame(j), b"installed protected survivor", "files", result_pages=True)
+        verify(evidence, job)
+        for change in ("missing", "index", "text", "stored", "manifest", "outcome", "missing_success", "unknown_success"):
+            bad_evidence, bad_job = copy.deepcopy((evidence, job))
+            page = bad_evidence["result_pages_cli"][0]
+            if change == "missing":
+                bad_evidence["result_pages_cli"].pop()
+            elif change == "index":
+                page["page"]["index"] = 1
+            elif change == "text":
+                page["page"]["text"] = "substituted payload"
+            elif change == "stored":
+                bad_job["pages"][-1] = "substituted retained payload"
+            elif change == "manifest":
+                page["page"]["manifest"]["bytes"] = True
+            elif change == "outcome":
+                page["job"]["result"]["exit_code"] = 1
+            elif change == "missing_success":
+                bad_evidence["missing_page_cli"]["state"] = "completed"
+            else:
+                bad_evidence["unknown_page_cli"]["state"] = "completed"
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                verify(bad_evidence, bad_job)
+
     def test_cancellation_requires_a_request_durable_failure_and_proven_child_exit(self):
         evidence, job = execution_fixture()
         result = job["view"]["result"]
@@ -304,7 +357,7 @@ class JournalSelection(unittest.TestCase):
         with self.assertRaises(OSError):
             VERIFIER.execution_record(self.journal, self.evidence, managed=True)
         path.unlink()
-        path.write_bytes(b"x" * (128 * 1024 + 1))
+        path.write_bytes(b"x" * (2 * 1024 * 1024 + 1))
         with self.assertRaises(AssertionError):
             VERIFIER.execution_record(self.journal, self.evidence, managed=True)
         wrong = copy.deepcopy(self.job)

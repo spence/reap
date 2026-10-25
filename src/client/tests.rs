@@ -21,6 +21,76 @@ fn view(result: Option<Terminal>) -> View {
 }
 
 #[test]
+fn result_page_receipts_keep_the_original_outcome_and_reject_missing_or_changed_evidence() {
+  let (detail, pages) =
+    crate::result_pages::prepare(serde_json::to_string(&"x".repeat(12000)).unwrap()).unwrap();
+  let manifest = crate::result_pages::descriptor(&detail).unwrap().unwrap();
+  let output = crate::result_pages::Page {
+    index: 0,
+    manifest,
+    text: pages[0].clone(),
+  };
+  let response = |job, page| {
+    Ok(Response {
+      protocol: service::PROTOCOL,
+      via: Role::Control,
+      snapshot: service::Snapshot {
+        phase: service::Phase::Ready,
+        epoch: None,
+        observed_at: Some(2),
+        reason: None,
+      },
+      outcome: Outcome::Page { job, page },
+    })
+  };
+  for exit_code in [0, 1] {
+    let job = view(Some(Terminal {
+      exit_code,
+      effects: 0,
+      detail: detail.clone(),
+    }));
+    let receipt = page_response(key(), 0, response(job, output.clone()));
+    assert_eq!(receipt.exit_code(), exit_code as i32);
+    assert_eq!(receipt.page, Some(output.clone()));
+    assert_eq!(receipt.observed_at, Some(2));
+  }
+  for changed in 0..8 {
+    let mut job = view(Some(Terminal {
+      exit_code: 0,
+      effects: 0,
+      detail: detail.clone(),
+    }));
+    let mut page = output.clone();
+    match changed {
+      0 => page.index = 1,
+      1 => job.key.epoch += 1,
+      2 => page.manifest.sha256 = "0".repeat(64),
+      3 => page.text.clear(),
+      4 => page.text = "x".repeat(crate::result_pages::PAGE_BYTES + 1),
+      5 => page.manifest.pages = 0,
+      6 => {
+        job.result = None;
+        job.completed_at = None;
+      }
+      _ => job.result.as_mut().unwrap().detail = "{\"paged_result\":".into(),
+    }
+    let receipt = page_response(key(), 0, response(job, page));
+    assert_ne!(receipt.exit_code(), 0);
+    assert!(receipt.page.is_none());
+  }
+  let job = view(Some(Terminal {
+    exit_code: 0,
+    effects: 0,
+    detail,
+  }));
+  let mut missing = response(job.clone(), output).unwrap();
+  missing.outcome = Outcome::Decision {
+    decision: Decision::Present { job },
+  };
+  assert_ne!(page_response(key(), 0, Ok(missing)).exit_code(), 0);
+}
+
+#[test]
 fn accepted_pending_and_unknown_never_return_completed_success() {
   for (decision, state) in [
     (Decision::Present { job: view(None) }, State::Pending),

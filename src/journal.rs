@@ -17,7 +17,8 @@ use sha2::{Digest, Sha256};
 use crate::launch::{Grant, Launch, Process, ProcessIdentity, ProcessState, Resources};
 
 const SCHEMA: u32 = 1;
-const MAX_RECORD: u64 = 128 * 1024;
+const MAX_RECORD: u64 = 2 * 1024 * 1024;
+const INLINE_RECORD: u64 = 128 * 1024;
 const MAX_JOBS: usize = 65536;
 const METADATA_CAP: u64 = 256 * 1024 * 1024;
 const RECOVERY_RESERVE: u64 = 16 * 1024 * 1024;
@@ -391,8 +392,13 @@ impl Journal {
         return Ok(Decision::Capacity);
       }
     }
-    if self.index.len() >= MAX_JOBS || !self.capacity(MAX_RECORD) {
-      self.compact(now, true)?;
+    let invocation = executing
+      .then(|| serde_json::from_str::<crate::invocation::Intent>(&input.request).ok())
+      .flatten()
+      .and_then(|input| crate::invocation::summary(&input));
+    let reservation = record_limit(executing, invocation.as_ref());
+    if self.index.len() >= MAX_JOBS || !self.capacity(reservation) {
+      self.compact_for(now, true, reservation)?;
       return Ok(Decision::Capacity);
     }
     let job = Job {
@@ -404,14 +410,12 @@ impl Journal {
         completed_at: None,
         result: None,
         cancel_requested_at: None,
-        invocation: executing
-          .then(|| serde_json::from_str::<crate::invocation::Intent>(&input.request).ok())
-          .flatten()
-          .and_then(|input| crate::invocation::summary(&input)),
+        invocation,
       },
       input,
       launch: None,
       execution: executing.then_some(crate::dispatch::Progress::Queued),
+      pages: vec![],
     };
     self.persist(Document::Job(job.clone()))?;
     self.install(job.clone())?;
@@ -508,6 +512,16 @@ impl Journal {
     key: &Key,
     next: crate::dispatch::Progress,
   ) -> io::Result<()> {
+    self.execution_progress_with_pages(key, next, vec![])
+  }
+
+  /// Publish a complete result payload and its phase in the same journal transaction.
+  pub(crate) fn execution_progress_with_pages(
+    &mut self,
+    key: &Key,
+    next: crate::dispatch::Progress,
+    pages: Vec<String>,
+  ) -> io::Result<()> {
     let mut job = self
       .job(key)?
       .ok_or_else(|| invalid("execution job is not retained"))?;
@@ -516,13 +530,46 @@ impl Journal {
       .as_ref()
       .ok_or_else(|| invalid("job is not activated"))?;
     if previous == &next {
-      return Ok(());
+      return if pages.is_empty() || pages == job.pages {
+        Ok(())
+      } else {
+        Err(invalid("replayed execution result has different pages"))
+      };
     }
     if job.view.result.is_some() || !previous.successor(&next) {
       return Err(invalid("invalid execution phase transition"));
     }
     job.execution = Some(next);
+    job.pages = pages;
     self.update(job)
+  }
+
+  /// Read one page only after the exact job has a durable terminal result.
+  pub(crate) fn result_page(
+    &self,
+    key: &Key,
+    index: usize,
+  ) -> io::Result<Option<(View, crate::result_pages::Page)>> {
+    self.bindings()?;
+    let Some(job) = self.job(key)? else {
+      return Ok(None);
+    };
+    let Some(terminal) = &job.view.result else {
+      return Ok(None);
+    };
+    let Some(manifest) = crate::result_pages::descriptor(&terminal.detail)? else {
+      return Ok(None);
+    };
+    let Some(text) = job.pages.get(index) else {
+      return Ok(None);
+    };
+    let page = crate::result_pages::Page {
+      index,
+      manifest,
+      text: text.clone(),
+    };
+    crate::result_pages::validate_page(&terminal.detail, &page)?;
+    Ok(Some((job.view, page)))
   }
 
   /// Reserve one of the worker's two direct-helper slots before spawning that helper.
@@ -743,6 +790,10 @@ impl Journal {
 
   /// Retire an epoch before its completed identities can be forgotten. Active jobs remain.
   pub fn compact(&mut self, now: u64, pressure: bool) -> io::Result<()> {
+    self.compact_for(now, pressure, INLINE_RECORD)
+  }
+
+  fn compact_for(&mut self, now: u64, pressure: bool, reservation: u64) -> io::Result<()> {
     self.bindings()?;
     let expired = self.index.values().any(|entry| {
       entry
@@ -804,7 +855,7 @@ impl Journal {
       }
       self.directory.sync_all()?;
       self.healthy = true;
-      if pressure && self.capacity(MAX_RECORD) {
+      if pressure && self.capacity(reservation) {
         break;
       }
     }
@@ -823,8 +874,9 @@ impl Journal {
     let mut completed = 0;
     for entry in self.index.values() {
       if entry.view.result.is_none() {
-        metadata += entry.charged.max(MAX_RECORD);
-        completed += entry.charged.max(MAX_RECORD);
+        let reserved = record_limit(entry.executing, entry.view.invocation.as_ref());
+        metadata += entry.charged.max(reserved);
+        completed += entry.charged.max(reserved);
       } else {
         metadata += entry.charged;
         completed += entry.charged;
@@ -923,7 +975,14 @@ impl Journal {
     {
       return Err(invalid("invalid journal checksum or framing"));
     }
-    let document = serde_json::from_slice(&bytes[FRAME..]).map_err(io::Error::other)?;
+    let document: Document = serde_json::from_slice(&bytes[FRAME..]).map_err(io::Error::other)?;
+    let limit = match &document {
+      Document::Job(job) => record_limit(job.execution.is_some(), job.view.invocation.as_ref()),
+      Document::Header(_) => INLINE_RECORD,
+    };
+    if bytes.len() as u64 > limit {
+      return Err(invalid("journal record exceeds its operation profile"));
+    }
     Ok(Some(document))
   }
 
@@ -959,7 +1018,11 @@ impl Journal {
   fn persist(&mut self, document: Document) -> io::Result<()> {
     self.bindings()?;
     let bytes = serde_json::to_vec(&document).map_err(io::Error::other)?;
-    if bytes.len() + FRAME > MAX_RECORD as usize {
+    let limit = match &document {
+      Document::Job(job) => record_limit(job.execution.is_some(), job.view.invocation.as_ref()),
+      Document::Header(_) => INLINE_RECORD,
+    };
+    if bytes.len() + FRAME > limit as usize {
       return Err(invalid("journal record exceeds its bound"));
     }
     let mut frame = Vec::with_capacity(bytes.len() + FRAME);
@@ -1033,11 +1096,18 @@ impl Journal {
         let phase = next.view == previous.view
           && next.launch == previous.launch
           && matches!((&previous.execution, &next.execution), (Some(previous), Some(next)) if previous.successor(next));
+        let output = next.pages == previous.pages
+          || (phase
+            && matches!(
+              next.execution,
+              Some(crate::dispatch::Progress::Result { .. })
+            ));
         if next.view.key != previous.view.key
           || next.input != previous.input
           || Some(next.revision) != previous.revision.checked_add(1)
           || previous.view.result.is_some()
           || (!completion && !execution && !phase && !cancellation)
+          || !output
           || next.view.created_at != previous.view.created_at
         {
           return Err(invalid("invalid job transaction"));
@@ -1128,6 +1198,8 @@ struct Job {
   launch: Option<Launch>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   execution: Option<crate::dispatch::Progress>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pages: Vec<String>,
 }
 
 impl Job {
@@ -1138,6 +1210,20 @@ impl Job {
   fn validate(&self) -> io::Result<()> {
     validate_key(&self.view.key)?;
     validate_input(&self.input)?;
+    if !self.pages.is_empty()
+      && record_limit(self.execution.is_some(), self.view.invocation.as_ref()) != MAX_RECORD
+    {
+      return Err(invalid("result pages require an executable Files job"));
+    }
+    let terminal = match &self.execution {
+      Some(crate::dispatch::Progress::Result { terminal }) => Some(terminal),
+      _ => self.view.result.as_ref(),
+    };
+    if let Some(terminal) = terminal {
+      crate::result_pages::validate(&terminal.detail, &self.pages)?;
+    } else if !self.pages.is_empty() {
+      return Err(invalid("result pages have no retained execution result"));
+    }
     if let Some(summary) = &self.view.invocation {
       let input = serde_json::from_str::<crate::invocation::Intent>(&self.input.request)
         .map_err(|_| invalid("job invocation summary has invalid request evidence"))?;
@@ -1265,6 +1351,15 @@ struct Entry {
   inode: u64,
   launch: Option<Launch>,
   executing: bool,
+}
+
+// only executable Files jobs can produce a paged result; other jobs retain their smaller reserve
+fn record_limit(executing: bool, invocation: Option<&crate::invocation::Summary>) -> u64 {
+  if executing && invocation.is_some_and(|summary| summary.operation == "files") {
+    MAX_RECORD
+  } else {
+    INLINE_RECORD
+  }
 }
 
 fn find_process<'a>(launch: &'a mut Launch, token: &str) -> io::Result<&'a mut Process> {

@@ -40,6 +40,7 @@ mod preservation;
 mod provenance;
 mod quarantine;
 mod reapfile;
+mod result_pages;
 mod service;
 mod status;
 mod store_bindings;

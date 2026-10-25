@@ -65,7 +65,11 @@ Expiry before task start prevents dispatch. An already-started write can still c
 The dedicated journal contains a header, stable lock, direct job records, and one pending transaction.
 Each record has `REJ1`, a four-byte big-endian body length, a 32-byte SHA-256 digest, and complete JSON.
 Checksums use [RustCrypto's SHA-256 implementation](https://docs.rs/sha2/0.10.9/sha2/).
-The finite frame limit is 128 KiB. The input, terminal-summary, index, and reservation limits also apply.
+Executable Files jobs have a 2 MiB journal frame limit and reservation for bounded result pages.
+Other records retain the 128 KiB frame limit and reservation.
+The 64 KiB IPC/input, terminal-summary, index, and reservation limits also apply.
+Schema 1 readers that lack page support refuse `pages` and records above 128 KiB.
+This fail-closed behavior does not establish the separate old-executor barrier for applying operations.
 Recovery synchronizes a complete pending file before publication. Partial or corrupt input remains retained and unavailable.
 A new writer synchronizes its instance stamp before readiness. That stamp is not termination authority.
 Missing header state behind an existing lock cannot initialize a fresh history.

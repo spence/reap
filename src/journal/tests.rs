@@ -80,6 +80,96 @@ fn terminal() -> Terminal {
 }
 
 #[test]
+fn result_pages_survive_atomic_phase_recovery_and_retire_with_their_epoch() {
+  for completed in [false, true] {
+    let fixture = Fixture::new();
+    let mut journal = Journal::open(&fixture.0).unwrap();
+    let key = key(&journal);
+    let mut prepared = input();
+    prepared.request = serde_json::to_string(&crate::invocation::Intent {
+      argv: vec!["files".into()],
+      namespace: crate::invocation::Namespace {
+        home: fixture.0.clone(),
+        xdg_state_home: None,
+        config_snapshot: None,
+      },
+      provenance: serde_json::json!({}),
+    })
+    .unwrap();
+    journal.admit_execution(key.clone(), prepared, 1).unwrap();
+    journal
+      .execution_progress(&key, crate::dispatch::Progress::ResolvingFiles)
+      .unwrap();
+    let value = if completed {
+      "界".repeat((crate::result_pages::MAX_BYTES - 2) / 3)
+    } else {
+      "\n\"\\".repeat((crate::result_pages::MAX_BYTES - 2) / 6)
+    };
+    let body = serde_json::to_string(&value).unwrap();
+    let (detail, pages) = crate::result_pages::prepare(body.clone()).unwrap();
+    let terminal = Terminal {
+      exit_code: 1,
+      effects: 0,
+      detail,
+    };
+    if completed {
+      journal
+        .execution_progress_with_pages(
+          &key,
+          crate::dispatch::Progress::Result {
+            terminal: terminal.clone(),
+          },
+          pages.clone(),
+        )
+        .unwrap();
+    }
+    let mut record = journal.job(&key).unwrap().unwrap();
+    record.revision += 1;
+    record.execution = Some(crate::dispatch::Progress::Result {
+      terminal: terminal.clone(),
+    });
+    record.pages = pages.clone();
+    if completed {
+      record.view.completed_at = Some(2);
+      record.view.result = Some(terminal);
+    }
+    record.validate().unwrap();
+    let mut incomplete = record.clone();
+    incomplete.pages.pop();
+    assert!(incomplete.validate().is_err());
+    if completed {
+      let mut repartitioned = record.clone();
+      let last = repartitioned.pages.len() - 1;
+      let moved = repartitioned.pages[last - 1].pop().unwrap().to_string();
+      repartitioned.pages[last].insert_str(0, &moved);
+      repartitioned.validate().unwrap();
+      assert!(journal.publish(&Document::Job(repartitioned)).is_err());
+    }
+    stage(&fixture.0, &Document::Job(record));
+    drop(journal);
+    let mut journal = Journal::open(&fixture.0).unwrap();
+    if !completed {
+      assert!(journal.result_page(&key, 0).unwrap().is_none());
+      let mut scheduler = crate::dispatch::Scheduler::recover(&mut journal).unwrap();
+      scheduler.tick(&mut journal, 2).unwrap();
+      assert!(!scheduler.pending());
+    }
+    let mut restored = String::new();
+    for (index, expected) in pages.iter().enumerate() {
+      let (_, page) = journal.result_page(&key, index).unwrap().unwrap();
+      assert_eq!(&page.text, expected);
+      restored.push_str(&page.text);
+    }
+    assert_eq!(restored, body);
+    assert!(journal.result_page(&key, pages.len()).unwrap().is_none());
+    journal.compact(COMPLETED_AGE + 3, false).unwrap();
+    assert_eq!(journal.lookup(&key).unwrap(), Decision::Unknown);
+    assert!(journal.result_page(&key, 0).unwrap().is_none());
+    assert!(!fixture.0.join(job_name(&key)).exists());
+  }
+}
+
+#[test]
 fn cancellation_is_durable_monotonic_and_never_admits_a_key() {
   let fixture = Fixture::new();
   let mut journal = Journal::open(&fixture.0).unwrap();
@@ -482,6 +572,7 @@ fn pending_durable_admission_is_recovered_without_a_second_identity() {
     input: input(),
     launch: None,
     execution: None,
+    pages: vec![],
     view: View {
       key: key.clone(),
       created_at: 1,
@@ -699,5 +790,59 @@ fn completion_reservations_stop_admission_without_eviction_of_active_epochs() {
       journal.lookup(key).unwrap(),
       Decision::Present { .. }
     ));
+  }
+}
+
+#[test]
+fn files_result_reservations_keep_small_job_capacity_and_protect_every_active_key() {
+  for (operation, count, reservation) in [("check", 512, INLINE_RECORD), ("files", 32, MAX_RECORD)]
+  {
+    let fixture = Fixture::new();
+    let mut journal = Journal::open(&fixture.0).unwrap();
+    let mut keys = Vec::new();
+    let mut prepared = input();
+    prepared.request = serde_json::to_string(&crate::invocation::Intent {
+      argv: vec![operation.into()],
+      namespace: crate::invocation::Namespace {
+        home: fixture.0.clone(),
+        xdg_state_home: None,
+        config_snapshot: None,
+      },
+      provenance: serde_json::json!({}),
+    })
+    .unwrap();
+    for index in 0..count {
+      let key = key(&journal);
+      prepared.volumes = vec![format!("volume-{}", index / MAX_PENDING_PER_VOLUME)];
+      assert!(matches!(
+        journal
+          .admit_execution(key.clone(), prepared.clone(), 1)
+          .unwrap(),
+        Decision::Present { .. }
+      ));
+      let entry = &journal.index[&key];
+      assert_eq!(
+        record_limit(entry.executing, entry.view.invocation.as_ref()),
+        reservation
+      );
+      keys.push(key);
+    }
+    let extra = key(&journal);
+    prepared.volumes = vec!["extra-volume".into()];
+    assert_eq!(
+      journal.admit_execution(extra, prepared, 2).unwrap(),
+      Decision::Capacity
+    );
+    assert_eq!(journal.index.len(), count);
+    assert!(journal
+      .index
+      .values()
+      .all(|entry| entry.view.result.is_none()));
+    assert_eq!(journal.epoch().retired_through, 1);
+    for key in keys {
+      assert!(
+        matches!(journal.lookup(&key).unwrap(), Decision::Present { job } if job.result.is_none())
+      );
+    }
   }
 }
