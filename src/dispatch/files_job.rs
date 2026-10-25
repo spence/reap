@@ -17,12 +17,19 @@ use crate::journal::{Prepared, Terminal};
 
 struct Context<'a> {
   inspector: Inspector<'a>,
-  roots: Vec<PathBuf>,
+  selections: Vec<Selection>,
   requested_roots: usize,
   configuration: Config,
   namespace: Namespace,
   caller: File,
   base: PathBuf,
+}
+
+/// Ancestor policy applies from `governed_root`; removal selection stays inside `path`.
+#[derive(serde::Serialize)]
+struct Selection {
+  governed_root: PathBuf,
+  path: PathBuf,
 }
 
 impl Context<'_> {
@@ -85,10 +92,11 @@ pub(crate) fn assess(input: &Prepared, expected: &Scope) -> io::Result<Terminal>
   let ancestor_devices = context.ancestor_devices()?;
   let mut stdout = Diagnostic::default();
   let mut stderr = Diagnostic::default();
-  for root in &context.roots {
-    let directory = context.inspector.directory(root)?;
+  for selection in &context.selections {
+    let directory = context.inspector.directory(&selection.governed_root)?;
     let report = crate::files::preview(
-      root,
+      &selection.governed_root,
+      &selection.path,
       &directory,
       directory.metadata()?.dev(),
       &context.configuration,
@@ -105,7 +113,8 @@ pub(crate) fn assess(input: &Prepared, expected: &Scope) -> io::Result<Terminal>
     .all(|report| report.exit_code == 0 && report.coverage_complete);
   let detail = serde_json::to_string(&serde_json::json!({
     "command": "files", "mode": "read", "reports": reports,
-    "requested_roots": context.requested_roots, "present_roots": context.roots.len(),
+    "requested_roots": context.requested_roots, "present_roots": context.selections.len(),
+    "selections": context.selections,
     "stdout": String::from_utf8_lossy(&stdout.bytes),
     "stderr": String::from_utf8_lossy(&stderr.bytes),
     "diagnostics_truncated": stdout.truncated || stderr.truncated,
@@ -191,9 +200,9 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     } else {
       caller.base.join(raw)
     })?;
-    if !configured.contains(&path) {
+    if !configured.iter().any(|root| path.starts_with(root)) {
       return Err(invalid(
-        "declaration scope is not a configured governed root",
+        "declaration scope is outside the configured governed roots",
       ));
     }
     vec![path]
@@ -204,7 +213,20 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   let mut present = Vec::new();
   for root in roots {
     match inspector.directory(&root) {
-      Ok(_) => present.push(root),
+      Ok(_) => {
+        // the outermost boundary retains governing seals from overlapping configured roots
+        let governed_root = configured
+          .iter()
+          .filter(|boundary| root.starts_with(boundary))
+          .min_by_key(|boundary| boundary.components().count())
+          .expect("validated governed scope")
+          .clone();
+        inspector.directory(&governed_root)?;
+        present.push(Selection {
+          governed_root,
+          path: root,
+        });
+      }
       Err(reason) if reason.kind() == io::ErrorKind::NotFound => inspector.absent(&root)?,
       Err(reason) => return Err(reason),
     }
@@ -227,7 +249,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   inspector.revalidate()?;
   Ok(Context {
     inspector,
-    roots: present,
+    selections: present,
     requested_roots,
     configuration,
     namespace: intent.namespace,

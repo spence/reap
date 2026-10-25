@@ -70,6 +70,17 @@ The public `files` route is not activated by that internal adapter.
   `restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches`,
   `durable_resolver_and_bulk_results_recover_across_each_publication_boundary`,
   `native_stalled_bulk_keeps_its_slot_without_blocking_ping_or_status`.
+- **C12** — A Files workspace scope lies inside a configured governed root.
+  Its dependency closure includes governing ancestor declarations, selected descendants, and measurements required by applicable child rules.
+  Required siblings affect retention decisions but never become removal candidates outside the selected path.
+  Unmatched sibling subtrees and unrelated projects are not traversed for display sizing.
+  Ancestor seals, honored child declarations, preservation roles, incomplete inputs, and native identity guards retain their force.
+  This internal read-only path does not activate a scoped applying route or the public Files client.
+  Checks: `scoped_expiry_cannot_cross_intervening_protection_or_select_siblings`,
+  `scoped_retention_uses_complete_units_and_matching_sibling_groups`,
+  `scoped_preview_uses_policy_dependencies_without_unrelated_subtree_walks`,
+  `native_files_scoped_pipeline_honors_outer_policy_and_skips_unrelated_subtrees`,
+  and `tools/verify_ingress_macos.py --operation files --workspace-scope`.
 
 ## Bounds and supported closure
 
@@ -116,7 +127,13 @@ After exact absence, a phase without durable result evidence returns incomplete,
 The shared engine supplies the current foreground CLI and internal native preview.
 Its report separates planned, blocked, completed, and unknown-residual units, known bytes, and coverage completeness.
 The native preview has zero effects. Unknown residual effects remain explicit in failed legacy applying reports.
-Native preview currently covers configured whole roots, not the design's full scoped dependency closure.
+Native preview covers whole roots and workspace paths inside their outermost configured boundary.
+Workspace discovery reads ancestor policy, selected descendants, and required retention units.
+An ancestor's applicable child unit requires complete unit measurements, even when selection lies deeper inside it.
+Honored child declarations exclude their units from parent retention accounting.
+Unmatched sibling subtrees are not measured for display. Unmeasured ancestors do not supply unit statistics.
+Configured root aliases remain resolver dependencies; this profile does not narrow their physical reservations.
+Incomplete evidence still protects the whole request; independent partial progress is not yet supported.
 Fresh owned Git/activity probes, paged large reports, first-seen observation publication, fair discovery quanta,
 legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.

@@ -157,7 +157,7 @@ def cleanup_owned(owned, receipt):
     return safe
 
 
-def validate_execution(evidence, frame, survivor, operation=None, cancel=False):
+def validate_execution(evidence, frame, survivor, operation=None, cancel=False, workspace_scope=False):
     """Bind actual terminal work to its original and prepared request key."""
     assert not evidence["metadata_only"] and evidence["read_only_execution"]
     assert not evidence["cleanup_granted"]
@@ -201,6 +201,11 @@ def validate_execution(evidence, frame, survivor, operation=None, cancel=False):
                         "invalid": 0, "undeclared": 2, "planned_units": 0, "blocked_units": 0,
                         "completed_units": 0, "unknown_residual_units": 0, "planned_bytes": 0,
                         "completed_bytes": 0, "coverage_complete": True}
+            if workspace_scope:
+                expected.update(declarations=2, honored=2, undeclared=0)
+                selected = pathlib.PurePath(request["argv"][1])
+                assert selected.is_absolute() and selected.name == "workspace"
+                assert detail["selections"] == [{"path": str(selected), "governed_root": str(selected.parent)}]
             assert report.keys() == expected.keys()
             assert all(type(report[name]) is type(value) and report[name] == value
                        for name, value in expected.items())
@@ -251,7 +256,11 @@ def main():
     parser.add_argument("--operation", choices=["check", "files"], default="check")
     parser.add_argument("--cancel", action="store_true",
                         help="require actual installed cancellation and its durable terminal result")
+    parser.add_argument("--workspace-scope", action="store_true",
+                        help="require scoped Files discovery with ancestor policy and an unrelated FIFO")
     args = parser.parse_args()
+    if args.workspace_scope and (args.operation != "files" or args.cancel):
+        parser.error("--workspace-scope requires --operation files without --cancel")
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
     host_home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir) if args.managed_services else pathlib.Path.home()
@@ -274,6 +283,7 @@ def main():
     managed_before = None
     receipt = {"host": platform.node(), "runtime": str(runtime), "cwd": str(cwd), "operation": args.operation,
                "cancellation": args.cancel,
+               "workspace_scope": args.workspace_scope,
                "installed_binary": str(installed), "native_exit": None,
                "service_mode": "managed" if args.managed_services else "isolated"}
     if args.managed_services:
@@ -308,7 +318,8 @@ def main():
         home = runtime / "caller-home"
         (home / ".config/reap").mkdir(parents=True)
         config = json.dumps({"roots": ["~/caller-only"], "governed_roots":
-                             [str(runtime / "check-project")] if args.operation == "files" else []}).encode()
+                             [str(runtime / "check-project")] if args.operation == "files" else [],
+                             "reap_file_grace_hours": 0}).encode()
         (home / ".config/reap/config.json").write_bytes(config)
         if not args.managed_services:
             service_home = runtime / "service-home"
@@ -333,7 +344,7 @@ def main():
             environment.update(HOME=str(host_home), XDG_STATE_HOME=str(host_home / ".local/state"))
         for name in ("DYLD_INSERT_LIBRARIES", "REAP_INTERNAL_CONFIG_SNAPSHOT",
                      "REAP_NATIVE_CONTROL_SERVICE", "REAP_NATIVE_CONTROL_PROBE",
-                     "REAP_INSTALLED_INGRESS_CANCEL"):
+                     "REAP_INSTALLED_INGRESS_CANCEL", "REAP_INSTALLED_INGRESS_FILES_SCOPE"):
             environment.pop(name, None)
         environment.update({
             "REAP_INSTALLED_INGRESS_PROBE": str(runtime),
@@ -346,6 +357,8 @@ def main():
         })
         if args.cancel:
             environment["REAP_INSTALLED_INGRESS_CANCEL"] = "1"
+        if args.workspace_scope:
+            environment["REAP_INSTALLED_INGRESS_FILES_SCOPE"] = "1"
         with (runtime / "client.log").open("wb") as log:
             run = subprocess.run([str(client), "--exact", "service::tests::native::server_process", "--nocapture"],
                                  env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=20)
@@ -369,7 +382,12 @@ def main():
             receipt.update({"journal_scope": "exact_fixture_key", "journal_key": evidence["key"],
                             "journal_record": record_name, "journal_record_sha256": hashlib.sha256(frame).hexdigest()})
         terminal = validate_execution(evidence, frame,
-                                      (runtime / "check-project/valuable").read_bytes(), args.operation, args.cancel)
+                                      (runtime / "check-project/valuable").read_bytes(), args.operation, args.cancel,
+                                      args.workspace_scope)
+        if args.workspace_scope:
+            project = runtime / "check-project"
+            assert (project / "workspace/valuable").read_bytes() == b"scoped protected survivor"
+            assert stat.S_ISFIFO((project / "unrelated/fifo").lstat().st_mode)
         if args.managed_services:
             (output / "verified-job.json").write_bytes(frame)
             receipt["verified_job_records"] = 1

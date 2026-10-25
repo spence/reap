@@ -1067,8 +1067,32 @@ mod native {
     let operation =
       std::env::var("REAP_INSTALLED_INGRESS_OPERATION").unwrap_or_else(|_| "check".into());
     assert!(matches!(operation.as_str(), "check" | "files"));
+    let scoped = std::env::var_os("REAP_INSTALLED_INGRESS_FILES_SCOPE").is_some();
+    assert!(!scoped || operation == "files");
+    let selected = if scoped {
+      let selected = project.join("workspace");
+      fs::create_dir(&selected).unwrap();
+      fs::create_dir(project.join("unrelated")).unwrap();
+      fs::write(
+        project.join(".reap"),
+        br#"{"version":1,"keep":{"reason":"active work"},"seal":true}"#,
+      )
+      .unwrap();
+      fs::write(
+        selected.join(".reap"),
+        br#"{"version":1,"expires":"2020-01-01T00:00:00Z"}"#,
+      )
+      .unwrap();
+      fs::write(selected.join("valuable"), b"scoped protected survivor").unwrap();
+      let fifo = std::ffi::CString::new(project.join("unrelated/fifo").to_str().unwrap()).unwrap();
+      // SAFETY: this terminated path names a new FIFO inside the owned installed fixture.
+      assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+      selected
+    } else {
+      project.clone()
+    };
     let input = Intent {
-      argv: vec![operation.clone(), project.to_str().unwrap().into()],
+      argv: vec![operation.clone(), selected.to_str().unwrap().into()],
       namespace: invocation::Namespace {
         home: root.join("caller-home"),
         xdg_state_home: Some(root.join("caller-state")),
@@ -1192,6 +1216,12 @@ mod native {
       fs::read(project.join("valuable")).unwrap(),
       b"installed protected survivor"
     );
+    if scoped {
+      assert_eq!(
+        fs::read(selected.join("valuable")).unwrap(),
+        b"scoped protected survivor"
+      );
+    }
     thread::sleep(Duration::from_millis(800));
     assert!(
       matches!(call(Role::Control, Request::Admit { receipt: receipt.clone() }, Instant::now()+RESPONSE_BUDGET).outcome,

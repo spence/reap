@@ -1,5 +1,6 @@
 use super::*;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::time::{Duration, Instant};
 
 use crate::invocation::{Context, Intent, Namespace};
@@ -265,6 +266,103 @@ fn native_files_pipeline_retains_operation_results_and_sources_without_cache_wri
     first
   );
   assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_scoped_pipeline_honors_outer_policy_and_skips_unrelated_subtrees() {
+  let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+    .map(PathBuf::from)
+    .unwrap_or_else(std::env::temp_dir);
+  let path = base.join(format!("dispatch-scoped-{}", random_token().unwrap()));
+  fs::create_dir_all(path.join("home/.config/reap")).unwrap();
+  fs::create_dir_all(path.join("project/workspace/deep")).unwrap();
+  fs::create_dir(path.join("project/unrelated")).unwrap();
+  let fixture = Fixture(fs::canonicalize(path).unwrap());
+  let project = fixture.0.join("project");
+  let selected = project.join("workspace/deep");
+  let policy = br#"{"version":1,"keep":{"reason":"active workspace"},"seal":true}"#;
+  fs::write(project.join(".reap"), policy).unwrap();
+  fs::write(
+    selected.join(".reap"),
+    br#"{"version":1,"expires":"2020-01-01T00:00:00Z"}"#,
+  )
+  .unwrap();
+  fs::write(selected.join("valuable"), b"selected survivor").unwrap();
+  fs::write(project.join("not-a-directory"), b"file survivor").unwrap();
+  fs::write(fixture.0.join("home/.config/reap/config.json"), serde_json::to_vec(
+    &serde_json::json!({"governed_roots":[project, project.join("workspace")], "reap_file_grace_hours":0})
+  ).unwrap()).unwrap();
+  let fifo = std::ffi::CString::new(project.join("unrelated/fifo").as_os_str().as_bytes()).unwrap();
+  // SAFETY: this terminated path names a new FIFO inside the owned native fixture.
+  assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+  std::os::unix::fs::symlink(&project, fixture.0.join("alias")).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  for (target, complete, present) in [
+    (selected.clone(), true, 1),
+    (fixture.0.join("alias/workspace/deep"), true, 1),
+    (project.join("missing"), true, 0),
+    (project.join("not-a-directory"), false, 0),
+    (fixture.0.join("home"), false, 0),
+    (project.join("../project/workspace/deep"), false, 0),
+  ] {
+    let mut input = fixture.input();
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec!["files".into(), target.to_str().unwrap().into()];
+    input.request = serde_json::to_string(&intent).unwrap();
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal
+      .admit_execution(key.clone(), input.clone(), 1)
+      .unwrap();
+    scheduler.enqueue(&mut journal, key.clone()).unwrap();
+    let result = terminal(&mut journal, &mut scheduler, &key);
+    assert_eq!(
+      result.exit_code == 0,
+      complete,
+      "{}: {}",
+      target.display(),
+      result.detail
+    );
+    assert_eq!(result.effects, 0);
+    if complete {
+      let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+      assert_eq!(detail["requested_roots"], 1);
+      assert_eq!(detail["present_roots"], present);
+      if present == 1 {
+        assert_eq!(
+          detail["selections"][0]["governed_root"],
+          project.to_str().unwrap()
+        );
+        assert_eq!(detail["selections"][0]["path"], selected.to_str().unwrap());
+        assert_eq!(detail["reports"][0]["declarations"], 2);
+        assert_eq!(detail["reports"][0]["honored"], 2);
+        assert_eq!(detail["reports"][0]["planned_units"], 0);
+        assert_eq!(detail["reports"][0]["coverage_complete"], true);
+      }
+    }
+    let before = journal.lookup(&key).unwrap();
+    assert_eq!(
+      journal.admit_execution(key.clone(), input, 20).unwrap(),
+      before
+    );
+  }
+  assert_eq!(fs::read(project.join(".reap")).unwrap(), policy);
+  assert_eq!(
+    fs::read(selected.join("valuable")).unwrap(),
+    b"selected survivor"
+  );
+  assert_eq!(
+    fs::read(project.join("not-a-directory")).unwrap(),
+    b"file survivor"
+  );
+  assert!(!fixture.0.join("state/reap/reap-files-seen.json").exists());
+  assert!(!scheduler.pending());
 }
 
 #[cfg(target_os = "macos")]

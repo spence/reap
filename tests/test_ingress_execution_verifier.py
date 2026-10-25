@@ -185,6 +185,40 @@ class Evidence(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(AssertionError):
                 VERIFIER.validate_execution(bad_evidence, frame(bad_job), b"installed protected survivor", "files")
 
+    def test_scoped_files_requires_ancestor_discovery_and_exact_scope_binding(self):
+        evidence, job = execution_fixture()
+        payload = {"request": json.dumps({"argv": ["files", "/owned/project/workspace"]})}
+        job["input"] = payload
+        evidence["receipt"]["input"] = payload
+        job["view"]["invocation"] = {"operation": "files", "mode": "read"}
+        detail = {"command": "files", "requested_roots": 1, "present_roots": 1,
+                  "selections": [{"path": "/owned/project/workspace", "governed_root": "/owned/project"}],
+                  "reports": [{"exit_code": 0, "coverage_complete": True,
+                               "roots": 1, "declarations": 2, "honored": 2, "invalid": 0,
+                               "undeclared": 0, "planned_units": 0, "blocked_units": 0,
+                               "planned_bytes": 0, "completed_bytes": 0,
+                               "completed_units": 0, "unknown_residual_units": 0}]}
+        job["view"]["result"]["detail"] = json.dumps(detail)
+        evidence["terminal"]["job"] = job["view"]
+        evidence["job_cli"] = [copy.deepcopy(evidence["terminal"]), copy.deepcopy(evidence["terminal"])]
+        verify = lambda e, j: VERIFIER.validate_execution(e, frame(j), b"installed protected survivor", "files", False, True)
+        verify(evidence, job)
+        for change in ("empty", "coverage", "authority", "scope"):
+            bad_evidence, bad_job = copy.deepcopy((evidence, job))
+            changed = json.loads(bad_job["view"]["result"]["detail"])
+            if change == "empty":
+                changed["reports"][0].update(declarations=0, honored=0)
+            elif change == "coverage":
+                changed["reports"][0]["coverage_complete"] = False
+            elif change == "authority":
+                changed["selections"][0]["governed_root"] = "/owned/project/workspace"
+            else:
+                changed["selections"][0]["path"] = "/foreign/workspace"
+            bad_job["view"]["result"]["detail"] = json.dumps(changed)
+            bad_evidence["job_cli"] = [copy.deepcopy(bad_evidence["terminal"]), copy.deepcopy(bad_evidence["terminal"])]
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                verify(bad_evidence, bad_job)
+
     def test_terminal_and_preparation_must_match_the_original_key(self):
         evidence, job = execution_fixture()
         self.assertEqual(VERIFIER.validate_execution(evidence, frame(job), b"installed protected survivor")["state"], "completed")

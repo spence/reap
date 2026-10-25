@@ -2,7 +2,7 @@
 //! (SPEC-REAP-FILE). Dry-run by default; `--apply` re-checks every path before it moves.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -20,7 +20,7 @@ use crate::lease::{load_leases, Lease};
 use crate::plan::{human, now_secs};
 use crate::provenance::{self, Provenance};
 use crate::quarantine::{execute_path_retire, finalize_restore, load_index, save_index};
-use crate::reapfile::{evaluate, Decl, Disposition, Removal, View, FILE_NAME};
+use crate::reapfile::{evaluate, evaluate_scoped, Decl, Disposition, Removal, View, FILE_NAME};
 use crate::util::{
   default_owner, fmt_rel, git_command, hostname, lock_state, move_unit, state_dir, tree_stats,
   write_json_atomic,
@@ -36,11 +36,23 @@ pub struct Found {
 }
 
 pub struct Scan {
+  /// Directory selected for inventory and reporting, not necessarily the authority boundary.
   pub root: PathBuf,
   pub found: Vec<Found>,
   incomplete: bool,
   coverage_errors: BTreeMap<PathBuf, String>,
   view: DiskView,
+}
+
+impl Scan {
+  /// Return the authority boundary. A native workspace scope does not replace its governed root.
+  fn governed_root(&self) -> &Path {
+    self
+      .view
+      .preview
+      .as_ref()
+      .map_or(self.root.as_path(), |preview| preview.anchor.as_path())
+  }
 }
 
 struct DiskView {
@@ -93,18 +105,22 @@ impl View for DiskView {
 impl DiskView {
   fn known_bytes(&self, path: &Path) -> Option<u64> {
     if let Some(preview) = &self.preview {
-      return preview.nodes.get(path).map(|node| node.bytes);
+      return preview
+        .nodes
+        .get(path)
+        .filter(|node| node.measured)
+        .map(|node| node.bytes);
     }
     unit_stats(path).map(|(_, bytes, _)| bytes)
   }
 
   fn unit(&self, path: &Path) -> (f64, u64) {
     if let Some(preview) = &self.preview {
-      return preview
-        .nodes
-        .get(path)
-        .map(|node| (node.newest, node.bytes))
-        .unwrap_or((f64::MAX, 0));
+      if let Some(node) = preview.nodes.get(path).filter(|node| node.measured) {
+        return (node.newest, node.bytes);
+      }
+      preview.guard_incomplete.set(true);
+      return (f64::MAX, u64::MAX);
     }
     if let Some(v) = self.stats.borrow().get(path) {
       return *v;
@@ -293,7 +309,7 @@ pub fn undeclared(scan: &Scan) -> Vec<(PathBuf, String)> {
   let covered = |p: &Path| {
     declared
       .iter()
-      .any(|d| p.starts_with(d) && *d != scan.root.as_path())
+      .any(|d| p.starts_with(d) && *d != scan.governed_root())
   };
   let names = |dir: &Path| -> Vec<PathBuf> {
     if scan.view.preview.is_some() {
@@ -505,6 +521,7 @@ const PREVIEW_BUDGET: usize = 32 * 1024 * 1024;
 const STATE_BYTES: usize = 1024 * 1024;
 
 struct Preview {
+  anchor: PathBuf,
   nodes: BTreeMap<PathBuf, PreviewNode>,
   remaining: Cell<usize>,
   exhausted: Cell<bool>,
@@ -522,6 +539,16 @@ struct PreviewNode {
   children: Vec<PathBuf>,
   newest: f64,
   bytes: u64,
+  measured: bool,
+}
+
+/// The descriptor authorizes one governed root. Selection cannot extend beyond `scope`.
+#[derive(Clone, Copy)]
+struct PreviewBoundary<'a> {
+  directory: &'a File,
+  device: u64,
+  ancestor_devices: &'a [u64],
+  scope: &'a Path,
 }
 
 impl Preview {
@@ -575,6 +602,7 @@ impl Preview {
 /// Ancestor devices must come from the caller's freshly verified native physical closure.
 pub(crate) fn preview(
   root: &Path,
+  scope: &Path,
   directory: &File,
   device: u64,
   cfg: &Config,
@@ -604,24 +632,323 @@ pub(crate) fn preview(
     cfg,
     stdout,
     stderr,
-    Some((directory, device, ancestor_devices)),
+    Some(PreviewBoundary {
+      directory,
+      device,
+      ancestor_devices,
+      scope,
+    }),
   )
+}
+
+/// Capture only the selected subtree and the policy inputs that can affect its selection.
+/// Ancestor inventories contain names, not recursive statistics for unrelated children.
+struct PreviewDiscovery<'a> {
+  root: &'a Path,
+  held: &'a File,
+  device: u64,
+  now: i64,
+  grace: i64,
+  previous: HashMap<String, i64>,
+  preview: Preview,
+  decls: BTreeMap<PathBuf, Result<Decl, String>>,
+  found: Vec<Found>,
+  inspected: BTreeSet<PathBuf>,
+  enumerated: BTreeSet<PathBuf>,
+  errors: BTreeMap<PathBuf, String>,
+}
+
+impl PreviewDiscovery<'_> {
+  /// Record one device-bound identity. Each repeated observation must match the first one.
+  fn capture(&mut self, path: &Path, meta: libc::stat) -> Result<(), String> {
+    if meta.st_dev as u64 != self.device {
+      return Err("child is outside the device grant".into());
+    }
+    if let Some(node) = self.preview.nodes.get(path) {
+      if !same_stat(&node.observed, &meta) {
+        return Err("input changed during preview".into());
+      }
+    } else {
+      if !self.preview.charge(1024 + path.as_os_str().len() * 16) {
+        return Err("preview inventory exceeds its memory budget".into());
+      }
+      self
+        .preview
+        .nodes
+        .insert(path.to_path_buf(), preview_node(meta));
+    }
+    Ok(())
+  }
+
+  /// Read direct policy inputs before deciding which children need measurements.
+  fn inspect(&mut self, path: &Path) -> Result<(), String> {
+    let directory =
+      open_relative(self.held, self.root, path, self.device).map_err(|e| e.to_string())?;
+    self.capture(
+      path,
+      descriptor_stat(&directory).map_err(|e| e.to_string())?,
+    )?;
+    if !self.inspected.insert(path.to_path_buf()) {
+      return Ok(());
+    }
+    for name in [".git", FILE_NAME] {
+      let meta = match stat_at(&directory, Path::new(name)) {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+        Err(error) => return Err(error.to_string()),
+      };
+      self.capture(&path.join(name), meta)?;
+      if name == ".git" {
+        if meta.st_mode & libc::S_IFMT != libc::S_IFDIR
+          && meta.st_mode & libc::S_IFMT != libc::S_IFREG
+        {
+          return Err("unsafe Git metadata".into());
+        }
+        continue;
+      }
+      let bytes = read_declaration_at(&directory, &meta).map_err(|e| e.to_string())?;
+      if !self.preview.charge(bytes.len().saturating_mul(32)) {
+        return Err("declarations exceed the preview memory budget".into());
+      }
+      self.preview.reason_bytes = self.preview.reason_bytes.max(bytes.len());
+      // roles and invalid preservation evidence remain effective inside Git metadata and seals
+      if let Err(error) = preservation_bytes(&bytes) {
+        self.preview.preservation.insert(path.to_path_buf(), error);
+      }
+      if path
+        .strip_prefix(self.root)
+        .is_ok_and(|relative| relative.components().any(|part| part.as_os_str() == ".git"))
+      {
+        continue;
+      }
+      let key = format!("{}:{}:{}", self.root.display(), meta.st_dev, meta.st_ino);
+      let first = *self.previous.get(&key).unwrap_or(&self.now);
+      let parsed = std::str::from_utf8(&bytes)
+        .map_err(|e| e.to_string())
+        .and_then(Decl::parse);
+      let (mut parsed, pending) = declaration_grace(parsed, self.now, first, self.grace);
+      let set_aside = if self.preview.ancestor_git
+        || path
+          .ancestors()
+          .take_while(|parent| parent.starts_with(self.root))
+          .any(|parent| self.preview.nodes.contains_key(&parent.join(".git")))
+      {
+        let why = "bounded preview cannot prove Git tracking".to_string();
+        self.errors.insert(self.root.to_path_buf(), why.clone());
+        parsed = Err(why.clone());
+        Some(why)
+      } else {
+        pending
+      };
+      self.decls.insert(path.to_path_buf(), parsed);
+      self.found.push(Found {
+        dir: path.to_path_buf(),
+        set_aside,
+      });
+    }
+    if !same_stat(
+      &self.preview.nodes[path].observed,
+      &descriptor_stat(&directory).map_err(|e| e.to_string())?,
+    ) {
+      return Err("directory changed during policy inspection".into());
+    }
+    Ok(())
+  }
+
+  /// Capture direct names without child measurements. Repeated calls reuse the same inventory.
+  fn enumerate(&mut self, path: &Path) -> Result<(), String> {
+    self.inspect(path)?;
+    if !self.enumerated.insert(path.to_path_buf()) {
+      return Ok(());
+    }
+    let directory =
+      open_relative(self.held, self.root, path, self.device).map_err(|e| e.to_string())?;
+    for_each_preview_name(&directory, |name| {
+      if name != FILE_NAME.as_bytes() {
+        let child = path.join(std::ffi::OsStr::from_bytes(name));
+        if !self.preview.charge(1024 + child.as_os_str().len() * 16) {
+          return Err(io::Error::other("preview names exceed their memory budget"));
+        }
+        self
+          .preview
+          .nodes
+          .get_mut(path)
+          .expect("parent")
+          .children
+          .push(child);
+      }
+      Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+    if !same_stat(
+      &self.preview.nodes[path].observed,
+      &descriptor_stat(&directory).map_err(|e| e.to_string())?,
+    ) {
+      return Err("directory changed during enumeration".into());
+    }
+    Ok(())
+  }
+
+  /// Return false below a valid ancestor seal. Preservation vetoes do not use this filter.
+  fn honored(&self, path: &Path) -> bool {
+    !self.decls.iter().any(|(parent, decl)| {
+      parent != path
+        && path.starts_with(parent)
+        && decl.as_ref().is_ok_and(|decl| decl.seal == Some(true))
+    })
+  }
+
+  /// Capture a complete unit for statistics. Symlinks remain leaves; unsupported inputs fail.
+  fn measure(&mut self, path: &Path) -> Result<(), String> {
+    let mut stack = vec![path.to_path_buf()];
+    let mut measured = vec![];
+    while let Some(path) = stack.pop() {
+      let meta = if path == self.root {
+        descriptor_stat(self.held)
+      } else {
+        let parent = open_relative(
+          self.held,
+          self.root,
+          path.parent().expect("parent"),
+          self.device,
+        )
+        .map_err(|e| e.to_string())?;
+        stat_at(&parent, Path::new(path.file_name().expect("name")))
+      }
+      .map_err(|e| e.to_string())?;
+      self.capture(&path, meta)?;
+      if self.preview.nodes[&path].measured {
+        continue;
+      }
+      if meta.st_mode & libc::S_IFMT != libc::S_IFDIR {
+        return Err("special file has incomplete coverage".into());
+      }
+      self.enumerate(&path)?;
+      let directory =
+        open_relative(self.held, self.root, &path, self.device).map_err(|e| e.to_string())?;
+      for child in self.preview.nodes[&path].children.clone() {
+        let meta = stat_at(&directory, Path::new(child.file_name().expect("child")))
+          .map_err(|e| e.to_string())?;
+        self.capture(&child, meta)?;
+        stack.push(child);
+      }
+      measured.push(path);
+    }
+    for path in measured {
+      self
+        .preview
+        .nodes
+        .get_mut(&path)
+        .expect("measured directory")
+        .measured = true;
+    }
+    Ok(())
+  }
+
+  /// Build the closure from ancestor policy, selected descendants, and required retention units.
+  fn discover(&mut self, scope: &Path) -> Result<(), String> {
+    let relative = scope.strip_prefix(self.root).map_err(|e| e.to_string())?;
+    let mut chain = vec![self.root.to_path_buf()];
+    for part in relative.components() {
+      let std::path::Component::Normal(name) = part else {
+        return Err("unsafe workspace scope".into());
+      };
+      if chain.len() >= 128 {
+        return Err("workspace ancestry exceeds its evidence bound".into());
+      }
+      chain.push(chain.last().expect("root").join(name));
+    }
+    for path in &chain {
+      self.inspect(path)?;
+    }
+    let mut measurements = BTreeSet::from([scope.to_path_buf()]);
+    for pair in chain.windows(2) {
+      let (parent, selected) = (&pair[0], &pair[1]);
+      let Some(Ok(decl)) = self.decls.get(parent).cloned() else {
+        continue;
+      };
+      if !self.honored(parent) || decl.children.as_ref().is_none_or(|rules| rules.is_empty()) {
+        continue;
+      }
+      self.enumerate(parent)?;
+      let children = self.preview.nodes[parent].children.clone();
+      let rules = decl.children.as_deref().unwrap_or_default();
+      let ambiguous = children.iter().any(|child| {
+        rules
+          .iter()
+          .filter(|rule| {
+            crate::reapfile::matches(
+              &rule.pattern,
+              &child.file_name().expect("child").to_string_lossy(),
+            )
+          })
+          .count()
+          > 1
+      });
+      if ambiguous
+        || decl.expired(self.now)
+        || (self.honored(selected) && self.decls.contains_key(selected))
+      {
+        continue;
+      }
+      let Some(rule) = rules.iter().find(|rule| {
+        crate::reapfile::matches(
+          &rule.pattern,
+          &selected.file_name().expect("selected").to_string_lossy(),
+        )
+      }) else {
+        continue;
+      };
+      for child in children {
+        if (child != *selected && !rule.needs_siblings())
+          || !crate::reapfile::matches(
+            &rule.pattern,
+            &child.file_name().expect("child").to_string_lossy(),
+          )
+        {
+          continue;
+        }
+        let directory =
+          open_relative(self.held, self.root, parent, self.device).map_err(|e| e.to_string())?;
+        let meta = stat_at(&directory, Path::new(child.file_name().expect("child")))
+          .map_err(|e| e.to_string())?;
+        self.capture(&child, meta)?;
+        if meta.st_mode & libc::S_IFMT == libc::S_IFDIR {
+          self.inspect(&child)?;
+          if self.honored(&child) && self.decls.contains_key(&child) {
+            continue;
+          }
+        }
+        measurements.insert(child);
+      }
+    }
+    // ancestors sort before their descendants; each complete unit is measured once
+    for path in measurements {
+      self.measure(&path)?;
+    }
+    Ok(())
+  }
 }
 
 fn scan_bounded(
   root: &Path,
-  held: &File,
-  device: u64,
+  boundary: PreviewBoundary<'_>,
   now: i64,
   grace: i64,
-  ancestor_devices: &[u64],
 ) -> Result<Scan, String> {
+  let PreviewBoundary {
+    directory: held,
+    device,
+    ancestor_devices,
+    scope,
+  } = boundary;
   let before = descriptor_stat(held).map_err(|e| e.to_string())?;
   if !root.is_absolute()
+    || !scope.starts_with(root)
     || before.st_dev as u64 != device
     || before.st_mode & libc::S_IFMT != libc::S_IFDIR
   {
-    return Err("preview root is outside the device grant".into());
+    return Err("preview root or scope is outside the device grant".into());
   }
   let named = open_physical(root)
     .and_then(|file| descriptor_stat(&file))
@@ -629,11 +956,12 @@ fn scan_bounded(
   if !same_stat(&before, &named) {
     return Err("preview root was replaced".into());
   }
-  let previous: HashMap<String, i64> = bounded_state(&state_dir().join(SEEN_FILE))?
+  let previous = bounded_state(&state_dir().join(SEEN_FILE))?
     .map(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
     .transpose()?
     .unwrap_or_default();
   let mut preview = Preview {
+    anchor: root.to_path_buf(),
     nodes: BTreeMap::new(),
     remaining: Cell::new(PREVIEW_BUDGET),
     exhausted: Cell::new(false),
@@ -645,144 +973,35 @@ fn scan_bounded(
     ancestors: vec![],
     reason_bytes: 0,
   };
-  if !preview.charge(1024 + root.as_os_str().len().saturating_mul(16)) {
-    return Err("root path exceeds the preview memory budget".into());
-  }
   let ancestor_evidence = preview_ancestors(held, &preview)?;
   preview.ancestor_veto = ancestor_evidence.0.clone();
   preview.ancestor_git = ancestor_evidence.1;
   preview.ancestors = ancestor_evidence.2.clone();
-  let mut stack = vec![root.to_path_buf()];
-  preview
-    .nodes
-    .insert(root.to_path_buf(), preview_node(before));
-  let mut errors = BTreeMap::new();
-  let mut raw = BTreeMap::new();
-  while let Some(path) = stack.pop() {
-    let result = (|| -> Result<(), String> {
-      let directory = open_relative(held, root, &path, device).map_err(|e| e.to_string())?;
-      let observed = descriptor_stat(&directory).map_err(|e| e.to_string())?;
-      if !same_stat(&preview.nodes[&path].observed, &observed) {
-        return Err("directory changed before enumeration".into());
-      }
-      for_each_preview_name(&directory, |name| {
-        let child = path.join(std::ffi::OsStr::from_bytes(name));
-        if !preview.charge(1024 + child.as_os_str().len() * 16) {
-          return Err(io::Error::other(
-            "preview inventory exceeds its memory budget",
-          ));
-        }
-        let meta = stat_at(&directory, Path::new(std::ffi::OsStr::from_bytes(name)))?;
-        // inspect device identity before any child open or descent
-        if meta.st_dev as u64 != device {
-          return Err(io::Error::other("child is outside the device grant"));
-        }
-        let kind = meta.st_mode & libc::S_IFMT;
-        preview.nodes.insert(child.clone(), preview_node(meta));
-        if name == FILE_NAME.as_bytes() {
-          let bytes = read_declaration_at(&directory, &meta)?;
-          if !preview.charge(bytes.len().saturating_mul(32)) {
-            return Err(io::Error::other(
-              "declarations exceed the preview memory budget",
-            ));
-          }
-          raw.insert(path.clone(), bytes);
-        } else {
-          preview
-            .nodes
-            .get_mut(&path)
-            .expect("parent")
-            .children
-            .push(child.clone());
-          if kind == libc::S_IFDIR {
-            stack.push(child);
-          } else if kind != libc::S_IFREG && kind != libc::S_IFLNK {
-            return Err(io::Error::other("special file has incomplete coverage"));
-          }
-        }
-        Ok(())
-      })
-      .map_err(|e| e.to_string())?;
-      if !same_stat(
-        &observed,
-        &descriptor_stat(&directory).map_err(|e| e.to_string())?,
-      ) {
-        return Err("directory changed during enumeration".into());
-      }
-      Ok(())
-    })();
-    if let Err(error) = result {
-      errors.insert(path.clone(), error);
-      // the whole root is protected; retain only one bounded coverage diagnostic
-      break;
-    }
+  let mut discovery = PreviewDiscovery {
+    root,
+    held,
+    device,
+    now,
+    grace,
+    previous,
+    preview,
+    decls: BTreeMap::new(),
+    found: vec![],
+    inspected: BTreeSet::new(),
+    enumerated: BTreeSet::new(),
+    errors: BTreeMap::new(),
+  };
+  if let Err(error) = discovery.discover(scope) {
+    discovery.errors.insert(root.to_path_buf(), error);
   }
-  let mut decls = BTreeMap::new();
-  let mut found = vec![];
-  for (path, bytes) in raw {
-    preview.reason_bytes = preview.reason_bytes.max(bytes.len());
-    // `.git` contents contribute bytes, but do not supply lifetime declarations
-    if path
-      .strip_prefix(root)
-      .is_ok_and(|relative| relative.components().any(|c| c.as_os_str() == ".git"))
-    {
-      continue;
-    }
-    let meta = &preview.nodes[&path.join(FILE_NAME)].observed;
-    let key = format!("{}:{}:{}", root.display(), meta.st_dev, meta.st_ino);
-    let first = *previous.get(&key).unwrap_or(&now);
-    let parsed = std::str::from_utf8(&bytes)
-      .map_err(|e| e.to_string())
-      .and_then(Decl::parse);
-    let (mut parsed, pending) = declaration_grace(parsed, now, first, grace);
-    let set_aside = if preview.ancestor_git
-      || path
-        .ancestors()
-        .take_while(|p| p.starts_with(root))
-        .any(|parent| preview.nodes.contains_key(&parent.join(".git")))
-    {
-      let why = "bounded preview cannot prove Git tracking".to_string();
-      errors.insert(root.to_path_buf(), why.clone());
-      parsed = Err(why.clone());
-      Some(why)
-    } else {
-      pending
-    };
-    // preserve roles and invalid evidence even when an ancestor seals ordinary rules
-    if let Err(error) = preservation_bytes(&bytes) {
-      preview.preservation.insert(path.clone(), error);
-    }
-    decls.insert(path.clone(), parsed);
-    found.push(Found {
-      dir: path,
-      set_aside,
-    });
-  }
-  for path in preview
-    .nodes
-    .keys()
-    .filter(|path| path.file_name().is_some_and(|name| name == FILE_NAME))
-  {
-    let directory = path.parent().expect("declaration parent");
-    if directory
-      .strip_prefix(root)
-      .is_ok_and(|relative| relative.components().any(|c| c.as_os_str() == ".git"))
-    {
-      continue;
-    }
-    if !decls.contains_key(directory) {
-      decls.insert(
-        directory.to_path_buf(),
-        Err("incomplete declaration input".into()),
-      );
-      found.push(Found {
-        dir: directory.to_path_buf(),
-        set_aside: Some("incomplete declaration input".into()),
-      });
-    }
-  }
-  found.sort_by(|a, b| a.dir.cmp(&b.dir));
-  // accumulate complete subtree statistics without another filesystem walk
+  let PreviewDiscovery {
+    mut preview,
+    decls,
+    mut found,
+    errors,
+    ..
+  } = discovery;
+  // partial ancestors supply authority and names, never unit statistics
   let paths: Vec<PathBuf> = preview.nodes.keys().rev().cloned().collect();
   for path in paths {
     let node = &preview.nodes[&path];
@@ -800,38 +1019,12 @@ fn scan_bounded(
       }
     }
   }
-  if errors.is_empty() {
-    for (path, node) in &preview.nodes {
-      let current = if path == root {
-        descriptor_stat(held)
-      } else {
-        let parent = open_relative(held, root, path.parent().expect("child parent"), device)
-          .map_err(|e| e.to_string())?;
-        stat_at(&parent, Path::new(path.file_name().expect("child name")))
-      };
-      if !current.is_ok_and(|current| same_stat(&node.observed, &current)) {
-        errors.insert(root.to_path_buf(), "input changed during preview".into());
-        break;
-      }
-    }
-    if !same_ancestors(&preview_ancestors(held, &preview)?, &ancestor_evidence)
-      || !same_stat(
-        &before,
-        &descriptor_stat(&open_physical(root).map_err(|e| e.to_string())?)
-          .map_err(|e| e.to_string())?,
-      )
-    {
-      errors.insert(
-        root.to_path_buf(),
-        "preview root or enclosing evidence changed".into(),
-      );
-    }
-  }
   for node in preview.nodes.values_mut() {
     node.children.sort();
   }
+  found.sort_by(|a, b| a.dir.cmp(&b.dir));
   Ok(Scan {
-    root: root.to_path_buf(),
+    root: scope.to_path_buf(),
     found,
     incomplete: !errors.is_empty(),
     coverage_errors: errors,
@@ -845,6 +1038,10 @@ fn scan_bounded(
 
 fn preview_node(observed: libc::stat) -> PreviewNode {
   PreviewNode {
+    measured: matches!(
+      observed.st_mode & libc::S_IFMT,
+      libc::S_IFREG | libc::S_IFLNK
+    ),
     newest: observed.st_mtime as f64 + observed.st_mtime_nsec as f64 / 1e9,
     bytes: if observed.st_mode & libc::S_IFMT == libc::S_IFREG {
       observed.st_size.max(0) as u64
@@ -919,30 +1116,26 @@ fn preview_ancestors(
   Ok((veto, git, stamps))
 }
 
-fn same_ancestors(
-  a: &(Option<String>, bool, Vec<libc::stat>),
-  b: &(Option<String>, bool, Vec<libc::stat>),
-) -> bool {
-  a.0 == b.0
-    && a.1 == b.1
-    && a.2.len() == b.2.len()
-    && a.2.iter().zip(&b.2).all(|(a, b)| same_stat(a, b))
-}
-
-fn finish_preview(scan: &Scan, boundary: Option<(&File, u64, &[u64])>, report: &mut Report) {
-  let (Some((held, device, _)), Some(preview)) = (boundary, &scan.view.preview) else {
+fn finish_preview(scan: &Scan, boundary: Option<PreviewBoundary<'_>>, report: &mut Report) {
+  let (Some(boundary), Some(preview)) = (boundary, &scan.view.preview) else {
     return;
   };
+  let (held, device) = (boundary.directory, boundary.device);
   let valid = (|| -> Result<(), String> {
     if preview.exhausted.get() || preview.guard_incomplete.get() || scan.incomplete {
       return Err("preview coverage is incomplete".into());
     }
     for (path, node) in &preview.nodes {
-      let current = if path == &scan.root {
+      let current = if path == &preview.anchor {
         descriptor_stat(&open_physical(path).map_err(|e| e.to_string())?)
       } else {
-        let parent = open_relative(held, &scan.root, path.parent().expect("parent"), device)
-          .map_err(|e| e.to_string())?;
+        let parent = open_relative(
+          held,
+          &preview.anchor,
+          path.parent().expect("parent"),
+          device,
+        )
+        .map_err(|e| e.to_string())?;
         stat_at(&parent, Path::new(path.file_name().expect("name")))
       }
       .map_err(|e| e.to_string())?;
@@ -1261,7 +1454,7 @@ fn execute_inner(
   cfg: &Config,
   stdout: &mut dyn Write,
   stderr: &mut dyn Write,
-  boundary: Option<(&std::fs::File, u64, &[u64])>,
+  boundary: Option<PreviewBoundary<'_>>,
 ) -> Report {
   let roots: Vec<PathBuf> = match path {
     Some(p) => vec![PathBuf::from(p)],
@@ -1300,9 +1493,7 @@ fn execute_inner(
       continue;
     }
     let scan = match boundary {
-      Some((directory, device, ancestors)) => {
-        scan_bounded(&root, directory, device, now as i64, grace, ancestors)
-      }
+      Some(boundary) => scan_bounded(&root, boundary, now as i64, grace),
       None => scan(&root, now as i64, grace),
     };
     let scan = match scan {
@@ -1330,6 +1521,8 @@ fn execute_inner(
           .chain(scan.coverage_errors.clone())
           .collect(),
       }
+    } else if let Some(boundary) = boundary {
+      evaluate_scoped(&scan.view, now as i64, boundary.scope)
     } else {
       evaluate(&scan.view, now as i64)
     };
@@ -1477,7 +1670,7 @@ fn execute_inner(
         blocked(
           r,
           scratch,
-          &scan.root,
+          scan.governed_root(),
           &qdir,
           &leases.leases,
           now,
@@ -1626,6 +1819,7 @@ mod tests {
   ) -> Report {
     super::preview(
       root,
+      root,
       held,
       device,
       cfg,
@@ -1658,6 +1852,292 @@ mod tests {
     fn flush(&mut self) -> io::Result<()> {
       Ok(())
     }
+  }
+
+  /// Isolate namespace changes and use an internal native fixture outside the source checkout.
+  #[test]
+  fn scoped_preview_uses_policy_dependencies_without_unrelated_subtree_walks() {
+    const CHILD: &str = "REAP_FILES_SCOPED_FIXTURE";
+    if std::env::var_os(CHILD).is_none() {
+      let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+          "--exact",
+          "files::tests::scoped_preview_uses_policy_dependencies_without_unrelated_subtree_walks",
+          "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .output()
+        .unwrap();
+      assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+      );
+      return;
+    }
+    let fixture = std::env::temp_dir().join(format!(
+      "reap-scoped-{}",
+      crate::journal::random_token().unwrap()
+    ));
+    fs::create_dir_all(fixture.join("home/projects/active/workspace")).unwrap();
+    fs::create_dir_all(fixture.join("state/reap")).unwrap();
+    let fixture = Fixture(fs::canonicalize(fixture).unwrap());
+    std::env::set_var("HOME", fixture.0.join("home"));
+    std::env::set_var("XDG_STATE_HOME", fixture.0.join("state"));
+    fs::write(state_dir().join(SEEN_FILE), b"{}").unwrap();
+    let root = fixture.0.join("home/projects");
+    let workspace = root.join("active/workspace");
+    let keep = json!({"version":1,"keep":{"reason":"active work"}});
+    fs::write(workspace.join(FILE_NAME), keep.to_string()).unwrap();
+    fs::write(workspace.join("sentinel"), b"workspace survivor").unwrap();
+    fn fifo(path: &Path) {
+      fs::create_dir_all(path.parent().unwrap()).unwrap();
+      let name = CString::new(path.as_os_str().as_bytes()).unwrap();
+      // SAFETY: the terminated path names a new fixture-owned FIFO; no pointer outlives this call.
+      assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    }
+    fifo(&root.join("unrelated/never-open"));
+    let held = File::open(&root).unwrap();
+    let device = held.metadata().unwrap().dev();
+    let devices = [device, fs::metadata("/").unwrap().dev()];
+    let scan_scope = |scope| {
+      scan_bounded(
+        &root,
+        PreviewBoundary {
+          directory: &held,
+          device,
+          ancestor_devices: &devices,
+          scope,
+        },
+        now_secs() as i64,
+        0,
+      )
+      .unwrap()
+    };
+    let cfg = Config {
+      governed_roots: vec![root.to_str().unwrap().into()],
+      reap_file_grace_hours: 0.0,
+      ..Config::default()
+    };
+    let scoped = scan_scope(&workspace);
+    assert!(!scoped.incomplete);
+    assert!(!scoped
+      .view
+      .preview
+      .as_ref()
+      .unwrap()
+      .nodes
+      .contains_key(&root.join("unrelated")));
+    assert!(scan_scope(&root).incomplete);
+    let report = preview(
+      &root,
+      &workspace,
+      &held,
+      device,
+      &cfg,
+      &mut io::sink(),
+      &mut io::sink(),
+      &devices,
+    );
+    assert_eq!(report.exit_code, 0);
+    assert!(report.coverage_complete);
+    assert_eq!(
+      (report.declarations, report.honored, report.planned_units),
+      (1, 1, 0)
+    );
+    assert_eq!(report.undeclared, 0);
+
+    let expired = json!({"version":1,"expires":"2020-01-01T00:00:00Z"});
+    let sub = workspace.join("sub");
+    fs::create_dir(&sub).unwrap();
+    fs::write(sub.join("sentinel"), b"nested survivor").unwrap();
+    for at_scope in [true, false] {
+      fs::write(
+        workspace.join(FILE_NAME),
+        if at_scope { &expired } else { &keep }.to_string(),
+      )
+      .unwrap();
+      if !at_scope {
+        fs::write(sub.join(FILE_NAME), expired.to_string()).unwrap();
+      }
+      let old = FileTime::from_unix_time(1_600_000_000, 0);
+      for path in [
+        &workspace,
+        &workspace.join(FILE_NAME),
+        &workspace.join("sentinel"),
+        &sub,
+        &sub.join("sentinel"),
+      ] {
+        set_file_mtime(path, old).unwrap();
+      }
+      if !at_scope {
+        set_file_mtime(sub.join(FILE_NAME), old).unwrap();
+      }
+      let mut output = Vec::new();
+      let report = preview(
+        &root,
+        &workspace,
+        &held,
+        device,
+        &cfg,
+        &mut output,
+        &mut io::sink(),
+        &devices,
+      );
+      let text = String::from_utf8(output).unwrap();
+      assert!(!text.contains("path leaves the governed root"), "{text}");
+      assert_eq!(report.undeclared, 0);
+      #[cfg(target_os = "macos")]
+      {
+        assert_eq!(report.exit_code, 1, "{text}");
+        assert!(!report.coverage_complete, "{text}");
+        assert_eq!(report.blocked_units, 1);
+        assert!(
+          text.contains("native activity proof is unavailable"),
+          "{text}"
+        );
+      }
+    }
+
+    let series = root.join("series");
+    let selected = series.join("run-old/selected");
+    for path in [&selected, &series.join("run-new"), &series.join("run-held")] {
+      fs::create_dir_all(path).unwrap();
+    }
+    fs::write(selected.join("sentinel"), b"selected").unwrap();
+    let fresh = series.join("run-old/fresh");
+    fs::write(&fresh, b"fresh").unwrap();
+    fs::write(series.join("run-new/sentinel"), b"new").unwrap();
+    fs::write(series.join("run-held/.reap"), keep.to_string()).unwrap();
+    fifo(&series.join("run-held/never-open"));
+    fifo(&series.join("unmatched/never-open"));
+    let old = FileTime::from_unix_time(1_600_000_000, 0);
+    let newer = FileTime::from_unix_time(1_700_000_000, 0);
+    for path in [
+      &series.join("run-old"),
+      &selected,
+      &selected.join("sentinel"),
+      &fresh,
+    ] {
+      set_file_mtime(path, old).unwrap();
+    }
+    for path in [&series.join("run-new"), &series.join("run-new/sentinel")] {
+      set_file_mtime(path, newer).unwrap();
+    }
+    let declare_rule = |rule| {
+      fs::write(
+        series.join(FILE_NAME),
+        json!({"version":1,"keep":{"reason":"run series"},"children":[rule]}).to_string(),
+      )
+      .unwrap()
+    };
+    declare_rule(json!({"pattern":"run-*","max_age_days":1}));
+    set_file_mtime(&fresh, FileTime::from_unix_time(now_secs() as i64, 0)).unwrap();
+    let scan = scan_scope(&selected);
+    assert!(!scan.incomplete);
+    assert!(evaluate_scoped(&scan.view, now_secs() as i64, &selected)
+      .removals
+      .is_empty());
+    assert!(!scan
+      .view
+      .preview
+      .as_ref()
+      .unwrap()
+      .nodes
+      .contains_key(&series.join("run-new")));
+    set_file_mtime(&fresh, old).unwrap();
+    for rule in [
+      json!({"pattern":"run-*","max_age_days":1}),
+      json!({"pattern":"run-*","keep_newest":1,"max_age_days":1}),
+      json!({"pattern":"run-*","max_count":1}),
+      json!({"pattern":"run-*","max_bytes":3}),
+    ] {
+      declare_rule(rule);
+      let scan = scan_scope(&selected);
+      assert!(!scan.incomplete, "{:?}", scan.coverage_errors);
+      let result = evaluate_scoped(&scan.view, now_secs() as i64, &selected);
+      assert_eq!(result.removals.len(), 1);
+      assert_eq!(result.removals[0].path, selected);
+      let inventory = scan.view.preview.as_ref().unwrap();
+      assert!(!inventory.nodes.contains_key(&series.join("unmatched")));
+      assert!(!inventory
+        .nodes
+        .contains_key(&series.join("run-held/never-open")));
+      assert_eq!(scan.view.known_bytes(&selected), Some(8));
+    }
+    fifo(&series.join("run-new/required-unknown"));
+    assert!(scan_scope(&selected).incomplete);
+    fs::remove_file(series.join("run-new/required-unknown")).unwrap();
+    let scan = scan_scope(&selected);
+    declare_rule(json!({"pattern":"run-*","max_count":0}));
+    let mut stale = Report::default();
+    finish_preview(
+      &scan,
+      Some(PreviewBoundary {
+        directory: &held,
+        device,
+        ancestor_devices: &devices,
+        scope: &selected,
+      }),
+      &mut stale,
+    );
+    assert!(!stale.coverage_complete);
+
+    // ancestor policy remains authoritative even when the selected directory is deeper
+    fs::write(series.join(FILE_NAME), expired.to_string()).unwrap();
+    fs::write(series.join("run-old/.reap"), keep.to_string()).unwrap();
+    let scan = scan_scope(&selected);
+    assert!(!scan.incomplete);
+    assert!(evaluate_scoped(&scan.view, now_secs() as i64, &selected)
+      .removals
+      .is_empty());
+    fs::write(series.join("run-old/.reap"), expired.to_string()).unwrap();
+    let scan = scan_scope(&selected);
+    assert_eq!(
+      evaluate_scoped(&scan.view, now_secs() as i64, &selected)
+        .removals
+        .len(),
+      1
+    );
+    fs::write(
+      series.join(FILE_NAME),
+      json!({"version":1,"keep":{"reason":"sealed"},"seal":true}).to_string(),
+    )
+    .unwrap();
+    let scan = scan_scope(&selected);
+    assert!(evaluate_scoped(&scan.view, now_secs() as i64, &selected)
+      .removals
+      .is_empty());
+
+    let role = workspace.join(".git/archive");
+    fs::create_dir_all(&role).unwrap();
+    let archive =
+      br#"{"version":2,"role":"permanent_archive","keep":{"reason":"archive"},"seal":true}"#;
+    crate::lifetime::Policy::parse(archive).unwrap();
+    fs::write(role.join(FILE_NAME), archive).unwrap();
+    let scan = scan_scope(&workspace);
+    assert!(scan
+      .view
+      .preview
+      .as_ref()
+      .unwrap()
+      .preservation
+      .contains_key(&role));
+    assert!(scan
+      .view
+      .preview
+      .as_ref()
+      .unwrap()
+      .preservation_error(&workspace)
+      .is_some());
+    assert_eq!(
+      fs::read(workspace.join("sentinel")).unwrap(),
+      b"workspace survivor"
+    );
+    assert_eq!(fs::read(selected.join("sentinel")).unwrap(), b"selected");
+    assert_eq!(fs::read(series.join("run-new/sentinel")).unwrap(), b"new");
+    assert_eq!(fs::read(state_dir().join(SEEN_FILE)).unwrap(), b"{}");
   }
 
   /// Isolate HOME and state changes from other unit tests in this test process.
@@ -1799,7 +2279,13 @@ mod tests {
     let device = held.metadata().unwrap().dev();
     let cache = fs::read(state_dir().join(SEEN_FILE)).unwrap();
     let devices = [device, fs::metadata("/").unwrap().dev()];
-    scan_bounded(&root, &held, device, now_secs() as i64, 0, &devices).unwrap();
+    let boundary = PreviewBoundary {
+      directory: &held,
+      device,
+      ancestor_devices: &devices,
+      scope: &root,
+    };
+    scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
     let mut expected_native = expected.clone();
     #[cfg(target_os = "macos")]
     {
@@ -1895,11 +2381,11 @@ mod tests {
       assert!(!unreadable_result.coverage_complete);
     }
 
-    let scan = scan_bounded(&root, &held, device, now_secs() as i64, 0, &devices).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
     let snapshot = scan.view.preview.as_ref().unwrap();
     assert!(!snapshot.charge(PREVIEW_BUDGET));
     let mut exhausted = Report::default();
-    finish_preview(&scan, Some((&held, device, &devices)), &mut exhausted);
+    finish_preview(&scan, Some(boundary), &mut exhausted);
     assert!(!exhausted.coverage_complete);
 
     struct ReplaceOnOutput {

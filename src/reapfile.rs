@@ -58,6 +58,13 @@ pub struct Rule {
   pub max_bytes: Option<u64>,
 }
 
+impl Rule {
+  /// Newest protection and count/byte caps require measurements from the whole matching group.
+  pub(crate) fn needs_siblings(&self) -> bool {
+    self.keep_newest.unwrap_or(0) > 0 || self.max_count.is_some() || self.max_bytes.is_some()
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Disposition {
   Quarantine,
@@ -117,7 +124,7 @@ impl Decl {
     }
   }
 
-  fn expired(&self, now: i64) -> bool {
+  pub(crate) fn expired(&self, now: i64) -> bool {
     self
       .expires
       .as_deref()
@@ -190,7 +197,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
   era * 146097 + doe - 719468
 }
 
-fn matches(pattern: &str, name: &str) -> bool {
+pub(crate) fn matches(pattern: &str, name: &str) -> bool {
   let (head, tail) = pattern
     .split_once('*')
     .expect("validated pattern has one *");
@@ -228,6 +235,16 @@ pub struct Evaluation {
 
 /// Apply SPEC-REAP-FILE C4–C12 to a view at time `now` (unix seconds).
 pub fn evaluate(view: &dyn View, now: i64) -> Evaluation {
+  evaluate_inner(view, now, None)
+}
+
+/// Evaluate the complete dependency view but select removal only inside `scope`.
+/// Ancestor authority can select a portion of its unit; intervening protection still wins.
+pub(crate) fn evaluate_scoped(view: &dyn View, now: i64, scope: &Path) -> Evaluation {
+  evaluate_inner(view, now, Some(scope))
+}
+
+fn evaluate_inner(view: &dyn View, now: i64, scope: Option<&Path>) -> Evaluation {
   let decls = view.declarations();
   let mut invalid: BTreeMap<PathBuf, String> = BTreeMap::new();
   let mut valid: BTreeMap<PathBuf, Decl> = BTreeMap::new();
@@ -286,6 +303,24 @@ pub fn evaluate(view: &dyn View, now: i64) -> Evaluation {
     .collect();
   let mut out: Vec<Removal> = Vec::new();
   let mut prune = |root: &Path, by: &Path, disposition: Disposition, reason: &str| {
+    // clip ancestor authority to the workspace without crossing intervening protection
+    let root = if let Some(scope) = scope {
+      if scope.starts_with(root) {
+        if protected
+          .iter()
+          .any(|p| p.starts_with(root) && scope.starts_with(p))
+        {
+          return;
+        }
+        scope
+      } else if root.starts_with(scope) {
+        root
+      } else {
+        return;
+      }
+    } else {
+      root
+    };
     let mut stack = vec![root.to_path_buf()];
     while let Some(p) = stack.pop() {
       if protected.iter().any(|q| q != &p && q.starts_with(&p)) {
@@ -307,6 +342,9 @@ pub fn evaluate(view: &dyn View, now: i64) -> Evaluation {
   };
 
   for (p, d) in &valid {
+    if scope.is_some_and(|scope| !p.starts_with(scope) && !scope.starts_with(p)) {
+      continue;
+    }
     if invalid.keys().any(|i| p.starts_with(i)) {
       continue;
     }
@@ -330,6 +368,15 @@ pub fn evaluate(view: &dyn View, now: i64) -> Evaluation {
             .is_some_and(|n| matches(&r.pattern, &n.to_string_lossy()))
         })
         .collect();
+      if let Some(scope) = scope {
+        let relevant = |p: &PathBuf| p.starts_with(scope) || scope.starts_with(p);
+        if !units.iter().any(&relevant) {
+          continue;
+        }
+        if !r.needs_siblings() {
+          units.retain(relevant);
+        }
+      }
       units.sort_by(|a, b| {
         view
           .newest_mtime(b)
@@ -447,6 +494,93 @@ mod tests {
         })
         .collect()
     }
+  }
+
+  fn scoped(tree: serde_json::Value, scope: &str) -> Evaluation {
+    let view = FixtureView {
+      nodes: tree
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(path, node)| (PathBuf::from(path), node.clone()))
+        .collect(),
+      now: parse_time("2026-10-25").unwrap(),
+    };
+    evaluate_scoped(&view, view.now, Path::new(scope))
+  }
+
+  #[test]
+  fn scoped_expiry_cannot_cross_intervening_protection_or_select_siblings() {
+    use serde_json::json;
+
+    let expired = json!({"version":1,"expires":"2020-01-01T00:00:00Z"});
+    let mut tree = json!({
+      "p": {"reap":expired},
+      "p/work": {},
+      "p/work/selected": {},
+      "p/work/other": {},
+      "p/sibling": {}
+    });
+    let result = scoped(tree.clone(), "p/work/selected");
+    assert_eq!(result.removals.len(), 1);
+    assert_eq!(result.removals[0].path, Path::new("p/work/selected"));
+    assert_eq!(result.removals[0].by, Path::new("p"));
+    for protection in [
+      json!({"version":1,"keep":{"reason":"active work"}}),
+      json!({"version":99}),
+      json!({"version":1,"keep":{"reason":"sealed work"},"seal":true}),
+    ] {
+      tree["p/work"]["reap"] = protection;
+      assert!(scoped(tree.clone(), "p/work/selected").removals.is_empty());
+    }
+    tree["p/work"]["reap"] = json!({"version":1,"keep":{"reason":"active work"}});
+    tree["p/work/selected"]["reap"] = expired;
+    assert_eq!(scoped(tree.clone(), "p/work/selected").removals.len(), 1);
+    tree["p/work"]["reap"]["seal"] = json!(true);
+    assert!(scoped(tree, "p/work/selected").removals.is_empty());
+  }
+
+  #[test]
+  fn scoped_retention_uses_complete_units_and_matching_sibling_groups() {
+    use serde_json::json;
+
+    let mut tree = json!({
+      "p": {"reap":{"version":1,"keep":{"reason":"runs"},
+        "children":[{"pattern":"run-*","max_age_days":1}] }},
+      "p/run-old": {"age_days":20},
+      "p/run-old/selected": {"age_days":20,"type":"file","bytes":20},
+      "p/run-new": {"age_days":2},
+      "p/run-new/data": {"age_days":2,"type":"file","bytes":20},
+      "p/unmatched": {"age_days":0}
+    });
+    assert_eq!(scoped(tree.clone(), "p/run-old/selected").removals.len(), 1);
+    tree["p/run-old/fresh"] = json!({"age_days":0,"type":"file","bytes":1});
+    assert!(scoped(tree.clone(), "p/run-old/selected")
+      .removals
+      .is_empty());
+    tree.as_object_mut().unwrap().remove("p/run-old/fresh");
+    for rule in [
+      json!({"pattern":"run-*","keep_newest":1,"max_age_days":1}),
+      json!({"pattern":"run-*","max_count":1}),
+      json!({"pattern":"run-*","max_bytes":20}),
+    ] {
+      tree["p"]["reap"]["children"] = json!([rule]);
+      let result = scoped(tree.clone(), "p/run-old/selected");
+      assert_eq!(result.removals.len(), 1);
+      assert_eq!(result.removals[0].path, Path::new("p/run-old/selected"));
+      assert!(scoped(tree.clone(), "p/run-new").removals.is_empty());
+    }
+    tree["p/run-new"]["reap"] = json!({"version":1,"keep":{"reason":"owned run"}});
+    assert!(scoped(tree.clone(), "p/run-old/selected")
+      .removals
+      .is_empty());
+    tree["p"]["reap"]["children"] = json!([
+      {"pattern":"run-*","max_count":0},
+      {"pattern":"*-new","max_count":0}
+    ]);
+    let result = scoped(tree, "p/run-old/selected");
+    assert!(result.removals.is_empty());
+    assert!(result.invalid.contains_key(Path::new("p")));
   }
 
   #[test]
