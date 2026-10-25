@@ -31,6 +31,13 @@
   Exact current-sequence retries return the retained launch. Retired sequences cannot create another process.
   Each helper slot has the same durable sequence rule. Old helper requests cannot become new intents.
   Every retained grant, helper, and exit response requires current journal-directory, lock, and header bindings.
+- **C8** — A granted worker can request one helper at a time over its private channel.
+  The coordinator selects the slot, sequence, token, and native child identity; a request supplies none of those ownership facts.
+  Task and physical-resource validation precede any new intent or process.
+  Helpers cannot request helpers. Duplicate, out-of-order, malformed, or overlapping requests refuse complete assessment.
+  A successful helper reply follows complete result framing, EOF, native child exit, and its durable exit observation.
+  Cancellation, occupied slots, incomplete output, and uncertain ownership cannot become successful helper evidence.
+  Coordinator loss closes the private channel; recovery never repeats uncertain work to reconstruct its reply.
 
 ## Boundary
 
@@ -53,7 +60,11 @@ The coordinator supplies a bounded task with the same complete physical reservat
 The helper has a separate token, private socket, durable intent, native identity, and grant.
 Helpers cannot create helpers. The coordinator retains, polls, and releases each returned handle.
 An existing unresolved helper returns retained ownership, not another process or completed evidence.
-The same hidden worker entry handles helper grants; it does not accept a worker/client helper request.
+The same hidden worker entry handles helper grants.
+After the grant, a private role marker distinguishes a worker from a helper.
+Only worker channels accept monotonically numbered helper requests.
+The coordinator supervises the returned helper handles without filesystem or process work in control reply handlers.
+The private request path is not a public service command or permission to run arbitrary executables.
 
 Public Check and internal Files use owned workers. Native Git/activity helper adapters remain open.
 The parent launcher must retain its owned child handles and supply identities from those children.
@@ -101,3 +112,9 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 | C6 | `worker::tests::invalid_native_directory_identities_cannot_be_complete_resolver_evidence` |
 | C1, C3, C4, C5, C7 | `worker::tests::owned_helpers_use_their_own_tokens_and_keep_worker_reservations` |
 | C1, C3, C4, C5 | `worker::tests::helper_runtime_refuses_ungranted_workers_and_retains_cancelled_ungranted_helpers` |
+| C3, C4, C8 | `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |
+| C8 | `worker::tests::private_helper_client_refuses_wrong_incomplete_and_mismatched_replies` |
+| C3, C4, C8 | `worker::tests::bad_private_helper_requests_never_create_a_child_or_replace_terminal_evidence` |
+| C8 | `worker::tests::exited_worker_request_is_local_refusal_not_coordinator_failure`; `worker::tests::incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence` |
+| C4, C8 | `worker::tests::cancelled_and_occupied_private_requests_refuse_without_new_intents` |
+| C3, C4, C5, C8 | `worker::tests::private_pending_helpers_survive_bad_worker_output_and_worker_exit` |

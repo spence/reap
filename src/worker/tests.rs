@@ -57,10 +57,10 @@ fn spawned(result: Start) -> Owned {
   }
 }
 
-fn complete(owned: &mut Owned) -> Completion {
+fn complete(owned: &mut Owned, journal: &mut Journal) -> Completion {
   let deadline = Instant::now() + Duration::from_secs(5);
   loop {
-    if let Some(done) = owned.poll().unwrap() {
+    if let Some(done) = owned.poll(journal).unwrap() {
       return done;
     }
     assert!(Instant::now() < deadline, "owned resolver did not exit");
@@ -104,7 +104,7 @@ fn production_resolver_retains_ownership_across_restart_and_never_respawns_a_ret
     start(&mut journal, &waiting, 1, task.clone()).unwrap(),
     Start::Busy
   ));
-  assert!(owned.poll().unwrap().is_none());
+  assert!(owned.poll(&mut journal).unwrap().is_none());
   assert!(!owned.release(&mut journal).unwrap());
   drop(journal);
 
@@ -115,16 +115,16 @@ fn production_resolver_retains_ownership_across_restart_and_never_respawns_a_ret
   ));
   owned.deliver(&mut journal).unwrap();
   assert!(owned.deliver(&mut journal).is_err());
-  let done = complete(&mut owned);
+  let done = complete(&mut owned, &mut journal);
   assert_eq!(done.exit_code, 1);
   assert!(matches!(done.report, Ok(Report::Refused { .. })));
   assert!(owned.release(&mut journal).unwrap());
-  assert!(owned.poll().is_err());
+  assert!(owned.poll(&mut journal).is_err());
 
   let mut next = spawned(start(&mut journal, &waiting, 1, task).unwrap());
   next.deliver(&mut journal).unwrap();
   assert!(matches!(
-    complete(&mut next).report,
+    complete(&mut next, &mut journal).report,
     Ok(Report::Refused { .. })
   ));
   assert!(next.release(&mut journal).unwrap());
@@ -141,7 +141,7 @@ fn ungranted_runtime_exit_has_no_target_result_and_cannot_clear_an_ambiguous_int
   };
   let mut owned = spawned(start(&mut journal, &key, 1, task.clone()).unwrap());
   let reserved = journal.launch(&key).unwrap().unwrap();
-  let done = complete(&mut owned);
+  let done = complete(&mut owned, &mut journal);
   assert_eq!(done.exit_code, 1);
   assert!(matches!(done.report, Ok(Report::Refused { .. })));
   assert!(!owned.release(&mut journal).unwrap());
@@ -170,7 +170,7 @@ fn granted_native_resolver_returns_complete_identity_and_physical_resources_with
     let key = admit(&mut journal);
     let mut owned = spawned(start(&mut journal, &key, 1, Task::Resolve { directory }).unwrap());
     owned.deliver(&mut journal).unwrap();
-    let done = complete(&mut owned);
+    let done = complete(&mut owned, &mut journal);
     assert_eq!(done.exit_code, 0);
     assert_eq!(
       done.report.unwrap(),
@@ -179,6 +179,12 @@ fn granted_native_resolver_returns_complete_identity_and_physical_resources_with
         physical_volumes: expected_volumes.clone(),
       }
     );
+    let launch = journal.launch(&key).unwrap().unwrap();
+    let helper = launch.helpers[0]
+      .as_ref()
+      .expect("native worker requested its identity probe");
+    assert!(helper.exited());
+    assert_ne!(helper.token, launch.worker.token);
     assert!(owned.release(&mut journal).unwrap());
   }
   assert_eq!(
@@ -287,7 +293,7 @@ fn owned_helpers_use_their_own_tokens_and_keep_worker_reservations() {
   ));
   assert_eq!(journal.launch(&key).unwrap(), Some(launch));
   for child in [&mut first, &mut second] {
-    let done = complete(child);
+    let done = complete(child, &mut journal);
     assert_eq!(done.exit_code, 0);
     assert!(matches!(done.report, Ok(Report::Resolved { .. })));
   }
@@ -306,10 +312,10 @@ fn owned_helpers_use_their_own_tokens_and_keep_worker_reservations() {
     matches!(parent.start_helper(&mut journal, 0, 1, &first_token, task.clone()).unwrap(),
     Start::Retained(value) if value.helpers[0].as_ref().unwrap().token == next_token)
   );
-  assert_eq!(complete(&mut replacement).exit_code, 0);
+  assert_eq!(complete(&mut replacement, &mut journal).exit_code, 0);
   assert!(replacement.release(&mut journal).unwrap());
   drop(resume);
-  complete(&mut parent);
+  complete(&mut parent, &mut journal);
   assert!(!parent.release(&mut journal).unwrap());
   assert!(matches!(
     start(&mut journal, &waiting, 1, task.clone()).unwrap(),
@@ -323,7 +329,7 @@ fn owned_helpers_use_their_own_tokens_and_keep_worker_reservations() {
   );
   let mut next = spawned(start(&mut journal, &waiting, 1, task).unwrap());
   next.deliver(&mut journal).unwrap();
-  assert_eq!(complete(&mut next).exit_code, 0);
+  assert_eq!(complete(&mut next, &mut journal).exit_code, 0);
   assert!(next.release(&mut journal).unwrap());
 }
 
@@ -361,7 +367,7 @@ fn helper_runtime_refuses_ungranted_workers_and_retains_cancelled_ungranted_help
   );
   journal.request_cancel(&key, 2).unwrap();
   assert!(helper.deliver(&mut journal).is_err());
-  let done = complete(&mut helper);
+  let done = complete(&mut helper, &mut journal);
   assert_eq!(done.exit_code, 1);
   assert!(matches!(done.report, Ok(Report::Refused { .. })));
   assert!(!helper.release(&mut journal).unwrap());
@@ -375,7 +381,7 @@ fn helper_runtime_refuses_ungranted_workers_and_retains_cancelled_ungranted_help
     .start_helper(&mut journal, 1, 1, &random_token().unwrap(), task)
     .is_err());
   drop(resume);
-  complete(&mut parent);
+  complete(&mut parent, &mut journal);
   assert!(!parent.release(&mut journal).unwrap());
   let launch = journal.launch(&key).unwrap().unwrap();
   assert!(matches!(
@@ -389,24 +395,427 @@ fn helper_runtime_refuses_ungranted_workers_and_retains_cancelled_ungranted_help
   );
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence() {
+  let fixture = Fixture::new();
+  fs::write(fixture.0.join("valuable"), b"framing survivor").unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let key = admit(&mut journal);
+  let mut owned = spawned(
+    start(
+      &mut journal,
+      &key,
+      1,
+      Task::Resolve {
+        directory: fixture.0.clone(),
+      },
+    )
+    .unwrap(),
+  );
+  owned.pipe.shutdown(std::net::Shutdown::Both).unwrap();
+  owned.child.wait().unwrap();
   let body = serde_json::to_vec(&Report::Refused {
     reason: "explicit refusal".into(),
   })
   .unwrap();
   let mut frame = (body.len() as u32).to_be_bytes().to_vec();
   frame.extend_from_slice(&body);
-  assert!(matches!(
-    decode_report(&frame).unwrap(),
-    Report::Refused { .. }
-  ));
-  for length in 0..frame.len() {
-    assert!(decode_report(&frame[..length]).is_err());
-  }
+  let mut cases: Vec<(Vec<u8>, bool)> = (0..frame.len())
+    .map(|n| (frame[..n].to_vec(), false))
+    .collect();
+  cases.push((frame.clone(), true));
   frame.push(0);
-  assert!(decode_report(&frame).is_err());
-  assert!(decode_report(&((MAX_PACKET + 1) as u32).to_be_bytes()).is_err());
+  cases.push((frame, false));
+  cases.push((0u32.to_be_bytes().to_vec(), false));
+  cases.push((((MAX_PACKET + 1) as u32).to_be_bytes().to_vec(), false));
+  let before = journal.launch(&key).unwrap();
+  for (bytes, valid) in cases {
+    let (pipe, mut peer) = UnixStream::pair().unwrap();
+    pipe.set_nonblocking(true).unwrap();
+    peer.write_all(&bytes).unwrap();
+    drop(peer);
+    owned.pipe = pipe;
+    owned.bytes.clear();
+    owned.report = None;
+    owned.incomplete = None;
+    owned.eof = false;
+    owned.finished = false;
+    let done = complete(&mut owned, &mut journal);
+    assert_eq!(
+      matches!(done.report, Ok(Report::Refused { .. })),
+      valid,
+      "bytes {}",
+      bytes.len()
+    );
+    assert_eq!(journal.launch(&key).unwrap(), before);
+  }
+  assert_eq!(
+    fs::read(fixture.0.join("valuable")).unwrap(),
+    b"framing survivor"
+  );
+}
+
+#[test]
+fn private_helper_client_refuses_wrong_incomplete_and_mismatched_replies() {
+  for case in [
+    "success",
+    "wrong_id",
+    "partial",
+    "oversized",
+    "refused",
+    "wrong_kind",
+    "invalid_identity",
+  ] {
+    let (mut client, mut server) = UnixStream::pair().unwrap();
+    let case = case.to_owned();
+    let expected_success = case == "success";
+    let thread = std::thread::spawn(move || {
+      let request: HelperRequest =
+        serde_json::from_slice(&receive_packet(&mut server).unwrap()).unwrap();
+      assert_eq!(request.request_id, 1);
+      if case == "oversized" {
+        server
+          .write_all(&((MAX_PACKET + 1) as u32).to_be_bytes())
+          .unwrap();
+        return;
+      }
+      if case == "partial" {
+        server.write_all(&10u32.to_be_bytes()).unwrap();
+        server.write_all(b"{").unwrap();
+        return;
+      }
+      let report = if case == "wrong_kind" {
+        Report::Checked {
+          terminal: crate::journal::Terminal {
+            exit_code: 0,
+            effects: 0,
+            detail: "{}".into(),
+          },
+        }
+      } else if case == "refused" {
+        Report::Refused {
+          reason: "incomplete probe".into(),
+        }
+      } else {
+        Report::Resolved {
+          directory: ObjectIdentity {
+            volume_uuid: "11111111-1111-1111-1111-111111111111".into(),
+            file_id: if case == "invalid_identity" {
+              "0".into()
+            } else {
+              "0000000000000001".into()
+            },
+          },
+          physical_volumes: vec!["fixture-physical".into()],
+        }
+      };
+      let reply = HelperReply {
+        request_id: if case == "wrong_id" { 2 } else { 1 },
+        result: Ok(report),
+      };
+      send_packet(&mut server, &serde_json::to_vec(&reply).unwrap()).unwrap();
+    });
+    let mut helpers = Helpers {
+      pipe: &mut client,
+      resources: &Resources::Resolver,
+      request_id: 0,
+    };
+    let result = helpers.run(Task::Resolve {
+      directory: PathBuf::from("/private/tmp"),
+    });
+    assert_eq!(result.is_ok(), expected_success);
+    thread.join().unwrap();
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn bad_private_helper_requests_never_create_a_child_or_replace_terminal_evidence() {
+  for case in ["out_of_order", "nested", "after_result", "malformed"] {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("valuable"), b"protocol survivor").unwrap();
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let key = admit(&mut journal);
+    let task = Task::Resolve {
+      directory: fixture.0.clone(),
+    };
+    let mut owned = spawned(start(&mut journal, &key, 1, task.clone()).unwrap());
+    let before = journal.launch(&key).unwrap();
+    let request = HelperRequest {
+      request_id: if case == "out_of_order" { 2 } else { 1 },
+      task,
+    };
+    let body = if case == "malformed" {
+      b"{\"request_id\":1,\"pid\":7}".to_vec()
+    } else {
+      serde_json::to_vec(&request).unwrap()
+    };
+    owned.bytes = (body.len() as u32).to_be_bytes().to_vec();
+    owned.bytes.extend_from_slice(&body);
+    if case == "nested" {
+      owned.process = random_token().unwrap();
+    }
+    if case == "after_result" {
+      owned.report = Some(Report::Refused {
+        reason: "original result".into(),
+      });
+    }
+    owned.messages(&mut journal).unwrap();
+    assert!(owned.incomplete.is_some());
+    assert!(owned.helper.is_none());
+    assert_eq!(journal.launch(&key).unwrap(), before);
+    assert!(complete(&mut owned, &mut journal).report.is_err());
+    assert_eq!(
+      fs::read(fixture.0.join("valuable")).unwrap(),
+      b"protocol survivor"
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn exited_worker_request_is_local_refusal_not_coordinator_failure() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let key = admit(&mut journal);
+  let mut owned = spawned(
+    start(
+      &mut journal,
+      &key,
+      1,
+      Task::ResolveCheck {
+        input: Prepared {
+          request: "invalid native intent".into(),
+          context: "private caller".into(),
+          authority: "no cleanup permission".into(),
+          volumes: vec![],
+        },
+      },
+    )
+    .unwrap(),
+  );
+  owned.deliver(&mut journal).unwrap();
+  owned.child.wait().unwrap();
+  let before = journal.launch(&key).unwrap();
+  let body = serde_json::to_vec(&HelperRequest {
+    request_id: 1,
+    task: Task::Resolve {
+      directory: fixture.0.clone(),
+    },
+  })
+  .unwrap();
+  owned.bytes = (body.len() as u32).to_be_bytes().to_vec();
+  owned.bytes.extend_from_slice(&body);
+  assert!(owned.messages(&mut journal).is_ok());
+  assert!(owned.incomplete.is_some());
+  assert!(owned.helper.is_none());
+  assert_eq!(journal.launch(&key).unwrap(), before);
+  assert!(complete(&mut owned, &mut journal).report.is_err());
+}
+
+#[cfg(target_os = "macos")]
+fn granted_private_peer() -> (Fixture, Journal, Owned, UnixStream, ResumeOwned) {
+  let fixture = Fixture::new();
+  fs::write(fixture.0.join("valuable"), b"private helper survivor").unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let key = admit(&mut journal);
+  let mut owned = spawned(
+    start(
+      &mut journal,
+      &key,
+      1,
+      Task::ResolveCheck {
+        input: Prepared {
+          request: "invalid native intent".into(),
+          context: "private caller".into(),
+          authority: "no cleanup permission".into(),
+          volumes: vec![],
+        },
+      },
+    )
+    .unwrap(),
+  );
+  let identity = ProcessIdentity::read(owned.pid()).unwrap().unwrap();
+  let resume = ResumeOwned(identity.clone());
+  // SAFETY: the fixture created this exact child; its identity guard resumes it on every exit.
+  assert_eq!(unsafe { libc::kill(identity.pid as i32, libc::SIGSTOP) }, 0);
+  owned.deliver(&mut journal).unwrap();
+  let (pipe, peer) = UnixStream::pair().unwrap();
+  pipe.set_nonblocking(true).unwrap();
+  owned.pipe = pipe;
+  (fixture, journal, owned, peer, resume)
+}
+
+fn inject_private<T: Serialize>(owned: &mut Owned, value: &T, journal: &mut Journal) {
+  let body = serde_json::to_vec(value).unwrap();
+  owned.bytes = (body.len() as u32).to_be_bytes().to_vec();
+  owned.bytes.extend_from_slice(&body);
+  owned.messages(journal).unwrap();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn cancelled_and_occupied_private_requests_refuse_without_new_intents() {
+  for cancelled in [true, false] {
+    let (fixture, mut journal, mut owned, mut peer, resume) = granted_private_peer();
+    if cancelled {
+      journal.request_cancel(&owned.key, 2).unwrap();
+    } else {
+      for slot in 0..2 {
+        journal
+          .reserve_helper(
+            &owned.key,
+            &owned.launch.token,
+            slot,
+            1,
+            &random_token().unwrap(),
+          )
+          .unwrap();
+      }
+    }
+    let before = journal.launch(&owned.key).unwrap();
+    inject_private(
+      &mut owned,
+      &HelperRequest {
+        request_id: 1,
+        task: Task::Resolve {
+          directory: fixture.0.clone(),
+        },
+      },
+      &mut journal,
+    );
+    let reply: HelperReply = serde_json::from_slice(&receive_packet(&mut peer).unwrap()).unwrap();
+    assert_eq!(reply.request_id, 1);
+    assert!(reply.result.is_err());
+    assert!(owned.helper.is_none());
+    assert_eq!(journal.launch(&owned.key).unwrap(), before);
+    drop(peer);
+    drop(resume);
+    assert!(complete(&mut owned, &mut journal).report.is_err());
+    assert_eq!(
+      fs::read(fixture.0.join("valuable")).unwrap(),
+      b"private helper survivor"
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn private_pending_helpers_survive_bad_worker_output_and_worker_exit() {
+  for case in [
+    "overlap",
+    "duplicate",
+    "early_result",
+    "worker_exit",
+    "ungranted",
+    "incomplete_output",
+  ] {
+    let (fixture, mut journal, mut owned, mut peer, resume) = granted_private_peer();
+    let token = random_token().unwrap();
+    let mut helper = spawned(
+      owned
+        .start_helper(
+          &mut journal,
+          0,
+          1,
+          &token,
+          Task::Resolve {
+            directory: fixture.0.clone(),
+          },
+        )
+        .unwrap(),
+    );
+    let mut helper_resume = None;
+    if case != "ungranted" {
+      let identity = ProcessIdentity::read(helper.pid()).unwrap().unwrap();
+      helper_resume = Some(ResumeOwned(identity.clone()));
+      // SAFETY: this exact helper was created above and remains owned by this fixture.
+      assert_eq!(unsafe { libc::kill(identity.pid as i32, libc::SIGSTOP) }, 0);
+      helper.deliver(&mut journal).unwrap();
+    }
+    if case == "incomplete_output" {
+      let (pipe, mut output) = UnixStream::pair().unwrap();
+      pipe.set_nonblocking(true).unwrap();
+      output.write_all(&[0, 0]).unwrap();
+      drop(output);
+      helper.pipe = pipe;
+      drop(helper_resume.take());
+    }
+    owned.last_request = 1;
+    owned.helper = Some(PendingHelper {
+      request_id: 1,
+      owned: Box::new(helper),
+      done: None,
+    });
+    let before = journal.launch(&owned.key).unwrap();
+    match case {
+      "overlap" | "duplicate" => inject_private(
+        &mut owned,
+        &HelperRequest {
+          request_id: if case == "duplicate" { 1 } else { 2 },
+          task: Task::Resolve {
+            directory: fixture.0.clone(),
+          },
+        },
+        &mut journal,
+      ),
+      "early_result" => inject_private(
+        &mut owned,
+        &Report::Refused {
+          reason: "premature result".into(),
+        },
+        &mut journal,
+      ),
+      _ => {}
+    }
+    assert_eq!(journal.launch(&owned.key).unwrap(), before);
+    if matches!(case, "overlap" | "duplicate" | "early_result") {
+      assert!(owned.incomplete.is_some());
+      assert_eq!(
+        peer.read(&mut [0; 1]).unwrap(),
+        0,
+        "protocol refusal closes the reply direction"
+      );
+    }
+    if matches!(case, "ungranted" | "incomplete_output") {
+      let deadline = Instant::now() + Duration::from_secs(5);
+      while owned.helper.is_some() {
+        assert!(owned.poll(&mut journal).unwrap().is_none());
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+      }
+      let reply: HelperReply = serde_json::from_slice(&receive_packet(&mut peer).unwrap()).unwrap();
+      assert!(reply.result.is_err());
+      let current = journal.launch(&owned.key).unwrap().unwrap();
+      assert_eq!(
+        current.helpers[0].as_ref().unwrap().exited(),
+        case == "incomplete_output"
+      );
+    }
+    drop(peer);
+    drop(resume);
+    owned.child.wait().unwrap();
+    if helper_resume.is_some() {
+      assert!(owned.poll(&mut journal).unwrap().is_none());
+      assert!(owned.helper.is_some());
+      assert!(!journal
+        .observe_exit(&owned.key, &owned.launch.token, &owned.launch.worker.token)
+        .unwrap());
+    }
+    drop(helper_resume);
+    assert!(complete(&mut owned, &mut journal).report.is_err());
+    assert!(owned.helper.is_none());
+    let current = journal.launch(&owned.key).unwrap().unwrap();
+    assert_eq!(
+      current.helpers[0].as_ref().unwrap().exited(),
+      case != "ungranted"
+    );
+    assert_eq!(
+      fs::read(fixture.0.join("valuable")).unwrap(),
+      b"private helper survivor"
+    );
+  }
 }
 
 #[test]
@@ -415,17 +824,11 @@ fn invalid_native_directory_identities_cannot_be_complete_resolver_evidence() {
     volume_uuid: "12345678-90ab-cdef-1234-567890abcdef".into(),
     file_id: "0000000000000001".into(),
   };
-  let frame = |directory| {
-    let body = serde_json::to_vec(&Report::Resolved {
-      directory,
-      physical_volumes: vec!["fixture-volume".into()],
-    })
-    .unwrap();
-    let mut frame = (body.len() as u32).to_be_bytes().to_vec();
-    frame.extend_from_slice(&body);
-    frame
+  let report = |directory| Report::Resolved {
+    directory,
+    physical_volumes: vec!["fixture-volume".into()],
   };
-  assert!(decode_report(&frame(valid.clone())).is_ok());
+  assert!(validate_report(&report(valid.clone())).is_ok());
   for (field, value) in [
     (0, ""),
     (1, ""),
@@ -441,7 +844,7 @@ fn invalid_native_directory_identities_cannot_be_complete_resolver_evidence() {
       directory.file_id = value.into();
     }
     assert!(
-      decode_report(&frame(directory)).is_err(),
+      validate_report(&report(directory)).is_err(),
       "field {field}: {value}"
     );
   }
@@ -467,12 +870,6 @@ fn invalid_task_cannot_create_a_reservation_or_process() {
 
 #[test]
 fn invalid_check_terminal_or_incomplete_scope_cannot_be_worker_success() {
-  let frame = |report: Report| {
-    let body = serde_json::to_vec(&report).unwrap();
-    let mut frame = (body.len() as u32).to_be_bytes().to_vec();
-    frame.extend_from_slice(&body);
-    frame
-  };
   for (exit_code, effects, detail) in [
     (0, 1, "invalid effects".into()),
     (75, 0, "pending is not terminal".into()),
@@ -483,10 +880,10 @@ fn invalid_check_terminal_or_incomplete_scope_cannot_be_worker_success() {
       effects,
       detail,
     };
-    assert!(decode_report(&frame(Report::Checked { terminal })).is_err());
+    assert!(validate_report(&Report::Checked { terminal }).is_err());
   }
   let report: Report = serde_json::from_value(serde_json::json!({
     "result": "check_resolved", "scope": {"project": "/", "physical_volumes": ["invented-domain"], "objects": []}
   })).unwrap();
-  assert!(decode_report(&frame(report)).is_err());
+  assert!(validate_report(&report).is_err());
 }

@@ -542,7 +542,7 @@ fn oversized_combined_task_fails_only_its_job_without_creating_a_bulk_process() 
   };
   resolver.deliver(&mut journal).unwrap();
   let deadline = Instant::now() + Duration::from_secs(10);
-  while resolver.poll().unwrap().is_none() {
+  while resolver.poll(&mut journal).unwrap().is_none() {
     assert!(Instant::now() < deadline);
     std::thread::sleep(Duration::from_millis(5));
   }
@@ -1078,7 +1078,7 @@ fn restart_retains_surviving_child_and_compaction_preserves_recovery_evidence() 
   // SAFETY: no replacement or foreign process is signalled; this is the same owned stopped child.
   assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGCONT) }, 0);
   let deadline = Instant::now() + Duration::from_secs(10);
-  while owned.poll().unwrap().is_none() {
+  while owned.poll(&mut journal).unwrap().is_none() {
     assert!(Instant::now() < deadline);
     std::thread::sleep(Duration::from_millis(10));
   }
@@ -1143,7 +1143,7 @@ fn durable_resolver_and_bulk_results_recover_across_each_publication_boundary() 
       resolver.deliver(&mut journal).unwrap();
       let deadline = Instant::now() + Duration::from_secs(10);
       let scope = loop {
-        if let Some(done) = resolver.poll().unwrap() {
+        if let Some(done) = resolver.poll(&mut journal).unwrap() {
           let scope = match done.report.unwrap() {
             Report::CheckResolved { scope } if !files => scope,
             Report::FilesResolved { scope } if files => scope,
@@ -1173,7 +1173,7 @@ fn durable_resolver_and_bulk_results_recover_across_each_publication_boundary() 
       let bulk = scheduler.jobs.front_mut().unwrap().owned.as_mut().unwrap();
       let deadline = Instant::now() + Duration::from_secs(10);
       let result = loop {
-        if let Some(done) = bulk.poll().unwrap() {
+        if let Some(done) = bulk.poll(&mut journal).unwrap() {
           let terminal = match done.report.unwrap() {
             Report::Checked { terminal } if !files => terminal,
             Report::FilesPreviewed { terminal } if files => terminal,

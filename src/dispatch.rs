@@ -158,7 +158,7 @@ impl Job {
 
   fn advance(&mut self, journal: &mut Journal, now: u64) -> io::Result<bool> {
     if let Some(owned) = self.owned.as_mut() {
-      let Some(done) = owned.poll()? else {
+      let Some(done) = owned.poll(journal)? else {
         return Ok(false);
       };
       // only a durable `Result` outranks cancellation; this worker result has not been staged

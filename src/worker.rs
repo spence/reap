@@ -45,6 +45,18 @@ pub enum Task {
 }
 
 impl Task {
+  /// Require the result kind belonging to this exact operation.
+  fn accepts(&self, report: &Report) -> bool {
+    matches!(
+      (self, report),
+      (Self::Resolve { .. }, Report::Resolved { .. })
+        | (Self::ResolveCheck { .. }, Report::CheckResolved { .. })
+        | (Self::ResolveFiles { .. }, Report::FilesResolved { .. })
+        | (Self::Check { .. }, Report::Checked { .. })
+        | (Self::PreviewFiles { .. }, Report::FilesPreviewed { .. })
+    )
+  }
+
   /// Return the complete physical reservation required by this task.
   fn resources(&self) -> Resources {
     match self {
@@ -80,8 +92,13 @@ impl Task {
     Ok(())
   }
 
-  fn execute(&self, grant: &Grant) -> io::Result<Report> {
+  fn execute(&self, grant: &Grant, helpers: Option<&mut Helpers<'_>>) -> io::Result<Report> {
     self.validate()?;
+    if matches!(self, Self::Resolve { .. }) {
+      if let Some(helpers) = helpers {
+        return helpers.run(self.clone());
+      }
+    }
     match self {
       Self::ResolveCheck { input } if grant.resources == Resources::Resolver => {
         return crate::dispatch::resolve(input).map(|scope| Report::CheckResolved { scope });
@@ -164,12 +181,92 @@ pub enum Report {
   },
 }
 
+/// One private request. The coordinator, not the worker, chooses process ownership facts.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct HelperRequest {
+  request_id: u64,
+  task: Task,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Message {
+  Request(HelperRequest),
+  Result(Report),
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct HelperReply {
+  request_id: u64,
+  result: Result<Report, String>,
+}
+
+/// Single-threaded worker-side helper requests over its granted private channel.
+/// Waiting here cannot extend a client response. EOF refuses rather than resubmitting work.
+pub(crate) struct Helpers<'a> {
+  pipe: &'a mut UnixStream,
+  resources: &'a Resources,
+  request_id: u64,
+}
+
+impl Helpers<'_> {
+  pub(crate) fn run(&mut self, task: Task) -> io::Result<Report> {
+    task.validate()?;
+    if task.resources() != *self.resources {
+      return Err(invalid(
+        "helper request changes its worker's physical reservation",
+      ));
+    }
+    let request_id = self
+      .request_id
+      .checked_add(1)
+      .ok_or_else(|| invalid("helper request sequence exhausted"))?;
+    let request = HelperRequest { request_id, task };
+    let bytes = serde_json::to_vec(&request)?;
+    if bytes.len() > MAX_PACKET {
+      return Err(invalid("helper request exceeds its bound"));
+    }
+    self.request_id = request_id;
+    send_packet(self.pipe, &bytes)?;
+    // only this worker waits; the fixed coordinator continues polling and serving control
+    self.pipe.set_read_timeout(None)?;
+    let mut length = [0; 4];
+    self.pipe.read_exact(&mut length)?;
+    let length = u32::from_be_bytes(length) as usize;
+    if length == 0 || length > MAX_PACKET {
+      return Err(invalid("invalid helper reply size"));
+    }
+    let mut bytes = vec![0; length];
+    self.pipe.read_exact(&mut bytes)?;
+    let reply: HelperReply = serde_json::from_slice(&bytes)?;
+    if reply.request_id != self.request_id {
+      return Err(invalid("helper reply belongs to another request"));
+    }
+    let report = reply.result.map_err(|reason| invalid(&reason))?;
+    validate_report(&report)?;
+    if !request.task.accepts(&report) {
+      return Err(invalid(
+        "helper result does not match its requested operation",
+      ));
+    }
+    Ok(report)
+  }
+}
+
+struct PendingHelper {
+  request_id: u64,
+  owned: Box<Owned>,
+  done: Option<Completion>,
+}
+
 /// The only successful start result owns a newly created child and its private channel.
 pub enum Start {
   Spawned(Owned),
   Retained(Launch),
   Busy,
-  /// Deterministic task rejection before this call reads or changes launch ownership.
+  /// Refusal before a fresh reservation or process; retained ownership is not released.
   Rejected(String),
 }
 
@@ -183,6 +280,9 @@ pub struct Owned {
   task: Vec<u8>,
   delivery_attempted: bool,
   bytes: Vec<u8>,
+  report: Option<Report>,
+  helper: Option<PendingHelper>,
+  last_request: u64,
   incomplete: Option<String>,
   eof: bool,
   finished: bool,
@@ -249,6 +349,9 @@ fn spawn(key: &Key, launch: Launch, process: String, task: Vec<u8>) -> io::Resul
     task,
     delivery_attempted: false,
     bytes: Vec::new(),
+    report: None,
+    helper: None,
+    last_request: 0,
     incomplete: None,
     eof: false,
     finished: false,
@@ -262,7 +365,7 @@ impl Owned {
   }
 
   /// Reserve and create one direct helper for this exact live, granted worker.
-  /// The coordinator fixes the task; this is not an arbitrary worker/client RPC.
+  /// The coordinator supplies the validated task. Public clients have no helper operation.
   /// Helpers cannot create helpers. The caller retains, polls, and releases each returned handle.
   /// Retries return retained ownership, not completion or another process.
   pub fn start_helper(
@@ -309,10 +412,15 @@ impl Owned {
       }
     }
     if self.child.try_wait()?.is_some() {
-      return Err(invalid("helper worker exited before reservation"));
+      return Ok(Start::Rejected(
+        "helper worker exited before reservation".into(),
+      ));
     }
-    let identity = ProcessIdentity::read(self.child.id())?
-      .ok_or_else(|| invalid("helper worker exited before reservation"))?;
+    let Some(identity) = ProcessIdentity::read(self.child.id())? else {
+      return Ok(Start::Rejected(
+        "helper worker exited before reservation".into(),
+      ));
+    };
     if !matches!(&current.worker.state,
       crate::launch::ProcessState::Granted { identity: granted, .. } if granted == &identity)
     {
@@ -335,17 +443,23 @@ impl Owned {
     self.pipe.set_nonblocking(false)?;
     let result = grant
       .send(&mut self.pipe)
+      .and_then(|()| {
+        self
+          .pipe
+          .write_all(&[u8::from(self.process != self.launch.worker.token)])
+      })
       .and_then(|()| send_packet(&mut self.pipe, &self.task));
     self.pipe.set_nonblocking(true)?;
     result
   }
 
-  /// Poll at most 64 KiB without a blocking read or completion wait.
-  /// Success requires EOF and native child exit; truncated or extra output refuses assessment.
-  pub fn poll(&mut self) -> io::Result<Option<Completion>> {
+  /// Poll bounded private frames and owned helpers outside control response handlers.
+  /// Final evidence requires EOF, native exit, and complete helper supervision.
+  pub fn poll(&mut self, journal: &mut Journal) -> io::Result<Option<Completion>> {
     if self.finished {
       return Err(invalid("worker completion was already consumed"));
     }
+    self.progress_helper(journal)?;
     let mut buffer = [0; 8192];
     for _ in 0..POLL_BYTES / buffer.len() {
       if self.eof {
@@ -354,30 +468,34 @@ impl Owned {
       match self.pipe.read(&mut buffer) {
         Ok(0) => self.eof = true,
         Ok(count) => {
-          if self.bytes.len() + count <= MAX_PACKET + 4 && self.incomplete.is_none() {
+          if self.incomplete.is_none() && self.bytes.len() + count <= MAX_PACKET + 4 {
             self.bytes.extend_from_slice(&buffer[..count]);
+            self.messages(journal)?;
           } else {
-            self.incomplete = Some("worker result exceeds its bound".into());
+            self.protocol_failure("worker output exceeds its bound");
           }
         }
         Err(reason) if reason.kind() == io::ErrorKind::WouldBlock => break,
         Err(reason) if reason.kind() == io::ErrorKind::Interrupted => continue,
         Err(reason) => {
-          self.incomplete = Some(reason.to_string());
+          self.protocol_failure(&reason.to_string());
           self.eof = true;
         }
       }
     }
-    if !self.eof {
+    let status = self.child.try_wait()?;
+    if !self.eof || status.is_none() || self.helper.is_some() {
       return Ok(None);
     }
-    let Some(status) = self.child.try_wait()? else {
-      return Ok(None);
-    };
     self.finished = true;
+    let status = status.expect("observed exit");
     let mut report = match self.incomplete.take() {
       Some(reason) => Err(reason),
-      None => decode_report(&self.bytes).map_err(|reason| reason.to_string()),
+      None if !self.bytes.is_empty() => Err("worker output has an incomplete frame".into()),
+      None => self
+        .report
+        .take()
+        .ok_or_else(|| "worker has no complete result".into()),
     };
     if !status.success() && !matches!(report, Ok(Report::Refused { .. }) | Err(_)) {
       report = Err("worker exited without successful completion".into());
@@ -386,6 +504,158 @@ impl Owned {
       exit_code: status.code().unwrap_or(1),
       report,
     }))
+  }
+
+  /// Consume complete frames only. Control requests never substitute for terminal evidence.
+  fn messages(&mut self, journal: &mut Journal) -> io::Result<()> {
+    loop {
+      if self.bytes.is_empty() {
+        return Ok(());
+      }
+      if self.report.is_some() {
+        self.protocol_failure("worker has extra output after its result");
+        return Ok(());
+      }
+      let Some(header) = self.bytes.get(..4) else {
+        return Ok(());
+      };
+      let length = u32::from_be_bytes(header.try_into().expect("four bytes")) as usize;
+      if length == 0 || length > MAX_PACKET {
+        self.protocol_failure("invalid worker frame size");
+        return Ok(());
+      }
+      if self.bytes.len() < length + 4 {
+        return Ok(());
+      }
+      let message: Message = match serde_json::from_slice(&self.bytes[4..length + 4]) {
+        Ok(message) => message,
+        Err(reason) => {
+          self.protocol_failure(&reason.to_string());
+          return Ok(());
+        }
+      };
+      self.bytes.drain(..length + 4);
+      match message {
+        Message::Result(report) => {
+          if self.helper.is_some() {
+            self.protocol_failure("worker result precedes its helper reply");
+            return Ok(());
+          }
+          if let Err(reason) = validate_report(&report) {
+            self.protocol_failure(&reason.to_string());
+            return Ok(());
+          }
+          self.report = Some(report);
+        }
+        Message::Request(request) => self.request_helper(journal, request)?,
+      }
+    }
+  }
+
+  /// Choose ownership facts locally; a worker supplies only its next request number and task.
+  fn request_helper(&mut self, journal: &mut Journal, request: HelperRequest) -> io::Result<()> {
+    if self.process != self.launch.worker.token
+      || self.helper.is_some()
+      || Some(request.request_id) != self.last_request.checked_add(1)
+    {
+      self.protocol_failure("nested, overlapping, or out-of-order helper request");
+      return Ok(());
+    }
+    self.last_request = request.request_id;
+    if self.child.try_wait()?.is_some() {
+      self.protocol_failure("exited worker cannot request a new helper");
+      return Ok(());
+    }
+    if let Err(reason) = request.task.validate() {
+      return self.reply(request.request_id, Err(reason.to_string()));
+    }
+    if request.task.resources() != self.launch.resources || journal.cancel_requested(&self.key) {
+      return self.reply(
+        request.request_id,
+        Err("helper request is cancelled or changes physical resources".into()),
+      );
+    }
+    let launch = journal
+      .launch(&self.key)?
+      .ok_or_else(|| invalid("worker launch disappeared"))?;
+    let Some(slot) = launch
+      .helpers
+      .iter()
+      .position(|p| p.as_ref().is_none_or(|p| p.exited()))
+    else {
+      return self.reply(
+        request.request_id,
+        Err("helper slots remain occupied".into()),
+      );
+    };
+    let sequence = match &launch.helpers[slot] {
+      None => 1,
+      Some(process) => match process.sequence.checked_add(1) {
+        Some(sequence) => sequence,
+        None => return self.reply(request.request_id, Err("helper sequence exhausted".into())),
+      },
+    };
+    let token = crate::journal::random_token()?;
+    match self.start_helper(journal, slot, sequence, &token, request.task)? {
+      Start::Spawned(mut owned) => {
+        // a failed delivery retains its owned child and durable reservation
+        let _delivery = owned.deliver(journal);
+        self.helper = Some(PendingHelper {
+          request_id: request.request_id,
+          owned: Box::new(owned),
+          done: None,
+        });
+        Ok(())
+      }
+      Start::Rejected(reason) => self.reply(request.request_id, Err(reason)),
+      Start::Retained(_) | Start::Busy => self.reply(
+        request.request_id,
+        Err("helper ownership remains unresolved".into()),
+      ),
+    }
+  }
+
+  /// Reap every created helper before replying, including after its worker loses the channel.
+  fn progress_helper(&mut self, journal: &mut Journal) -> io::Result<()> {
+    let Some(helper) = self.helper.as_mut() else {
+      return Ok(());
+    };
+    if helper.done.is_none() {
+      helper.done = helper.owned.poll(journal)?;
+    }
+    if helper.done.is_none() {
+      return Ok(());
+    }
+    let released = helper.owned.release(journal)?;
+    let helper = self.helper.take().expect("completed helper");
+    let done = helper.done.expect("complete result");
+    let result = match done.report {
+      Ok(Report::Refused { reason }) => Err(reason),
+      Ok(report) if released && done.exit_code == 0 => Ok(report),
+      Ok(_) => Err("helper exit or ownership is incomplete".into()),
+      Err(reason) => Err(reason),
+    };
+    self.reply(helper.request_id, result)
+  }
+
+  fn reply(&mut self, request_id: u64, result: Result<Report, String>) -> io::Result<()> {
+    let bytes = serde_json::to_vec(&HelperReply { request_id, result })?;
+    self.pipe.set_nonblocking(false)?;
+    let sent = send_packet(&mut self.pipe, &bytes);
+    self.pipe.set_nonblocking(true)?;
+    if let Err(reason) = sent {
+      self.protocol_failure(&reason.to_string());
+    }
+    Ok(())
+  }
+
+  /// Close the reply direction on bad input; retain and supervise all existing children.
+  fn protocol_failure(&mut self, reason: &str) {
+    self
+      .incomplete
+      .get_or_insert_with(|| reason.chars().take(2048).collect());
+    self.bytes.clear();
+    let _closed = self.pipe.shutdown(std::net::Shutdown::Write);
   }
 
   /// Release the reservation only after all exact native exit observations succeed.
@@ -403,6 +673,15 @@ pub fn run(launch: &str, process: &str) -> i32 {
   // SAFETY: this process entry transfers its sole inherited stdin socket to one owner.
   let mut pipe = unsafe { UnixStream::from_raw_fd(libc::STDIN_FILENO) };
   let result = Grant::receive(&mut pipe, launch, process).and_then(|grant| {
+    let mut role = [0; 1];
+    crate::launch::read_frame(
+      &mut pipe,
+      &mut role,
+      Instant::now() + Duration::from_secs(1),
+    )?;
+    if role[0] > 1 {
+      return Err(invalid("invalid private worker role"));
+    }
     let bytes = receive_packet(&mut pipe)?;
     let task: Task = serde_json::from_slice(&bytes)?;
     #[cfg(test)]
@@ -430,7 +709,16 @@ pub fn run(launch: &str, process: &str) -> i32 {
         }
       }
     }
-    task.execute(&grant)
+    if role[0] == 1 {
+      task.execute(&grant, None)
+    } else {
+      let mut helpers = Helpers {
+        pipe: &mut pipe,
+        resources: &grant.resources,
+        request_id: 0,
+      };
+      task.execute(&grant, Some(&mut helpers))
+    }
   });
   let (report, code) = match result {
     Ok(report) => (report, 0),
@@ -507,17 +795,8 @@ fn receive_packet(pipe: &mut UnixStream) -> io::Result<Vec<u8>> {
   Ok(bytes)
 }
 
-fn decode_report(bytes: &[u8]) -> io::Result<Report> {
-  let header: [u8; 4] = bytes
-    .get(..4)
-    .and_then(|value| value.try_into().ok())
-    .ok_or_else(|| invalid("worker result has no complete header"))?;
-  let length = u32::from_be_bytes(header) as usize;
-  if length == 0 || length > MAX_PACKET || length + 4 != bytes.len() {
-    return Err(invalid("worker result is incomplete or has trailing bytes"));
-  }
-  let report = serde_json::from_slice(&bytes[4..])?;
-  match &report {
+fn validate_report(report: &Report) -> io::Result<()> {
+  match report {
     Report::CheckResolved { scope } | Report::FilesResolved { scope } => scope.validate()?,
     Report::Checked { terminal }
       if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code != 0 =>
@@ -534,7 +813,7 @@ fn decode_report(bytes: &[u8]) -> io::Result<Report> {
   if let Report::Resolved {
     directory,
     physical_volumes,
-  } = &report
+  } = report
   {
     validate_identity(directory)?;
     Resources::Bulk {
@@ -542,7 +821,7 @@ fn decode_report(bytes: &[u8]) -> io::Result<Report> {
     }
     .validate()?;
   }
-  Ok(report)
+  Ok(())
 }
 
 /// Validate native identity syntax before phase evidence enters the journal.
