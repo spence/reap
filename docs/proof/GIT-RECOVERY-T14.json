@@ -1,0 +1,1473 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "source_revision": "a2886112b2b5914d3ec5610fee1a12466785be0e",
+  "scope": "Bound native branch, index and worktree recovery in internal read-only Files; no public/applying activation",
+  "source_files": {
+    "Cargo.toml": "0be89a9587d45732861eef2b63833abe0668a34a8b46b53d961c71c6dd2e03a1",
+    "Cargo.lock": "fd544bc211779f9ecd7f576de7f815f5453830608ff7cfab593b41ded2a2cec4",
+    "src/git_index.rs": "e04daf3761b733e6a78d7c4517ddb7d137d35642fbeee4ab26f241213f819c10",
+    "src/git_recovery.rs": "e47ce2b3cf9b44b0aafc9aebba4b992d86781c1ddaeb17a3f747d6c86e1aa94a",
+    "src/files.rs": "eef062904f5bf0904be9074ba46e6f182134ecfe0f69d8d1c92b3dd2cac6ca26",
+    "src/dispatch/tests.rs": "5fdf9bc63f548d18ba55fe6ac381e4a06ee7040a863b8374911a3469353489ff",
+    "README.md": "b7b3ab6cc4610ca5eff2a35d42daf7411f85f38ae3b1c01d270f5d7ee78f10ac",
+    "docs/specs/git-tracking.md": "28b1138fad999236c34c963a6c96fec4108484a8ce2724f21b333198654f12a1",
+    "docs/specs/job-execution.md": "ae3996b186e8b8956ae346a806688ed88a43a9f77d7029f1fe4c0a7743d4a1d4",
+    "AGENTS.md": "e870a29d8f7ba4d1cc0d13c03db75113d9f49cf2755daffbb64dfcc6cfc5caa2",
+    "tools/verify_control_macos.py": "4ba80a410e3a2bc53606f4d673329884d92150ed6ab9c50e215a4e6c8abf6eb6",
+    "docs/specs/worker-grants.md": "af87b3aad79490819c5c0d9b87f992354778951e960d061f7a8799484db11bce"
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "4d57fff41d6564efce8027714b28a791a655b040e8f465eba9c73407fe7dc82a",
+      "signature": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/git-recovery/frozen-reviewed/reap-unit\nIdentifier=dev.micro.reap.native-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=46495 flags=0x0(none) hashes=1447+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 8:44:59\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "declaration-tests": {
+      "sha256": "ebd0791dc74796a919044e28ae571a12aac42168f73e9d3affe6396724a17218",
+      "signature": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/git-recovery/frozen-reviewed/declaration-tests\nIdentifier=dev.micro.reap.declaration-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=4068 flags=0x0(none) hashes=121+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 8:44:59\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "reap-release": {
+      "sha256": "259860e44e9c35a08711117bfa381e669729d243d4ed5df4ab206d88ce32db42",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/git-recovery/frozen-reviewed/reap-release\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=8178 flags=0x0(none) hashes=250+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 8:44:59\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "signature": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/git-recovery/frozen-reviewed/fault.dylib\nIdentifier=dev.micro.reap.native-faults\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=288 flags=0x0(none) hashes=3+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 24, 2026 at 12:51:35\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    }
+  },
+  "installed": {
+    "catalyst": {
+      "sha256": "259860e44e9c35a08711117bfa381e669729d243d4ed5df4ab206d88ce32db42",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "9a5f96884c1994416f40313ddc0be9458b945a7366c56003f806535b9a4e6dce",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "9a5f96884c1994416f40313ddc0be9458b945a7366c56003f806535b9a4e6dce"
+      },
+      "version": "reap 0.1.0"
+    },
+    "catalyst-mini": {
+      "sha256": "259860e44e9c35a08711117bfa381e669729d243d4ed5df4ab206d88ce32db42",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "9a5f96884c1994416f40313ddc0be9458b945a7366c56003f806535b9a4e6dce",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "9a5f96884c1994416f40313ddc0be9458b945a7366c56003f806535b9a4e6dce"
+      },
+      "version": "reap 0.1.0"
+    }
+  },
+  "native_gates": {
+    "local": {
+      "recovery-reviewed": {
+        "passed": 6,
+        "receipt": "target/control-t13/git-recovery/local-recovery-reviewed/receipt.json",
+        "skipped": []
+      },
+      "tracking-reviewed": {
+        "passed": 11,
+        "receipt": "target/control-t13/git-recovery/local-tracking-reviewed/receipt.json",
+        "skipped": []
+      },
+      "dispatch-driver-reviewed": {
+        "passed": 24,
+        "receipt": "target/control-t13/git-recovery/local-dispatch-driver-reviewed/receipt.json",
+        "skipped": []
+      },
+      "installed-worker": {
+        "passed": 18,
+        "receipt": "target/control-t13/git-recovery/local-installed-worker/receipt.json",
+        "skipped": []
+      },
+      "installed-dispatch": {
+        "passed": 23,
+        "receipt": "target/control-t13/git-recovery/local-installed-dispatch/receipt.json",
+        "skipped": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+        ]
+      },
+      "native-exits-reviewed": [
+        {
+          "gate": "local-recovery-reviewed",
+          "exit": 0,
+          "elapsed": 10.581791749922559
+        },
+        {
+          "gate": "local-tracking-reviewed",
+          "exit": 0,
+          "elapsed": 3.1235040829051286
+        },
+        {
+          "gate": "local-dispatch-driver-reviewed",
+          "exit": 0,
+          "elapsed": 40.220126499887556
+        }
+      ],
+      "installed-exits": [
+        {
+          "gate": "local-installed-worker",
+          "exit": 0,
+          "elapsed": 7.9060754999518394
+        },
+        {
+          "gate": "local-installed-dispatch",
+          "exit": 0,
+          "elapsed": 34.32735229190439
+        },
+        {
+          "gate": "local-declaration",
+          "exit": 0,
+          "elapsed": 24.254818000132218
+        },
+        {
+          "gate": "local-preservation",
+          "exit": 0,
+          "elapsed": 14.219521708087996
+        },
+        {
+          "gate": "local-public",
+          "exit": 0,
+          "elapsed": 2.6756907091476023
+        },
+        {
+          "gate": "local-managed-check",
+          "exit": 0,
+          "elapsed": 2.054512874921784
+        },
+        {
+          "gate": "local-managed-files",
+          "exit": 0,
+          "elapsed": 2.267553749959916
+        },
+        {
+          "gate": "local-managed-scoped",
+          "exit": 0,
+          "elapsed": 2.2160302500706166
+        },
+        {
+          "gate": "local-managed-pages",
+          "exit": 0,
+          "elapsed": 2.7686135000549257
+        }
+      ]
+    },
+    "mini": {
+      "recovery-reviewed": {
+        "passed": 6,
+        "receipt": "target/control-t13/git-recovery/mini-evidence/mini-recovery-reviewed/receipt.json",
+        "skipped": []
+      },
+      "tracking-reviewed": {
+        "passed": 11,
+        "receipt": "target/control-t13/git-recovery/mini-evidence/mini-tracking-reviewed/receipt.json",
+        "skipped": []
+      },
+      "dispatch-driver-reviewed": {
+        "passed": 24,
+        "receipt": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-reviewed/receipt.json",
+        "skipped": []
+      },
+      "installed-worker": {
+        "passed": 18,
+        "receipt": "target/control-t13/git-recovery/mini-evidence/mini-installed-worker/receipt.json",
+        "skipped": []
+      },
+      "installed-dispatch": {
+        "passed": 23,
+        "receipt": "target/control-t13/git-recovery/mini-evidence/mini-installed-dispatch/receipt.json",
+        "skipped": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+        ]
+      },
+      "native-exits-reviewed": [
+        {
+          "gate": "mini-recovery-reviewed",
+          "exit": 0,
+          "elapsed": 3.69139375
+        },
+        {
+          "gate": "mini-tracking-reviewed",
+          "exit": 0,
+          "elapsed": 1.098879375
+        },
+        {
+          "gate": "mini-dispatch-driver-reviewed",
+          "exit": 0,
+          "elapsed": 19.972540083
+        }
+      ],
+      "installed-exits": [
+        {
+          "gate": "mini-installed-worker",
+          "exit": 0,
+          "elapsed": 6.314541833
+        },
+        {
+          "gate": "mini-installed-dispatch",
+          "exit": 0,
+          "elapsed": 18.619607958
+        },
+        {
+          "gate": "mini-declaration",
+          "exit": 0,
+          "elapsed": 13.112435833
+        },
+        {
+          "gate": "mini-preservation",
+          "exit": 0,
+          "elapsed": 7.287023708999996
+        },
+        {
+          "gate": "mini-public",
+          "exit": 0,
+          "elapsed": 2.3888760829999995
+        },
+        {
+          "gate": "mini-managed-check",
+          "exit": 0,
+          "elapsed": 1.8712086250000013
+        },
+        {
+          "gate": "mini-managed-files",
+          "exit": 0,
+          "elapsed": 1.8396769999999947
+        },
+        {
+          "gate": "mini-managed-scoped",
+          "exit": 0,
+          "elapsed": 1.8699977079999996
+        },
+        {
+          "gate": "mini-managed-pages",
+          "exit": 0,
+          "elapsed": 2.4437970000000035
+        }
+      ]
+    }
+  },
+  "full_rust": {
+    "unit_passed": 289,
+    "ignored_native_fault_cases": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23,
+    "log": "target/control-t13/git-recovery/full-rust-reviewed-repeat.log"
+  },
+  "python_gates": {
+    "installer_signing": 19,
+    "service_installation": 23,
+    "ingress_execution_verifier": 19
+  },
+  "independent_review": {
+    "peer": "peer-18e1cf141685dc18-284761",
+    "conversation": "conversation-18e1cf1417c2f3e0-284765",
+    "accepted_request": "cmsg-18e1d022f89cf348-286792",
+    "manifest": "target/control-t13/git-recovery/review-source-v5.json",
+    "verdict": "target/control-t13/git-recovery/review-wait-v5.json",
+    "peer_closed": true
+  },
+  "retained_failures": [
+    {
+      "log": "target/control-t13/git-recovery/recovery-red.log",
+      "kind": "native recovery unavailable before implementation"
+    },
+    {
+      "log": "target/control-t13/git-recovery/full-rust-oracle-failure.log",
+      "kind": "new assertion incorrectly excluded the required native activity helpers; corrected oracle requires the exact two native helper launches"
+    },
+    {
+      "log": "target/control-t13/git-recovery/full-rust-reviewed.log",
+      "kind": "existing activity probe refused unavailable POSIX shared memory metadata; focused unchanged recheck and full unchanged repeat passed",
+      "limitation": "failed fixture teardown prevents independent survivor readback"
+    }
+  ],
+  "open_boundaries": [
+    "Full redesign and T13/T14 remain active",
+    "Public Files, applying routes, first-seen publication, fair discovery, legacy fences, callers, migration, archive integration and source release remain open",
+    "Linux native conformance remains unproved",
+    "Non-branch Git ref recovery remains an applying-activation requirement: ISS-PRESERVE-NON-BRANCH-GIT-REFS-BEFORE-APPL",
+    "Native activity classification remains open: ISS-CLASSIFY-NATIVE-ACTIVITY-REFUSALS-WITHOU",
+    "Five unchanged native control/launch fault cases were not rerun for this worker-profile change"
+  ],
+  "storage": {
+    "local_stage": "/Users/spencer/src/reap/target/control-t13/git-recovery",
+    "mini_stage": "/private/tmp/reap-cores-transport-8yjfimnx/git-recovery-t14",
+    "quick_tests": "internal storage only",
+    "mini_source_checkout_accessed": false
+  },
+  "evidence": [
+    {
+      "path": "target/control-t13/git-recovery/activity-note.txt",
+      "sha256": "677bf705d5033363e566d18aeaef1398d2175337b2de6dbad77542ca12b772aa",
+      "bytes": 696
+    },
+    {
+      "path": "target/control-t13/git-recovery/activity-refusal-recheck.log",
+      "sha256": "d096b982fcfc47e82b09bc50455a084a409f6882db53c49808332c5f2d0a4cdd",
+      "bytes": 362
+    },
+    {
+      "path": "target/control-t13/git-recovery/agents.json",
+      "sha256": "0b6baf8d24befc8245c9f96ab58322cc614bcc21a29baca931493dcd604e0486",
+      "bytes": 1212
+    },
+    {
+      "path": "target/control-t13/git-recovery/fetch.log",
+      "sha256": "4600518cfd0290ead3e2d840d55966ab729fde697d0bcb66d5b06a2337fc26fe",
+      "bytes": 323
+    },
+    {
+      "path": "target/control-t13/git-recovery/freeze-reviewed.log",
+      "sha256": "bea9d98909027ac2db67ae50cd4c9fa0447e167b1b4532793ff4a71291226891",
+      "bytes": 685
+    },
+    {
+      "path": "target/control-t13/git-recovery/freeze-v3.log",
+      "sha256": "d841c8e03b8a4bd1263a142a55c1eba418c77ed166346c686f6d9db094cd38e1",
+      "bytes": 667
+    },
+    {
+      "path": "target/control-t13/git-recovery/freeze-v4.log",
+      "sha256": "a1ec914db3f7680ddfe06095aee273df87c5e62a1108c254e6db7e75a857351c",
+      "bytes": 667
+    },
+    {
+      "path": "target/control-t13/git-recovery/full-rust-oracle-failure.log",
+      "sha256": "e5f59bd712ff8c890033c1ff2f430f0f4283abe21f7bec331a0962e57e472796",
+      "bytes": 27682
+    },
+    {
+      "path": "target/control-t13/git-recovery/full-rust-reviewed-repeat.log",
+      "sha256": "9979becbc5851f05e71a17eb30abf158f2d135cf807ab820212bb4a8a842b7e9",
+      "bytes": 33340
+    },
+    {
+      "path": "target/control-t13/git-recovery/full-rust-reviewed.log",
+      "sha256": "3ef5104087a50f2d474d3f9d8ae63546145ddbdcf23652254366945340c737ea",
+      "bytes": 32747
+    },
+    {
+      "path": "target/control-t13/git-recovery/full-rust-v3.log",
+      "sha256": "3d9fae027a13699f94c312d8f5f8a8c836a4d54982e9e13cffeacd2018d615ba",
+      "bytes": 33147
+    },
+    {
+      "path": "target/control-t13/git-recovery/full-rust-v4.log",
+      "sha256": "a9725adaa46083abcf83804acff483ec12fbbf663282ba9037f02dfeaed53698",
+      "bytes": 33340
+    },
+    {
+      "path": "target/control-t13/git-recovery/full-rust.log",
+      "sha256": "8cbe9bf195d6a5fe51c0cdf6a4164dfbe030c960f1cffc82d75e3fe85264bb2f",
+      "bytes": 33198
+    },
+    {
+      "path": "target/control-t13/git-recovery/git-unit-final.log",
+      "sha256": "7274652e4bb405f429b15d57478f3db92a0e52ca1fa1f1994e7b9b3288cf1dd9",
+      "bytes": 2396
+    },
+    {
+      "path": "target/control-t13/git-recovery/git-unit-v4.log",
+      "sha256": "a95a42e796c3123ec8c94e79ddd60ffb8762455da5052fd07873c2157105f1f5",
+      "bytes": 2396
+    },
+    {
+      "path": "target/control-t13/git-recovery/git-unit.log",
+      "sha256": "f6c57b8d00022b7f5984ccc36c65eaee115c6fec31b2e0aa49e0e80278702ead",
+      "bytes": 2396
+    },
+    {
+      "path": "target/control-t13/git-recovery/help-build.log",
+      "sha256": "3a9ab5effc1e86ff7343ceb5da2ed1730df72e075caa434f0213719afb6a3d48",
+      "bytes": 112
+    },
+    {
+      "path": "target/control-t13/git-recovery/help.txt",
+      "sha256": "376c39cff20565a8f8f232691228edb4b704dc19cd1e6ee1fe7727decd296e27",
+      "bytes": 1973
+    },
+    {
+      "path": "target/control-t13/git-recovery/ingress-verifier.log",
+      "sha256": "3a4be92fb450f81901d38ea03b27294330a61a902fc61e79083998d92a2d4a5c",
+      "bytes": 118
+    },
+    {
+      "path": "target/control-t13/git-recovery/install-signing.log",
+      "sha256": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4",
+      "bytes": 480
+    },
+    {
+      "path": "target/control-t13/git-recovery/issue-refs.json",
+      "sha256": "790576ba4de8cfa8f0167e307e212f6c090684c8468ea3b4587a8f28da7adbf1",
+      "bytes": 1102
+    },
+    {
+      "path": "target/control-t13/git-recovery/leaf-certificates-reviewed.json",
+      "sha256": "5a129cad5f181c59d62e50207c8c7810d8d5d0d698ec53124e09cadbc1dd9972",
+      "bytes": 5271
+    },
+    {
+      "path": "target/control-t13/git-recovery/leaf-certificates-v4.json",
+      "sha256": "d71a1c616a63f2c9001f434fa6ef4ae4cd165d7d4f1f6148970642e34e2f7f47",
+      "bytes": 672
+    },
+    {
+      "path": "target/control-t13/git-recovery/leaf-certificates.json",
+      "sha256": "76cbe87eddfcd53883a012c895e10aaee087e4719fe98287d04465485efa5a03",
+      "bytes": 672
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-before-install.json",
+      "sha256": "1ab4fd250aa7988a4f1a7f58ff13834d58fb4382383971c8ecf7e90294cc9807",
+      "bytes": 326
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-declaration.log",
+      "sha256": "3a1920e8eb2cedf2b37e370a4b8cb63184230f621ec325dfd472bb0e012ded41",
+      "bytes": 1582
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-dispatch-driver-reviewed/native.log",
+      "sha256": "7bb4e97b503fdda2fd85bf953d947a50802dd0351eebd734c7121eb09863fdcb",
+      "bytes": 2543
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-dispatch-driver-reviewed/receipt.json",
+      "sha256": "1ec89c93d9bb59df6d3df3e5fdf84cd4f4621e420bf55d0bbd211014294211eb",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-dispatch-driver-v4/native.log",
+      "sha256": "60214f3f47c195c2bc106960b4eda4562853901d81addae41c01a7985cbdfd02",
+      "bytes": 2543
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-dispatch-driver-v4/receipt.json",
+      "sha256": "c01b2a32a7e2dd85b727c4758844732cb2721ddd6f3a06b1ae94280926b5ee85",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-install-plan.json",
+      "sha256": "4fe9209f0bbbc297165b85a903c49f75bc948b7e807eacc1d47fb90b35672a14",
+      "bytes": 4650
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-install.log",
+      "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+      "bytes": 626
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-dispatch/native.log",
+      "sha256": "d3eff9ab6a4753fc06bd0b18f490b3bc9b587a1ef0d286136c318fac3b4e55b7",
+      "bytes": 2444
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-dispatch/receipt.json",
+      "sha256": "0acd9319e0b159cf6559d7aef221f09af9afc2f484d6161351f068e008b39ddf",
+      "bytes": 516
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-dispatch.log",
+      "sha256": "246fc873af0ad10b625f8cb4ced321c76ee1f944938c46b72a9a300373504d4e",
+      "bytes": 488
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-exits.json",
+      "sha256": "5b4ddf4004638113c6358d0f6a8aa81b595623e30791aa5b3b22a98f440c6a36",
+      "bytes": 836
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-identity.json",
+      "sha256": "c7ab10ed34ca29223566a8959326b4c16c7486e929476d53b43143407babc10a",
+      "bytes": 693
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-worker/native.log",
+      "sha256": "2332d2ff322814c4049668a6e9defbdfb2ce0e6d681089cacbbe24978361d238",
+      "bytes": 1839
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-worker/receipt.json",
+      "sha256": "a0b2f788503621c4f766729d56ce87e80e045a197e021b6b5a6002cea65d154d",
+      "bytes": 420
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-installed-worker.log",
+      "sha256": "71c231f971bd9d3f5fa72fb1678199e8d1ddddddfa12e8a73b3f046a8ead2138",
+      "bytes": 400
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-check/caller-home/.config/reap/config.json",
+      "sha256": "76047ff7ad777b68bed2f6174db45da1bbdbaa78cbdb4168a8d6bda0b78fd2d4",
+      "bytes": 78
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-check/client-receipt.json",
+      "sha256": "c750327065a855174cfceb41a71b7ba599944b56ea31c4075f53c4b6d313eef5",
+      "bytes": 9073
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-check/client.log",
+      "sha256": "12e80923dbd024c7dcbbee411bb97af45e10533231946ba9c78ab5d103e73c0f",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-check/receipt.json",
+      "sha256": "03f0d7853529c1a8c197f00fb045f96b57087c5acfe7f784f55aa761a363ec1a",
+      "bytes": 3830
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-check/verified-job.json",
+      "sha256": "9bf68340263d17b8d053ae3e749f3a203a393d9b6336a127ffeace36ee0147b3",
+      "bytes": 3280
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-check.log",
+      "sha256": "72df5a1000f2202cfc4d7b542412a237112383c15c2d9cd6ed105a176e30833d",
+      "bytes": 3178
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-files/caller-home/.config/reap/config.json",
+      "sha256": "0cb69e8baecf050c6bb40b001ac7fbf6aa0bed43c96e5fec1e98f6071080c0a8",
+      "bytes": 136
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-files/client-receipt.json",
+      "sha256": "508c5448a252850a0e95703ee14c5f8a5c0903688fe0832194329d4dd54ed949",
+      "bytes": 10627
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-files/client.log",
+      "sha256": "51dc6f89bc7467dda1243fefe5593dde1790347a10723c4d37e11ccc1889e4db",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-files/receipt.json",
+      "sha256": "9fadea51549f16a2ed0040bb52568284affc98873061bb6d9583f46962cc7015",
+      "bytes": 3830
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-files/verified-job.json",
+      "sha256": "f25ecf77622af22a874e71c67d8863824c096a23a0ce56e4d5d2a1d6f3595f60",
+      "bytes": 4314
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-files.log",
+      "sha256": "638c6a161dc50cb02562db031936c2872e0383d250d5431a2f5467ed5cead9a5",
+      "bytes": 3178
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-pages/caller-home/.config/reap/config.json",
+      "sha256": "f2fa459a985be1271bc55673767142d8ceb7fbae87e38dd9c7e064ae972e048b",
+      "bytes": 1492
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-pages/client-receipt.json",
+      "sha256": "4083729d570d046b22f259b9d3622825d0cbb2b0430018ee8cf964599f054366",
+      "bytes": 21803
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-pages/client.log",
+      "sha256": "0200db852226903cd74c2b86833dabfb05cb15dc4e7a74e4a171fa3b4948a1d2",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-pages/receipt.json",
+      "sha256": "fa4cf51257a449f187a1bcaf28937e4af9924a6c2a16d026bb121c3d0bdf1b91",
+      "bytes": 3851
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-pages/verified-job.json",
+      "sha256": "5259a10221e8279041d2d6566947e862da12241838806c097d2fb99a526a46de",
+      "bytes": 12912
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-pages.log",
+      "sha256": "ffb19ed7aa269149f861b866e398fdc04d2f80f9e182ad2504a27972383b434a",
+      "bytes": 3197
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-scoped/caller-home/.config/reap/config.json",
+      "sha256": "a072aafb848739bdb11617deffc3e4403fcac555cd058ab5ba9ce59ea172c277",
+      "bytes": 136
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-scoped/client-receipt.json",
+      "sha256": "ddd6600668a58cb30dd1e8c992f9dfbafb70296375835f29d5ba0e8f6b1a3ef7",
+      "bytes": 10071
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-scoped/client.log",
+      "sha256": "ee345a44b749897a6777f405dfb69d0824ca2aa11778fe62860e4c743a1a31db",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-scoped/receipt.json",
+      "sha256": "5fb40075d512739aff67e7551ca19ee9d294c0638265c1de0ba3bf9c60fd7ad5",
+      "bytes": 3829
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-scoped/verified-job.json",
+      "sha256": "1e71c7da0bde720d998fd8283c78d4e09a78e6ae81b2ed726d061884fd2d50c4",
+      "bytes": 3912
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-managed-scoped.log",
+      "sha256": "affd9398c485c1247722a77f8f4b29e206105cbbcce9c101e90c0b6e600fcc50",
+      "bytes": 3177
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-native-exits-reviewed.json",
+      "sha256": "2ab9700618c956af7a05b1786e88b6c8efc607800651916fa401ec74855f9d12",
+      "bytes": 301
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-native-exits-v4.json",
+      "sha256": "1f3037762e625edc15371af6307a9bb32bcdc459ffdcc1f98c73a423ac479ce9",
+      "bytes": 282
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-preflight.json",
+      "sha256": "7acb3e8de36f63bcbb2968f58f9c75b360877f66ac1597dbc82a2365ec1ce494",
+      "bytes": 45
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-preservation.log",
+      "sha256": "2b6b50fa5c112089b15bede4431b2485a8b1db0ebc013c7e5d945b227f3bec32",
+      "bytes": 114
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-prior-requirement.txt",
+      "sha256": "6d7b4028495f8de332c8bffa9ec32b583b5eba6a017483f01c9f61dec8d4488b",
+      "bytes": 287
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-public.log",
+      "sha256": "fba85adec5a4cf6bef082fa22f66e9bb7e261e8f87c967a5763f18019396eb30",
+      "bytes": 106
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-recovery-reviewed/native.log",
+      "sha256": "6a053201930c51501088b10061ba75453132b2c7f0590dd0232072584bceb61a",
+      "bytes": 752
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-recovery-reviewed/receipt.json",
+      "sha256": "f0c84bad9dd17e98148f479cea16fb79a88ed541603a57c7a46a3ad9ed74fbda",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-recovery-v3/native.log",
+      "sha256": "0e2477a13e4c2a034870c62796d41ba95355c4b26832401865f2f461637956e4",
+      "bytes": 752
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-recovery-v3/receipt.json",
+      "sha256": "4f598fafddbc7207005294bf6282827816361441f823a05872c5c96e9a722bb3",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-recovery-v4/native.log",
+      "sha256": "965d706f927b3be3ee0a6a8830490b690337ad078d9038c1640eee7a0ef530c2",
+      "bytes": 752
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-recovery-v4/receipt.json",
+      "sha256": "fc540555c880414d1ed25415c52fff226fcee6d851d7d09a926a859e7f9ed2ef",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-requirement-parity.json",
+      "sha256": "acfec1518bc5c6cd54e424071f10e0554ad2ec645a136952aa24efafc3ac5799",
+      "bytes": 560
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-tracking-reviewed/native.log",
+      "sha256": "cdd3e7164bbbaf84028d56b917878cc6d0e9ef3278e6a244f2e294799e8b7e19",
+      "bytes": 1158
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-tracking-reviewed/receipt.json",
+      "sha256": "ce15953ab0b5efb3b3bcf13277ee481e3ef608a4c5c54742bb15a575ae16e56d",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-tracking-v4/native.log",
+      "sha256": "ff9e7a75e7eb1141797b1e2c308a4bebc6e5b628e3fad45ee5d18d6fbaa23f18",
+      "bytes": 1158
+    },
+    {
+      "path": "target/control-t13/git-recovery/local-tracking-v4/receipt.json",
+      "sha256": "aa332ebdf20714b84da190088d2031dc26723e61b6be000be55767b40a1e4fc3",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/installed-runtime.txt",
+      "sha256": "2bc601952ba01541ecba3e33f496809b7f2a94adf7994c34bdf386cddc719a2d",
+      "bytes": 50
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-before-install.json",
+      "sha256": "1ab4fd250aa7988a4f1a7f58ff13834d58fb4382383971c8ecf7e90294cc9807",
+      "bytes": 326
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-declaration.log",
+      "sha256": "b17c062f6eff9cef15bd14371ebe5e357c32fe187d5638a052f717f63adff0b7",
+      "bytes": 1582
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-reviewed/native.log",
+      "sha256": "766e503e95187a40f5d04da7db98d54f53ad46aab39dd666d234cdfec91b0e3c",
+      "bytes": 2543
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-reviewed/receipt.json",
+      "sha256": "762afb2ee6f63625b0ccd62989076b3ad925adb05ea5818063e6a102cf9fe006",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-v4/native.log",
+      "sha256": "117a188c24412af565d424460c76bea3595e228381fdde472cb0a9502b311602",
+      "bytes": 2543
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-v4/receipt.json",
+      "sha256": "27fc3a600b1d428bb9da092b08253e5f010730617483234dd265f0a8d03965e6",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-install-plan.json",
+      "sha256": "87c8b432da815532ac0ca75750198501b69ab67fbde66eee2cef10a60dbc3138",
+      "bytes": 4651
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-install.log",
+      "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+      "bytes": 626
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-dispatch/native.log",
+      "sha256": "aeb61e5e7b99d164b73eeb1afbf126b10b3e7de55d191d66392fc1378f53f020",
+      "bytes": 2444
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-dispatch/receipt.json",
+      "sha256": "111cf6b66e32511f6cef800cf4882f61198c7bd01d8bcd6349bb07762f203fbc",
+      "bytes": 516
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-dispatch.log",
+      "sha256": "4a8e1fa01438823b80e9ce67e197b53746a53d4b6a64dd4f722d2d03a2efe6a2",
+      "bytes": 488
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-exits.json",
+      "sha256": "7397cb62463a3ce1b1efbec6931f3e62d1653487de785bd1aac511bb5a134586",
+      "bytes": 810
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-identity.json",
+      "sha256": "c7ab10ed34ca29223566a8959326b4c16c7486e929476d53b43143407babc10a",
+      "bytes": 693
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-worker/native.log",
+      "sha256": "573f91209f89fd6ba9f4ad97a32b490d6099ea78bde9808a354970d0cc0f2a83",
+      "bytes": 1839
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-worker/receipt.json",
+      "sha256": "e2bc74406730293e8b9b6ea16edc0149534335c853df800b95223f6b3b984878",
+      "bytes": 420
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-worker.log",
+      "sha256": "3ac22ba0f96e6c346569f5579461b6ff7f9d5fa28b19136146c1fa4cbb7e579f",
+      "bytes": 400
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-leaf-certificates-reviewed.json",
+      "sha256": "eac56240b449bad1891132ec8a7e9913d3027d47c70675bfb8d5abdb8056a0de",
+      "bytes": 672
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-leaf-certificates-v4.json",
+      "sha256": "d71a1c616a63f2c9001f434fa6ef4ae4cd165d7d4f1f6148970642e34e2f7f47",
+      "bytes": 672
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/caller-home/.config/reap/config.json",
+      "sha256": "76047ff7ad777b68bed2f6174db45da1bbdbaa78cbdb4168a8d6bda0b78fd2d4",
+      "bytes": 78
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/client-receipt.json",
+      "sha256": "8ae6b66fc130354c22b49e7a8be50ca1b9fb3b406fa2ed3429707fb2ea4a071c",
+      "bytes": 9145
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/client.log",
+      "sha256": "3f58668594d7f4ac0efd4ee926e7e69f72e0808b6f111394957084c5d8214d22",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/receipt.json",
+      "sha256": "472b43059e0205b41e1c6d955abeefd5a2f5f622d3e99603e10e5dbc0052a274",
+      "bytes": 3872
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/verified-job.json",
+      "sha256": "643580da8515ea54780f679ffa94a6fc87273191af6c023d02f72f9043377ebf",
+      "bytes": 3316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check.log",
+      "sha256": "81f65dd2d0030819f044344d20c9f1e56ad603f0b4bf357365dfbbe41cad179b",
+      "bytes": 3220
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/caller-home/.config/reap/config.json",
+      "sha256": "f0580ebf2ba4e424590f3f8f91951a042d97bbc402a15639f106fbf6e8fb10f8",
+      "bytes": 136
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/client-receipt.json",
+      "sha256": "6bd808a7a2b95bd2450dbaac6d8d85dfd79190e47466b6513247440ed92c6fef",
+      "bytes": 10699
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/client.log",
+      "sha256": "686a61bc603486d78970fb8297ee2e097f6f4a35af6b5072a1e0943ec232b463",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/receipt.json",
+      "sha256": "b3e603ebd6626c935fcc20625e56cc9c31852613277d92c1150ee1015df9f2c2",
+      "bytes": 3872
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/verified-job.json",
+      "sha256": "03bb5b5b42a6c384e2aeafd833744e338293711d14e0a92f053f5bdb75159db5",
+      "bytes": 4352
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files.log",
+      "sha256": "32a002b40e39e80b6bc4a6be058ed3c8e38546db7f83c02af29be68b227f6824",
+      "bytes": 3220
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/caller-home/.config/reap/config.json",
+      "sha256": "b9980e88528dd3462098c4ee7c3f50c0db676361fbb6585ad5dd88178e866301",
+      "bytes": 1492
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/client-receipt.json",
+      "sha256": "3f8225948847b7e823baa4901b8ba1648307c06e32c00b81691d3813b74317e6",
+      "bytes": 21875
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/client.log",
+      "sha256": "683d53237948e747786166acdb526d3662a753e11abf7df4e313cab5dfb0aa1b",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/receipt.json",
+      "sha256": "f776bb829a234848f540a3f3727cd7159d3e87cf5c03a30b456bdd2b66b00ea1",
+      "bytes": 3893
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/verified-job.json",
+      "sha256": "475c6afaed143fae78fdbedb4cff7e5aeac08182fd3d019742b1f84cc100b1c0",
+      "bytes": 12948
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages.log",
+      "sha256": "f17d0477521117b9f3ef69d714a9e8a986c85e11408d9a355639d34e5c506747",
+      "bytes": 3239
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/caller-home/.config/reap/config.json",
+      "sha256": "003b5142d81db544539e1b0fd30b8ea02b775a8cf3914ca7d0ac0c7f02d41cb7",
+      "bytes": 136
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/client-receipt.json",
+      "sha256": "923990e14877f0dcb6be02125be15f92ec7890a802a2f1efb7777344a2dc36f2",
+      "bytes": 10143
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/client.log",
+      "sha256": "1f291d30d904e891ba670d80fcf9bf69c6e33be53f59a26a63b8181376c029cf",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/receipt.json",
+      "sha256": "f031369ad8fb7e2ea55ccf14aaab8863eb8b1b10ec6a6254f4f9cc11a0910a2e",
+      "bytes": 3871
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/verified-job.json",
+      "sha256": "c334264f96e69ba037be2df44abf43d2d2b0cf9d7de527884854539cf99addad",
+      "bytes": 3947
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped.log",
+      "sha256": "ffa9a36aef24ca2c07bcbbb486da0cb31007b0da9fb282d41119b98f38c79b1e",
+      "bytes": 3219
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-native-exits-reviewed.json",
+      "sha256": "6273e9f349ed7c842810983eb492c0de02b83b13aab1931dff86872c3d98e9a9",
+      "bytes": 277
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-native-exits-v4.json",
+      "sha256": "4a43331955de06de55379293cbc7fd806a94a00e47fa696898c3555c1926b69a",
+      "bytes": 267
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-preservation.log",
+      "sha256": "93f055e71ae020eb792e611f982621913de6b9dbb031e89f3fea89dbd3c8444f",
+      "bytes": 113
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-public.log",
+      "sha256": "6c74bd827221a85c1c5c12b49acaa2053176bae766f506ea874e18aa5889f9f0",
+      "bytes": 106
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-reviewed/native.log",
+      "sha256": "d3caf1f976d7398926be67a608e31882ce70f92366fb31b4214a361d3c55f112",
+      "bytes": 752
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-reviewed/receipt.json",
+      "sha256": "e4e667bbc0d15a791d1cbad1426b889efc6fec7090884cba0907759b92113a70",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-v4/native.log",
+      "sha256": "dbfe6bca78dc721e0fb232f86ec053d63f83411cfc3a76d3ac8e1db833ed0f20",
+      "bytes": 752
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-v4/receipt.json",
+      "sha256": "0458e5540e3afa1671d9c6819a1f9d31fd1bfee41adb2dbe10d622a474cd959f",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-requirement-parity.json",
+      "sha256": "acfec1518bc5c6cd54e424071f10e0554ad2ec645a136952aa24efafc3ac5799",
+      "bytes": 560
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-reviewed/native.log",
+      "sha256": "b2e74b1b54c23951185b70c4a6634a187f078b243c99ee325cd018cbe53c8555",
+      "bytes": 1158
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-reviewed/receipt.json",
+      "sha256": "8c5467d24a099793719b0fd6d4503eff8f65ab5ab54437ea57c170541180c301",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-v4/native.log",
+      "sha256": "395fac6e5081aa6d698ae225b194a3628d5fb5d84ab4f40bd440a4c4de908d08",
+      "bytes": 1158
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-v4/receipt.json",
+      "sha256": "239d5f17c479910c96a957b180b08055daf2b6f2385a094a1b65e5212d3d50d3",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-installed-progress.json",
+      "sha256": "7397cb62463a3ce1b1efbec6931f3e62d1653487de785bd1aac511bb5a134586",
+      "bytes": 810
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-native-exits-reviewed.json",
+      "sha256": "6273e9f349ed7c842810983eb492c0de02b83b13aab1931dff86872c3d98e9a9",
+      "bytes": 277
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-native-summary-v4.txt",
+      "sha256": "5eee203e64fdc1af5c2a0e32a65b332076a5954c4e54b6444fe3446c27c809a6",
+      "bytes": 939
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-preflight.json",
+      "sha256": "7acb3e8de36f63bcbb2968f58f9c75b360877f66ac1597dbc82a2365ec1ce494",
+      "bytes": 45
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-signing-before.txt",
+      "sha256": "5eac4250064bc9b361991362ab542761748b87d36bcef401fa1fdb769e73ecd8",
+      "bytes": 1232
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-stage.json",
+      "sha256": "0a26646bfc39adedf54c81dfd04e45cf1b23fdb6d41864a702215f4b87892f6d",
+      "bytes": 104
+    },
+    {
+      "path": "target/control-t13/git-recovery/native-scope-v4.log",
+      "sha256": "6561079913a3689f2ac3f03617b5b2fb7836bea4b7259458c324bb70c151ddbe",
+      "bytes": 757
+    },
+    {
+      "path": "target/control-t13/git-recovery/preview-activity-note.json",
+      "sha256": "c90886829e4447257422309d68ca9c80e637a16b5052f601fa981b4d6bbbb958",
+      "bytes": 484
+    },
+    {
+      "path": "target/control-t13/git-recovery/preview-issue-refs.json",
+      "sha256": "28b021d4ae9e9d131daaaf06aba2b3525eb05bfed65584a49c9a917638027bfa",
+      "bytes": 474
+    },
+    {
+      "path": "target/control-t13/git-recovery/readback-activity-issue.json",
+      "sha256": "f5b3502d0955643003443247f383b1144cbf7142a6be100f1fb3373bdcb171df",
+      "bytes": 3835
+    },
+    {
+      "path": "target/control-t13/git-recovery/readback-issue-refs.json",
+      "sha256": "16171b8d29a07b471dbb79e31918ad5a1e5e3c70da40bbd476956779ee70fbf5",
+      "bytes": 2994
+    },
+    {
+      "path": "target/control-t13/git-recovery/record-activity-note.json",
+      "sha256": "2caa5dbe748be40c200dace15ee9271605e945879e3bb44e3faf5ba25c6b8a60",
+      "bytes": 481
+    },
+    {
+      "path": "target/control-t13/git-recovery/record-issue-refs.json",
+      "sha256": "4e33f3dda41a1aea283c21c0d28b6505f40b7e7a2206dc02582285ba3e7d63b6",
+      "bytes": 471
+    },
+    {
+      "path": "target/control-t13/git-recovery/recovery-build.log",
+      "sha256": "c181bea8f2222e8c91b1e5fd38b5e46de74ded0794a41b1ef97937f8eaf5365d",
+      "bytes": 827
+    },
+    {
+      "path": "target/control-t13/git-recovery/recovery-red.log",
+      "sha256": "dab221dd41c40494855626548597ef56fa793fa4f801b82d19ffbc5f066ffa8e",
+      "bytes": 3378
+    },
+    {
+      "path": "target/control-t13/git-recovery/recovery-v5.log",
+      "sha256": "a465f132fae2b61a2bbe4f38c19e21394a9c3cea9903d3bf2d10b391f5b03b7a",
+      "bytes": 1353
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-brief.txt",
+      "sha256": "57bb15103e9f4ccf6e72a2578ec8fd99fadae2d76c3f6e8462633fba706d2c23",
+      "bytes": 3406
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-conversation-close.json",
+      "sha256": "2c0583fa5a2bb817d7c3486347c7a1bb5279112568db646951724e5b58c0f0dc",
+      "bytes": 472
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-launch.json",
+      "sha256": "349efe2f637aa652e719a123622dec3f17f58d90aeb175a6ee5814faebcc1092",
+      "bytes": 302
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-messages-v1.json",
+      "sha256": "320c21495dd655e71e85ef7803b0d24a266f986f8c9d9ffb55b92c32bfa5f654",
+      "bytes": 9918
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-messages-v2.json",
+      "sha256": "9759aa27e7cdea64b14ccba3063d5bd5a25788ee2a1d117a73b54bb06afd47ed",
+      "bytes": 6553
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-peer-close.json",
+      "sha256": "9c8b3a037811e9e7afe0134acd5bfc47f7f92a91e0f76ad292beb685a39a1b2d",
+      "bytes": 1328
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-peer-closed.json",
+      "sha256": "8d60d739b10d54f796924aae95d8a69de5c9df385ff4aac27fe20fc95f1ead71",
+      "bytes": 1329
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-peer.json",
+      "sha256": "e4e2bbb7ad9a91f40928990ceeabe966cac86b32f647fa99adb5708e044b80b2",
+      "bytes": 1326
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-send-v2.json",
+      "sha256": "6179fb380f328074f19c940b6fb635565bef93ffdd7cb256949ae7d3279b1fc0",
+      "bytes": 1479
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-send-v3.json",
+      "sha256": "88c2fbe83d4bb7f9506d0787f7b22f394acdbe58afc45f56405ac53455f35c67",
+      "bytes": 1421
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-send-v4.json",
+      "sha256": "fe351d48922803307563e76f8b00f5d04674ecd6e11b075273504dfe3d81f019",
+      "bytes": 1995
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-send-v5.json",
+      "sha256": "edc582774c250c4f9fa1a84543e9780be1e67a2f1ca24c3b9c361818b8b9fda1",
+      "bytes": 1285
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-source-v1.json",
+      "sha256": "af832e3abbeed0f9a471c7c2f55be65d7b2fe509714eafd29ea5ccfd15bba433",
+      "bytes": 1142
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-source-v2.json",
+      "sha256": "fd2376fc76a529939c6f668bb64d849e3c41d8c31b2ffa2b78b9fe56fd05d9e3",
+      "bytes": 1142
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-source-v3.json",
+      "sha256": "3a00cdde2eb5b3b39a75ec23a4fcda3d07eb81336badab69b27f6a41cf67d5b8",
+      "bytes": 1269
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-source-v4.json",
+      "sha256": "e57ef40c7a70cce56340c9265b6a0ccbfdc65420bcdde36988420044b53c003d",
+      "bytes": 1394
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-source-v5.json",
+      "sha256": "ac85ac5846ee8b071b9956e113dd3661aabc0ed73fdfa042b1c59cc99d4f30ff",
+      "bytes": 1394
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-update-v2.txt",
+      "sha256": "2fb048060324cb969f6f7fd7698f745d8f2a6b60b30ce7ebe48517904f2ffde3",
+      "bytes": 1017
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-update-v3.txt",
+      "sha256": "ee44dd08f48c9bf07016394978b65d679e13b4d4dd0cab17be784af442e8aa78",
+      "bytes": 959
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-update-v4.txt",
+      "sha256": "1eced3ea4e83834a2a701779be805d8d65961f034e783c11351b334f1961e1c1",
+      "bytes": 1533
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-update-v5.txt",
+      "sha256": "c8ab1e8b4ef7b0241fd9ae2238ab30ba0742eba5f9db93279bae9702ac9bd7bc",
+      "bytes": 823
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-wait-v1.json",
+      "sha256": "0470f8c5ceb958370b163ca1f4d5e2fa778ca28ec795e3d1deb8b22a9e6bd90f",
+      "bytes": 183
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-wait-v4.json",
+      "sha256": "a02d0ab724f88fffeced5bce957b59699378a188dcd1af7564b0ab96e41a6218",
+      "bytes": 5035
+    },
+    {
+      "path": "target/control-t13/git-recovery/review-wait-v5.json",
+      "sha256": "37edd16286e7c4d6135253373c9bb318cc0711854fc9508cbe10907ac3d47895",
+      "bytes": 3219
+    },
+    {
+      "path": "target/control-t13/git-recovery/service-installation.log",
+      "sha256": "ada48e3c5857a39d4199b4982a899ba7b7a5408fe6e09d6dbe5e02c92f66e40f",
+      "bytes": 122
+    },
+    {
+      "path": "target/control-t13/git-recovery/suite-runtime.txt",
+      "sha256": "a21a007ea1fb3427dfc24e43f860b22de788421dbe08ec26428a1514a792b557",
+      "bytes": 46
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/installed-runtime.txt",
+      "sha256": "2bc601952ba01541ecba3e33f496809b7f2a94adf7994c34bdf386cddc719a2d",
+      "bytes": 50
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-before-install.json",
+      "sha256": "1ab4fd250aa7988a4f1a7f58ff13834d58fb4382383971c8ecf7e90294cc9807",
+      "bytes": 326
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-declaration.log",
+      "sha256": "b17c062f6eff9cef15bd14371ebe5e357c32fe187d5638a052f717f63adff0b7",
+      "bytes": 1582
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-reviewed/native.log",
+      "sha256": "766e503e95187a40f5d04da7db98d54f53ad46aab39dd666d234cdfec91b0e3c",
+      "bytes": 2543
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-reviewed/receipt.json",
+      "sha256": "762afb2ee6f63625b0ccd62989076b3ad925adb05ea5818063e6a102cf9fe006",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-v4/native.log",
+      "sha256": "117a188c24412af565d424460c76bea3595e228381fdde472cb0a9502b311602",
+      "bytes": 2543
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-dispatch-driver-v4/receipt.json",
+      "sha256": "27fc3a600b1d428bb9da092b08253e5f010730617483234dd265f0a8d03965e6",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-install-plan.json",
+      "sha256": "87c8b432da815532ac0ca75750198501b69ab67fbde66eee2cef10a60dbc3138",
+      "bytes": 4651
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-install.log",
+      "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+      "bytes": 626
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-dispatch/native.log",
+      "sha256": "aeb61e5e7b99d164b73eeb1afbf126b10b3e7de55d191d66392fc1378f53f020",
+      "bytes": 2444
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-dispatch/receipt.json",
+      "sha256": "111cf6b66e32511f6cef800cf4882f61198c7bd01d8bcd6349bb07762f203fbc",
+      "bytes": 516
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-dispatch.log",
+      "sha256": "4a8e1fa01438823b80e9ce67e197b53746a53d4b6a64dd4f722d2d03a2efe6a2",
+      "bytes": 488
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-exits.json",
+      "sha256": "7397cb62463a3ce1b1efbec6931f3e62d1653487de785bd1aac511bb5a134586",
+      "bytes": 810
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-identity.json",
+      "sha256": "c7ab10ed34ca29223566a8959326b4c16c7486e929476d53b43143407babc10a",
+      "bytes": 693
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-worker/native.log",
+      "sha256": "573f91209f89fd6ba9f4ad97a32b490d6099ea78bde9808a354970d0cc0f2a83",
+      "bytes": 1839
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-worker/receipt.json",
+      "sha256": "e2bc74406730293e8b9b6ea16edc0149534335c853df800b95223f6b3b984878",
+      "bytes": 420
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-installed-worker.log",
+      "sha256": "3ac22ba0f96e6c346569f5579461b6ff7f9d5fa28b19136146c1fa4cbb7e579f",
+      "bytes": 400
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-leaf-certificates-reviewed.json",
+      "sha256": "eac56240b449bad1891132ec8a7e9913d3027d47c70675bfb8d5abdb8056a0de",
+      "bytes": 672
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-leaf-certificates-v4.json",
+      "sha256": "d71a1c616a63f2c9001f434fa6ef4ae4cd165d7d4f1f6148970642e34e2f7f47",
+      "bytes": 672
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/caller-home/.config/reap/config.json",
+      "sha256": "76047ff7ad777b68bed2f6174db45da1bbdbaa78cbdb4168a8d6bda0b78fd2d4",
+      "bytes": 78
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/client-receipt.json",
+      "sha256": "8ae6b66fc130354c22b49e7a8be50ca1b9fb3b406fa2ed3429707fb2ea4a071c",
+      "bytes": 9145
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/client.log",
+      "sha256": "3f58668594d7f4ac0efd4ee926e7e69f72e0808b6f111394957084c5d8214d22",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/receipt.json",
+      "sha256": "472b43059e0205b41e1c6d955abeefd5a2f5f622d3e99603e10e5dbc0052a274",
+      "bytes": 3872
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check/verified-job.json",
+      "sha256": "643580da8515ea54780f679ffa94a6fc87273191af6c023d02f72f9043377ebf",
+      "bytes": 3316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-check.log",
+      "sha256": "81f65dd2d0030819f044344d20c9f1e56ad603f0b4bf357365dfbbe41cad179b",
+      "bytes": 3220
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/caller-home/.config/reap/config.json",
+      "sha256": "f0580ebf2ba4e424590f3f8f91951a042d97bbc402a15639f106fbf6e8fb10f8",
+      "bytes": 136
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/client-receipt.json",
+      "sha256": "6bd808a7a2b95bd2450dbaac6d8d85dfd79190e47466b6513247440ed92c6fef",
+      "bytes": 10699
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/client.log",
+      "sha256": "686a61bc603486d78970fb8297ee2e097f6f4a35af6b5072a1e0943ec232b463",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/receipt.json",
+      "sha256": "b3e603ebd6626c935fcc20625e56cc9c31852613277d92c1150ee1015df9f2c2",
+      "bytes": 3872
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files/verified-job.json",
+      "sha256": "03bb5b5b42a6c384e2aeafd833744e338293711d14e0a92f053f5bdb75159db5",
+      "bytes": 4352
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-files.log",
+      "sha256": "32a002b40e39e80b6bc4a6be058ed3c8e38546db7f83c02af29be68b227f6824",
+      "bytes": 3220
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/caller-home/.config/reap/config.json",
+      "sha256": "b9980e88528dd3462098c4ee7c3f50c0db676361fbb6585ad5dd88178e866301",
+      "bytes": 1492
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/client-receipt.json",
+      "sha256": "3f8225948847b7e823baa4901b8ba1648307c06e32c00b81691d3813b74317e6",
+      "bytes": 21875
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/client.log",
+      "sha256": "683d53237948e747786166acdb526d3662a753e11abf7df4e313cab5dfb0aa1b",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/receipt.json",
+      "sha256": "f776bb829a234848f540a3f3727cd7159d3e87cf5c03a30b456bdd2b66b00ea1",
+      "bytes": 3893
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages/verified-job.json",
+      "sha256": "475c6afaed143fae78fdbedb4cff7e5aeac08182fd3d019742b1f84cc100b1c0",
+      "bytes": 12948
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-pages.log",
+      "sha256": "f17d0477521117b9f3ef69d714a9e8a986c85e11408d9a355639d34e5c506747",
+      "bytes": 3239
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/caller-home/.config/reap/config.json",
+      "sha256": "003b5142d81db544539e1b0fd30b8ea02b775a8cf3914ca7d0ac0c7f02d41cb7",
+      "bytes": 136
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/client-receipt.json",
+      "sha256": "923990e14877f0dcb6be02125be15f92ec7890a802a2f1efb7777344a2dc36f2",
+      "bytes": 10143
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/client.log",
+      "sha256": "1f291d30d904e891ba670d80fcf9bf69c6e33be53f59a26a63b8181376c029cf",
+      "bytes": 316
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/receipt.json",
+      "sha256": "f031369ad8fb7e2ea55ccf14aaab8863eb8b1b10ec6a6254f4f9cc11a0910a2e",
+      "bytes": 3871
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped/verified-job.json",
+      "sha256": "c334264f96e69ba037be2df44abf43d2d2b0cf9d7de527884854539cf99addad",
+      "bytes": 3947
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-managed-scoped.log",
+      "sha256": "ffa9a36aef24ca2c07bcbbb486da0cb31007b0da9fb282d41119b98f38c79b1e",
+      "bytes": 3219
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-native-exits-reviewed.json",
+      "sha256": "6273e9f349ed7c842810983eb492c0de02b83b13aab1931dff86872c3d98e9a9",
+      "bytes": 277
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-native-exits-v4.json",
+      "sha256": "4a43331955de06de55379293cbc7fd806a94a00e47fa696898c3555c1926b69a",
+      "bytes": 267
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-preservation.log",
+      "sha256": "93f055e71ae020eb792e611f982621913de6b9dbb031e89f3fea89dbd3c8444f",
+      "bytes": 113
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-public.log",
+      "sha256": "6c74bd827221a85c1c5c12b49acaa2053176bae766f506ea874e18aa5889f9f0",
+      "bytes": 106
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-reviewed/native.log",
+      "sha256": "d3caf1f976d7398926be67a608e31882ce70f92366fb31b4214a361d3c55f112",
+      "bytes": 752
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-reviewed/receipt.json",
+      "sha256": "e4e667bbc0d15a791d1cbad1426b889efc6fec7090884cba0907759b92113a70",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-v4/native.log",
+      "sha256": "dbfe6bca78dc721e0fb232f86ec053d63f83411cfc3a76d3ac8e1db833ed0f20",
+      "bytes": 752
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-recovery-v4/receipt.json",
+      "sha256": "0458e5540e3afa1671d9c6819a1f9d31fd1bfee41adb2dbe10d622a474cd959f",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-requirement-parity.json",
+      "sha256": "acfec1518bc5c6cd54e424071f10e0554ad2ec645a136952aa24efafc3ac5799",
+      "bytes": 560
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-reviewed/native.log",
+      "sha256": "b2e74b1b54c23951185b70c4a6634a187f078b243c99ee325cd018cbe53c8555",
+      "bytes": 1158
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-reviewed/receipt.json",
+      "sha256": "8c5467d24a099793719b0fd6d4503eff8f65ab5ab54437ea57c170541180c301",
+      "bytes": 280
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-v4/native.log",
+      "sha256": "395fac6e5081aa6d698ae225b194a3628d5fb5d84ab4f40bd440a4c4de908d08",
+      "bytes": 1158
+    },
+    {
+      "path": "target/control-t13/git-recovery/mini-evidence/mini-tracking-v4/receipt.json",
+      "sha256": "239d5f17c479910c96a957b180b08055daf2b6f2385a094a1b65e5212d3d50d3",
+      "bytes": 280
+    }
+  ]
+}
