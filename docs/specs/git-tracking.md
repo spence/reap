@@ -1,7 +1,7 @@
-# SPEC-GIT-TRACKING — bound index snapshots
+# SPEC-GIT-TRACKING — bound Git snapshots and recovery
 
 - Status: implementation under review; public Files activation remains open.
-- Surface: `src/git_index.rs::Tracking` and the internal Files preview.
+- Surface: `src/git_index.rs::Tracking`, `src/git_recovery.rs`, and the internal Files preview.
 - Consumers: granted read-only Files workers.
 - Grounds: `DEC-LIFETIME-AUTHORITY`, sections 5, 7, and 9; `MS-LIFETIME-ENFORCE.T14`.
 - Bindings: the executable cases below and the same-change native fleet evidence.
@@ -29,7 +29,32 @@
 - **C5** — Unknown evidence never becomes untracked status.
   Unsupported configuration includes, repository extensions, split indexes, sparse indexes, ungranted metadata,
   malformed bytes, unsupported identity, and capacity exhaustion protect the selection.
-  This profile does not establish Git recovery, enable applying operations, or activate public Files routing.
+  Index tracking alone does not establish Git recovery, enable applying operations, or activate public Files routing.
+- **C6** — Native recovery starts no Git process and executes no attribute conversion, hook, filter, or filesystem monitor.
+  All local branches and HEAD require commit reachability from current remote-tracking refs.
+  The current branch also requires its explicit upstream proof, as required by version 1.
+  HEAD trees, the index, raw worktree bytes, file kinds, and executable modes must agree.
+  Stashes, dirty files, staged changes, untracked files, and ignored files protect the affected unit.
+  Only the exact governing lifecycle control file is exempt from untracked-file protection.
+  Files preview has no Cargo-target exemption.
+- **C7** — Recovery metadata and worktree bytes require the same native physical grant before reads.
+  Only captured bytes enter loose-object and pack decoders; alternates cannot expand the read closure.
+  Pack data, indexes, and decoded objects require matching checksums or object identifiers.
+  Decoder allocations, paths, graph traversal, directory names, and snapshots share the preview budget.
+  All source bindings and full content or directory stamps are revalidated before publication.
+  Same-repository, same-control-file assessments reuse the captured proof, not a later filesystem state.
+  Changed evidence and unsupported profiles cannot produce complete coverage.
+
+## Recovery profile
+
+Ordinary and linked worktrees can use SHA-1 or SHA-256, loose objects, packed objects, and packed refs.
+Main checkouts with registered linked-worktree metadata remain protected.
+Tracked paths must be single-link regular files. Raw bytes must match; no conversion is attempted.
+Standard single wildcard fetch mappings and local upstream branches are supported.
+Symlinks, submodules, shallow boundaries, alternates, replacement objects, promisor packs,
+configuration includes, unsupported fetch mappings, missing objects, and capacity exhaustion protect the selection.
+Every enclosing checkout and each discovered nested checkout supplies its own evidence.
+This internal read-only profile does not activate public Files routing or applying operations.
 
 ## Implementation grounds
 
@@ -52,3 +77,15 @@ physical refusal, configuration dependencies, and changed-index revalidation.
 tracked declaration exclusion, untracked KEEP, zero effects, released ownership, and protected survivors.
 Installed-worker conformance requires that case through `tools/verify_control_macos.py --filter dispatch::tests --worker-binary` on both Macs.
 No Linux native conformance is claimed.
+
+`cargo test git_index::recovery:: -- --test-threads=2` covers clean loose and packed repositories,
+SHA-1 and SHA-256, actual delta decoding, branch ancestry, explicit upstreams, protected local work,
+executable configuration, changed source evidence, unsupported dependencies, and bounded refusal.
+`native_files_recovery_proves_packed_git_and_preserves_ignored_data_without_git_helpers` covers
+the actual dispatcher, a useful recoverable candidate, protected ignored Cargo data, zero effects,
+released ownership, and protected survivors. Both Macs require this case through the native verifier
+with the installed worker binary. Source-only success does not prove that boundary.
+`native_files_recovery_covers_nested_enclosing_and_scratch_units` covers unpushed nested work,
+an enclosing checkout's subdirectory, and scratch selection without a recovery entry.
+`missing_native_recovery_blocks_a_file_but_scratch_needs_no_recovery_entry` covers a missing per-file verdict
+and incomplete publication. Main-checkout coverage includes a detached linked commit and staged work.

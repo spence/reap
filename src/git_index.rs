@@ -13,15 +13,24 @@ use gix_index::{hash, State};
 use crate::identity::ObjectIdentity;
 use crate::launch::Resources;
 
+#[path = "git_recovery.rs"]
+mod recovery;
+pub(crate) use recovery::RecoveryError;
+
 /// Per-preview repository snapshots. All source reads require the worker's physical grant.
 pub(crate) struct Tracking {
   resources: Option<Resources>,
   repositories: BTreeMap<PathBuf, Result<Repository, String>>,
   absent_markers: BTreeSet<PathBuf>,
+  recovery: BTreeMap<(PathBuf, Vec<PathBuf>), Result<(), RecoveryError>>,
 }
 
 struct Repository {
   root: PathBuf,
+  directory: PathBuf,
+  common: PathBuf,
+  kind: hash::Kind,
+  config: Vec<u8>,
   index: Option<Index>,
   sources: Vec<Source>,
   aliases: BTreeMap<PathBuf, Option<ObjectIdentity>>,
@@ -46,6 +55,7 @@ impl Tracking {
       resources,
       repositories: BTreeMap::new(),
       absent_markers: BTreeSet::new(),
+      recovery: BTreeMap::new(),
     }
   }
 
@@ -234,6 +244,10 @@ impl Repository {
       .transpose()?;
     let repository = Self {
       root: root.to_path_buf(),
+      directory,
+      common,
+      kind,
+      config,
       index,
       sources,
       aliases: BTreeMap::new(),
@@ -452,7 +466,7 @@ impl Source {
       && previous.uid() == current.uid()
       && previous.gid() == current.gid();
     if !binding
-      || (!self.binding_only && previous.is_file() && !same_file(previous, &current))
+      || (!self.binding_only && !same_file(previous, &current))
       || Some(granted(&file, resources)?) != self.identity
     {
       return Err(invalid("Git tracking dependency changed"));

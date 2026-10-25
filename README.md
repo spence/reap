@@ -1127,7 +1127,10 @@ The granted helper becomes the fixed system tool in the same process. Complete p
 empty stderr, native exit, and durable release precede a successful activity reply.
 Incomplete evidence protects the selection. Native preview reads Git tracking from bounded index snapshots
 inside its granted worker. Native file identity resolves case and Unicode aliases.
-Changed or unsupported Git dependencies protect the selection. Native Git recovery remains unavailable.
+Changed or unsupported Git dependencies protect the selection. Native Git recovery uses granted snapshots
+of refs, commit ancestry, HEAD trees, the index, and raw worktree files. It starts no Git process.
+The supported profile includes ordinary regular files, standard upstream mappings, and loose or packed objects.
+Untracked and ignored files remain protective; an ignored Cargo target is not exempt in Files preview.
 A public helper command is not provided.
 Public `files` still uses its foreground route; its activation and caller-migration gates remain open.
 These changes do not migrate leases, capture live conversations, or release sources.

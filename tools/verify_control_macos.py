@@ -29,7 +29,8 @@ def main():
                                             "lifetime::tests", "archive::tests", "archive::sqlite::tests",
                                             "quarantine::tests", "util::tests", "worker::tests",
                                             "journal::tests", "volumes::", "dispatch::tests",
-                                            "client::tests", "preservation::tests", "git_index::tests"], default="control::tests")
+                                            "client::tests", "preservation::tests", "git_index::tests",
+                                            "git_index::recovery::tests"], default="control::tests")
     parser.add_argument("--fault-library", type=pathlib.Path)
     parser.add_argument("--worker-binary", type=pathlib.Path)
     arguments = parser.parse_args()
@@ -140,6 +141,13 @@ def main():
                               "granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation",
                               "incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence",
                               "invalid_native_directory_identities_cannot_be_complete_resolver_evidence"],
+            "git_index::recovery::tests": [
+                "pushed_clean_checkout_has_native_recovery_with_loose_and_packed_objects",
+                "dirty_staged_untracked_ignored_and_unpushed_branch_work_survives",
+                "branch_ancestry_upstream_and_actual_pack_deltas_have_bounded_evidence",
+                "configuration_cannot_run_filters_fsmonitor_hooks_or_external_reads",
+                "changed_sources_and_new_references_invalidate_cached_recovery",
+                "unsupported_objects_links_and_capacity_never_become_recovery"],
             "git_index::tests": ["native_indexes_keep_tracked_paths_across_versions_and_hash_kinds",
                                  "malformed_truncated_checksum_and_capacity_evidence_never_proves_untracked",
                                  "native_extended_flags_stages_and_skip_hash_remain_tracked",
@@ -161,6 +169,8 @@ def main():
                           "unknown_virtual_raid_and_incomplete_topologies_refuse",
                           "external_tunneled_nvme_requires_exact_endpoint"],
             "dispatch::tests": ["native_check_pipeline_completes_once_with_local_store_and_protected_survivors",
+                                "native_files_recovery_proves_packed_git_and_preserves_ignored_data_without_git_helpers",
+                                "native_files_recovery_covers_nested_enclosing_and_scratch_units",
                                 "native_files_multiroot_result_preserves_every_report_beyond_the_inline_limit",
                                 "native_files_tracking_uses_one_bound_index_without_git_process_helpers",
                                 "native_files_batches_activity_helpers_and_preserves_open_and_retained_work",

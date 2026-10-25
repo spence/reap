@@ -446,9 +446,14 @@ fn blocked(
   }
   if !scratch {
     if let Some(preview) = &view.preview {
-      return preview
-        .has_git(p)
-        .then(|| "bounded preview cannot prove Git recovery".into());
+      return match preview.recovery.get(p) {
+        Some(Ok(())) => None,
+        Some(Err(error)) => Some(format!("Git recovery: {}", error.reason)),
+        None => {
+          preview.guard_incomplete.set(true);
+          Some("native Git recovery target was not assessed".into())
+        }
+      };
     }
     let trees = match git_trees(p, is_dir) {
       Ok(trees) => trees,
@@ -545,6 +550,7 @@ struct Preview {
   guard_incomplete: Cell<bool>,
   activity: Result<BTreeMap<PathBuf, bool>, String>,
   tracking: crate::git_index::Tracking,
+  recovery: BTreeMap<PathBuf, Result<(), crate::git_index::RecoveryError>>,
   preservation: BTreeMap<PathBuf, String>,
   ancestors: Vec<libc::stat>,
   reason_bytes: usize,
@@ -568,6 +574,66 @@ struct PreviewBoundary<'a> {
 }
 
 impl Preview {
+  /// Complete Git evidence before activity inspection, with no live repository handles.
+  fn assess_recovery(
+    &mut self,
+    removals: &[crate::reapfile::Removal],
+    decls: &BTreeMap<PathBuf, Result<Decl, String>>,
+  ) {
+    for removal in removals {
+      if matches!(decls.get(&removal.by), Some(Ok(decl)) if decl.scratch == Some(true)) {
+        continue;
+      }
+      let result = (|| -> Result<(), crate::git_index::RecoveryError> {
+        let parent = if self
+          .nodes
+          .get(&removal.path)
+          .is_some_and(|node| node.observed.st_mode & libc::S_IFMT == libc::S_IFDIR)
+        {
+          removal.path.as_path()
+        } else {
+          removal
+            .path
+            .parent()
+            .ok_or_else(|| io::Error::other("Git recovery path has no parent"))?
+        };
+        let mut roots = self.tracking.enclosing(parent, &self.remaining)?;
+        for marker in self
+          .nodes
+          .keys()
+          .filter(|path| path.file_name().is_some_and(|name| name == ".git"))
+        {
+          if let Some(root) = marker
+            .parent()
+            .filter(|root| root.starts_with(&removal.path))
+          {
+            if !self.charge(128 + root.as_os_str().len() * 2) {
+              return Err(
+                io::Error::other("Git recovery discovery exceeds preview capacity").into(),
+              );
+            }
+            roots.push(root.to_path_buf());
+          }
+        }
+        roots.sort();
+        roots.dedup();
+        for root in roots {
+          self
+            .tracking
+            .recoverable(&root, &[removal.by.join(FILE_NAME)], &self.remaining)?;
+        }
+        Ok(())
+      })();
+      if result.as_ref().is_err_and(|error| error.incomplete) {
+        self.guard_incomplete.set(true);
+      }
+      if !self.charge(512 + removal.path.as_os_str().len() * 2) {
+        self.guard_incomplete.set(true);
+      }
+      self.recovery.insert(removal.path.clone(), result);
+    }
+  }
+
   fn charge(&self, bytes: usize) -> bool {
     if let Some(remaining) = self.remaining.get().checked_sub(bytes) {
       self.remaining.set(remaining);
@@ -600,21 +666,11 @@ impl Preview {
       })
     })
   }
-
-  fn has_git(&self, path: &Path) -> bool {
-    self.ancestor_git
-      || self.nodes.keys().any(|p| {
-        p.file_name().is_some_and(|name| name == ".git")
-          && p
-            .parent()
-            .is_some_and(|parent| path.starts_with(parent) || parent.starts_with(path))
-      })
-  }
 }
 
 /// Preview one granted, physical governed root through its held directory descriptor.
 /// No cache or target writes occur. Unsafe or incomplete discovery protects the entire root.
-/// Index tracking uses bounded native snapshots. Git recovery remains a separate guard.
+/// Index tracking and Git recovery use bounded native snapshots without Git processes.
 /// Ancestor devices must come from the caller's freshly verified native physical closure.
 pub(crate) fn preview(
   root: &Path,
@@ -1006,6 +1062,7 @@ fn scan_bounded(
     guard_incomplete: Cell::new(false),
     activity: Err("no granted activity helper".into()),
     tracking: crate::git_index::Tracking::new(resources),
+    recovery: BTreeMap::new(),
     preservation: BTreeMap::new(),
     ancestors: vec![],
     reason_bytes: 0,
@@ -1389,7 +1446,7 @@ fn same_ancestor_stat(a: &libc::stat, b: &libc::stat) -> bool {
   }
 }
 
-fn for_each_preview_name(
+pub(crate) fn for_each_preview_name(
   parent: &File,
   mut visit: impl FnMut(&[u8]) -> io::Result<()>,
 ) -> io::Result<()> {
@@ -1700,6 +1757,7 @@ fn execute_inner(
     let mut index = None;
     if !ev.removals.is_empty() {
       if let Some(preview) = &mut scan.view.preview {
+        preview.assess_recovery(&ev.removals, &scan.view.decls);
         // include one excess target so the fixed capacity guard refuses the entire batch
         let directories: Vec<_> = ev
           .removals
@@ -1740,15 +1798,6 @@ fn execute_inner(
         Some(preview) => preview.preservation_error(&r.path),
         None => crate::preservation::check(&r.path).err(),
       };
-      if !scratch
-        && scan
-          .view
-          .preview
-          .as_ref()
-          .is_some_and(|p| p.has_git(&r.path))
-      {
-        report.coverage_complete = false;
-      }
       let preservation_refused = preservation_error.is_some();
       let coverage_error = scan.coverage_errors.iter().find_map(|(path, error)| {
         (path.starts_with(&r.path) || r.path.starts_with(path))
@@ -1943,6 +1992,66 @@ mod tests {
     fn flush(&mut self) -> io::Result<()> {
       Ok(())
     }
+  }
+
+  #[test]
+  fn missing_native_recovery_blocks_a_file_but_scratch_needs_no_recovery_entry() {
+    let path = std::env::temp_dir().join(format!(
+      "reap-missing-recovery-{}",
+      crate::journal::random_token().unwrap()
+    ));
+    fs::create_dir_all(path.join("root")).unwrap();
+    let fixture = Fixture(fs::canonicalize(path).unwrap());
+    let root = fixture.0.join("root");
+    let file = root.join("valuable");
+    fs::write(&file, b"protected file\n").unwrap();
+    let held = File::open(&root).unwrap();
+    let device = held.metadata().unwrap().dev();
+    let devices = [device, fs::metadata("/").unwrap().dev()];
+    let boundary = PreviewBoundary {
+      directory: &held,
+      device,
+      ancestor_devices: &devices,
+      scope: &root,
+    };
+    let mut scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    scan.view.preview.as_mut().unwrap().activity = Ok(BTreeMap::from([(file.clone(), false)]));
+    let removal = Removal {
+      path: file.clone(),
+      by: root.clone(),
+      disposition: Disposition::Quarantine,
+      reason: "fixture".into(),
+    };
+    let now = now_secs() as f64 + 100.0;
+    assert_eq!(
+      blocked(
+        &removal,
+        false,
+        &root,
+        &fixture.0.join("quarantine"),
+        &[],
+        now,
+        0.0,
+        &scan.view
+      )
+      .as_deref(),
+      Some("native Git recovery target was not assessed")
+    );
+    assert!(blocked(
+      &removal,
+      true,
+      &root,
+      &fixture.0.join("quarantine"),
+      &[],
+      now,
+      0.0,
+      &scan.view
+    )
+    .is_none());
+    let mut report = Report::default();
+    assert!(finish_preview(&scan, Some(boundary), &mut report).is_some());
+    assert!(!report.coverage_complete);
+    assert_eq!(fs::read(file).unwrap(), b"protected file\n");
   }
 
   #[test]

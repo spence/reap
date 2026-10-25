@@ -74,7 +74,8 @@ The coordinator supervises the returned helper handles without filesystem or pro
 The private request path is not a public service command or permission to run arbitrary executables.
 
 Public Check and internal Files use owned workers. Internal Files uses supervised native activity probes.
-Native Git recovery and public Files activation remain open.
+Internal Files supplies bounded native Git recovery without Git process helpers.
+Public Files activation remains open.
 The parent launcher must retain its owned child handles and supply identities from those children.
 An arbitrary client cannot supply a PID as proof of process ownership.
 The target resolver must supply canonical physical-volume keys, not APFS volume UUIDs or path strings.

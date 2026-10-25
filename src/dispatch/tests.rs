@@ -484,6 +484,301 @@ fn native_files_rejects_applying_flags_without_poisoning_later_read_jobs() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_files_recovery_covers_nested_enclosing_and_scratch_units() {
+  let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+    .map(PathBuf::from)
+    .unwrap_or_else(std::env::temp_dir);
+  let path = base.join(format!(
+    "dispatch-recovery-scope-{}",
+    random_token().unwrap()
+  ));
+  fs::create_dir_all(path.join("home/.config/reap")).unwrap();
+  fs::create_dir_all(path.join("project/container/deep/a/b/c/repository")).unwrap();
+  fs::create_dir_all(path.join("project/enclosing/data")).unwrap();
+  fs::create_dir_all(path.join("project/scratch")).unwrap();
+  fs::create_dir(path.join("templates")).unwrap();
+  let fixture = Fixture(fs::canonicalize(path).unwrap());
+  let project = fixture.0.join("project");
+  let nested = project.join("container/deep/a/b/c/repository");
+  let enclosing = project.join("enclosing");
+  let git = |root: &Path, args: &[&str]| {
+    let output = std::process::Command::new("/usr/bin/git")
+      .env_clear()
+      .env("PATH", "/usr/bin:/bin")
+      .env("LC_ALL", "C")
+      .env("GIT_CONFIG_NOSYSTEM", "1")
+      .env("GIT_CONFIG_SYSTEM", "/dev/null")
+      .env("GIT_CONFIG_GLOBAL", "/dev/null")
+      .env("GIT_OPTIONAL_LOCKS", "0")
+      .args([
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@invalid",
+      ])
+      .current_dir(root)
+      .args(args)
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+  };
+  for (root, file) in [(&nested, "valuable"), (&enclosing, "data/valuable")] {
+    git(
+      root,
+      &[
+        "init",
+        &format!("--template={}", fixture.0.join("templates").display()),
+        "--initial-branch=main",
+        ".",
+      ],
+    );
+    fs::write(root.join(file), b"recoverable source\n").unwrap();
+    git(root, &["add", file]);
+    git(root, &["commit", "-m", "fixture"]);
+    git(root, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(root, &["config", "remote.origin.url", "../remote"]);
+    git(
+      root,
+      &[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+      ],
+    );
+    git(root, &["config", "branch.main.remote", "origin"]);
+    git(root, &["config", "branch.main.merge", "refs/heads/main"]);
+  }
+  fs::write(nested.join("valuable"), b"unpushed nested source\n").unwrap();
+  git(&nested, &["commit", "-am", "unpushed nested fixture"]);
+  fs::write(
+    project.join(".reap"),
+    br#"{"version":1,"keep":{"reason":"retained root"}}"#,
+  )
+  .unwrap();
+  for (scope, scratch) in [
+    (project.join("container"), false),
+    (enclosing.join("data"), false),
+    (project.join("scratch"), true),
+  ] {
+    fs::write(
+      scope.join(".reap"),
+      serde_json::to_vec(
+        &serde_json::json!({"version":1,"expires":"2020-01-01T00:00:00Z","scratch":scratch}),
+      )
+      .unwrap(),
+    )
+    .unwrap();
+  }
+  fs::write(
+    project.join("scratch/valuable"),
+    b"retained scratch preview\n",
+  )
+  .unwrap();
+  let mut directories = vec![project.clone()];
+  while let Some(directory) = directories.pop() {
+    for entry in fs::read_dir(&directory).unwrap() {
+      let entry = entry.unwrap();
+      if entry.file_name() == ".git" {
+        continue;
+      }
+      if entry.file_type().unwrap().is_dir() {
+        directories.push(entry.path());
+      }
+      filetime::set_file_mtime(
+        entry.path(),
+        filetime::FileTime::from_unix_time(1_600_000_000, 0),
+      )
+      .unwrap();
+    }
+  }
+  fs::write(fixture.0.join("home/.config/reap/config.json"), serde_json::to_vec(&serde_json::json!({"governed_roots":[project],"reap_file_grace_hours":0,"reap_file_min_age_minutes":0})).unwrap()).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  for (scope, planned) in [
+    (project.join("container"), 0),
+    (enclosing.join("data"), 1),
+    (project.join("scratch"), 1),
+  ] {
+    let mut input = fixture.input();
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec!["files".into(), scope.to_str().unwrap().into()];
+    input.request = serde_json::to_string(&intent).unwrap();
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal.admit_execution(key.clone(), input, 1).unwrap();
+    scheduler.enqueue(&mut journal, key.clone()).unwrap();
+    let result = terminal(&mut journal, &mut scheduler, &key);
+    assert_eq!(result.exit_code, 0, "{}", result.detail);
+    assert_eq!(result.effects, 0);
+    let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+    let report = &detail["reports"][0];
+    assert_eq!(report["coverage_complete"], true, "{}", result.detail);
+    assert_eq!(report["planned_units"], planned, "{}", result.detail);
+    assert_eq!(report["blocked_units"], 1 - planned, "{}", result.detail);
+    assert!(journal.launch(&key).unwrap().unwrap().released());
+    assert!(scope.join(".reap").is_file());
+  }
+  assert_eq!(
+    fs::read(nested.join("valuable")).unwrap(),
+    b"unpushed nested source\n"
+  );
+  assert_eq!(
+    fs::read(enclosing.join("data/valuable")).unwrap(),
+    b"recoverable source\n"
+  );
+  assert_eq!(
+    fs::read(project.join("scratch/valuable")).unwrap(),
+    b"retained scratch preview\n"
+  );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_recovery_proves_packed_git_and_preserves_ignored_data_without_git_helpers() {
+  let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+    .map(PathBuf::from)
+    .unwrap_or_else(std::env::temp_dir);
+  let path = base.join(format!("dispatch-recovery-{}", random_token().unwrap()));
+  fs::create_dir_all(path.join("home/.config/reap")).unwrap();
+  fs::create_dir_all(path.join("project/workspace")).unwrap();
+  fs::create_dir(path.join("templates")).unwrap();
+  let fixture = Fixture(fs::canonicalize(path).unwrap());
+  let workspace = fixture.0.join("project/workspace");
+  let git = |args: &[&str]| {
+    let output = std::process::Command::new("/usr/bin/git")
+      .env_clear()
+      .env("PATH", "/usr/bin:/bin")
+      .env("LC_ALL", "C")
+      .env("GIT_CONFIG_NOSYSTEM", "1")
+      .env("GIT_CONFIG_SYSTEM", "/dev/null")
+      .env("GIT_CONFIG_GLOBAL", "/dev/null")
+      .env("GIT_OPTIONAL_LOCKS", "0")
+      .args([
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@invalid",
+      ])
+      .current_dir(&workspace)
+      .args(args)
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+  };
+  git(&[
+    "init",
+    "--template=../../templates",
+    "--initial-branch=main",
+    ".",
+  ]);
+  fs::write(workspace.join("valuable"), b"recoverable source\n").unwrap();
+  git(&["add", "valuable"]);
+  git(&["commit", "-m", "fixture"]);
+  git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  git(&["config", "remote.origin.url", "../remote"]);
+  git(&[
+    "config",
+    "remote.origin.fetch",
+    "+refs/heads/*:refs/remotes/origin/*",
+  ]);
+  git(&["config", "branch.main.remote", "origin"]);
+  git(&["config", "branch.main.merge", "refs/heads/main"]);
+  git(&["repack", "-ad"]);
+  git(&["pack-refs", "--all"]);
+  fs::write(
+    workspace.join(".reap"),
+    br#"{"version":1,"expires":"2020-01-01T00:00:00Z"}"#,
+  )
+  .unwrap();
+  fs::write(fixture.0.join("home/.config/reap/config.json"), serde_json::to_vec(
+    &serde_json::json!({"governed_roots":[fixture.0.join("project")], "reap_file_grace_hours":0, "reap_file_min_age_minutes":0})
+  ).unwrap()).unwrap();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec!["files".into(), workspace.to_str().unwrap().into()];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  for ignored in [false, true] {
+    if ignored {
+      fs::create_dir_all(workspace.join(".git/info")).unwrap();
+      fs::write(workspace.join(".git/info/exclude"), b"target/\n").unwrap();
+      fs::create_dir(workspace.join("target")).unwrap();
+      fs::write(
+        workspace.join("target/valuable"),
+        b"ignored source must survive\n",
+      )
+      .unwrap();
+    }
+    for path in [
+      workspace.clone(),
+      workspace.join("valuable"),
+      workspace.join(".reap"),
+      workspace.join("target"),
+      workspace.join("target/valuable"),
+    ] {
+      if path.exists() {
+        filetime::set_file_mtime(path, filetime::FileTime::from_unix_time(1_600_000_000, 0))
+          .unwrap();
+      }
+    }
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal
+      .admit_execution(key.clone(), input.clone(), 1)
+      .unwrap();
+    scheduler.enqueue(&mut journal, key.clone()).unwrap();
+    let result = terminal(&mut journal, &mut scheduler, &key);
+    assert_eq!(result.exit_code, 0, "{}", result.detail);
+    assert_eq!(result.effects, 0);
+    let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+    let report = &detail["reports"][0];
+    assert_eq!(report["coverage_complete"], true, "{}", result.detail);
+    assert_eq!(
+      report["planned_units"],
+      u64::from(!ignored),
+      "{}",
+      result.detail
+    );
+    assert_eq!(
+      report["blocked_units"],
+      u64::from(ignored),
+      "{}",
+      result.detail
+    );
+    let launch = journal.launch(&key).unwrap().unwrap();
+    assert!(launch.released());
+    assert_eq!(launch.helpers[0].as_ref().unwrap().sequence, 2);
+    assert!(launch.helpers[1].is_none());
+    assert_eq!(
+      fs::read(workspace.join("valuable")).unwrap(),
+      b"recoverable source\n"
+    );
+    assert!(workspace.join(".reap").is_file());
+    if ignored {
+      assert!(workspace.join("target/valuable").is_file());
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn native_files_tracking_uses_one_bound_index_without_git_process_helpers() {
   let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
     .map(PathBuf::from)

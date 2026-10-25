@@ -143,8 +143,8 @@ Honored child declarations exclude their units from parent retention accounting.
 Unmatched sibling subtrees are not measured for display. Unmeasured ancestors do not supply unit statistics.
 Configured root aliases remain resolver dependencies; this profile does not narrow their physical reservations.
 Incomplete evidence still protects the whole request; independent partial progress is not yet supported.
-Native activity and bounded index tracking supply their separate evidence.
-Git recovery, first-seen observation publication, fair discovery quanta,
+Native activity, bounded index tracking, and native Git recovery supply their separate evidence.
+Unsupported recovery profiles protect the selection. First-seen observation publication, fair discovery quanta,
 legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.
 No recovery path reruns an uncertain mutating operation; none is supported by this dispatcher.
