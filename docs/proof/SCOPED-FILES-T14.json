@@ -1,0 +1,361 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "source_revision": "8ed60e795376ec60f35de44b46f23aec64a1b11c",
+  "source_files": {
+    "src/reapfile.rs": "3bc3648a4d13acdc4d60415aaecb83a253e2fb7077b9b1e0405fc6262551f14f",
+    "src/files.rs": "6af54e4cc07a4d7255e713dc8207bc2930e278af5cedbf8c505144a721f27bdc",
+    "src/dispatch/files_job.rs": "bc386780d7a1c667e9499f2f98797e0727756fc9449ca1d5836e5a766d3eebaa",
+    "src/dispatch/tests.rs": "e5d35073ae095d2ebd5e49506178ff4eb83cdbbd2bcddfb88ffc8da9f269d8f5",
+    "src/service/tests.rs": "ab161cb044a66f798ea74903aaf3529bef96adced24897a0542e86e913a887f1",
+    "tools/verify_ingress_macos.py": "b17d931c4a9c15949d96ea02e15077be7eb0df715642d1123d04629661482f14",
+    "tests/test_ingress_execution_verifier.py": "5f34882e18afd0120858df63972fb212e7bda62f1978c421e87fd2c67cf4cc82",
+    "docs/specs/job-execution.md": "d395812d91f0cb32e54cd2fb84917521f9b6f8db799f206a58f5c6804b010c72",
+    "README.md": "5fe5bb11e9bc8268aad0f75cb2517bc184cd58226863b4f07fcaeb3a213c69cb"
+  },
+  "delivery": "scoped internal read-only Files discovery",
+  "public_files_activated": false,
+  "goal_complete": false,
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "8e1f90053e025a01bfc3a68ca77c37b2b5b1bca5e15c34ae694abfa88e2511ab",
+      "signature": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/scoped-files/frozen-reviewed/reap-unit\nIdentifier=dev.micro.reap.native-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=35039 flags=0x0(none) hashes=1089+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 12:36:27\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "declaration-tests": {
+      "sha256": "98235baf9d9293d8f8c3fd4d8afe43fda4f8b449c431f64413a4baac77f20144",
+      "signature": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/scoped-files/frozen-reviewed/declaration-tests\nIdentifier=dev.micro.reap.declaration-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=4068 flags=0x0(none) hashes=121+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 12:36:27\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "reap-release": {
+      "sha256": "59b1e7f0fe1831846f9a3ff433ea6ba4eed7d5bc7ef5a39e4da7b6c20d19b86d",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/scoped-files/frozen-reviewed/reap-release\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=6930 flags=0x0(none) hashes=211+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 12:36:27\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "signature": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/scoped-files/frozen-reviewed/fault.dylib\nIdentifier=dev.micro.reap.native-faults\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=288 flags=0x0(none) hashes=3+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 24, 2026 at 12:51:35\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    }
+  },
+  "certificates": {
+    "reap-release": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "59b1e7f0fe1831846f9a3ff433ea6ba4eed7d5bc7ef5a39e4da7b6c20d19b86d"
+    },
+    "reap-unit": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "8e1f90053e025a01bfc3a68ca77c37b2b5b1bca5e15c34ae694abfa88e2511ab"
+    },
+    "declaration-tests": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "98235baf9d9293d8f8c3fd4d8afe43fda4f8b449c431f64413a4baac77f20144"
+    },
+    "fault.dylib": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+    }
+  },
+  "source_verification": {
+    "full-rust-reviewed.log": {
+      "path": "target/control-t13/scoped-files/full-rust-reviewed.log",
+      "sha256": "89296b9cb3f1c5748b3bdede366eac120070e47a46bfc13d8bdf9c013418e4c3"
+    },
+    "reviewer-regression-before.log": {
+      "path": "target/control-t13/scoped-files/reviewer-regression-before.log",
+      "sha256": "a1b26029d5e79ca379e1376864f71dbb149da14bfdb7895782248ce0d994c6dc"
+    },
+    "reviewer-root-regression-before.log": {
+      "path": "target/control-t13/scoped-files/reviewer-root-regression-before.log",
+      "sha256": "e20d64e46c750eea60a89f58235dc97a58f168288bcacdf128c33b5879be01cf"
+    },
+    "reviewer-regression-after.log": {
+      "path": "target/control-t13/scoped-files/reviewer-regression-after.log",
+      "sha256": "5cdc3eaa493fdcaa80b1ee9db7fcf57a35ea6fdab923b49450b2266db4b8eec1"
+    },
+    "install-signing.log": {
+      "path": "target/control-t13/scoped-files/install-signing.log",
+      "sha256": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4"
+    },
+    "service-installation.log": {
+      "path": "target/control-t13/scoped-files/service-installation.log",
+      "sha256": "734499d11f33735e2c63a38d6da466a84997f240c0134a2bb1642e1651a745c2"
+    },
+    "full_counts": {
+      "regular_unit": 246,
+      "lifecycle_entries": 57,
+      "declarations": 23,
+      "native_fault_cases_separate": 5
+    },
+    "python_counts": {
+      "ingress_verifier": 18,
+      "installer_signing": 19,
+      "service_installation": 23
+    }
+  },
+  "hosts": {
+    "catalyst": {
+      "installed_sha256": "59b1e7f0fe1831846f9a3ff433ea6ba4eed7d5bc7ef5a39e4da7b6c20d19b86d",
+      "native": {
+        "dispatch": {
+          "passed": 19,
+          "receipt": {
+            "path": "target/control-t13/scoped-files/catalyst-dispatch/receipt.json",
+            "sha256": "b84bfd4643b5d9dc9c55d0f61fb2780348a42cfd14453d195518dc8dcfec676e"
+          },
+          "log": {
+            "path": "target/control-t13/scoped-files/catalyst-dispatch/native.log",
+            "sha256": "da27e80deda779f00c17f0d6ac153606549cfb3e2786d022bd5c650972f16e4f"
+          }
+        },
+        "service": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/scoped-files/catalyst-service/receipt.json",
+            "sha256": "a52fb2cab0fac4d049d2afea4e1279fff2e5192402542db2f4fae838e5791091"
+          },
+          "log": {
+            "path": "target/control-t13/scoped-files/catalyst-service/native.log",
+            "sha256": "522faf109bf2fd70c6b91b9ce78a410bf73f7bf76f51fe1c0b6fac51f1c30bc7"
+          }
+        },
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/scoped-files/catalyst-launch/receipt.json",
+            "sha256": "7cf217813c5af6a43b0054c0dc901fe8c0b4299bc77c8611338761a365a9f217"
+          },
+          "log": {
+            "path": "target/control-t13/scoped-files/catalyst-launch/native.log",
+            "sha256": "b5d031db06f57f810952cb8c893269aa6b1415bfc01e73d381733be688ef215d"
+          }
+        }
+      },
+      "installed_ingress": {
+        "check": {
+          "receipt": {
+            "path": "target/control-t13/scoped-files/catalyst-ingress-check/receipt.json",
+            "sha256": "730c3d8e79252e3fc3ba4c0655112ccb8d1c0d300bfdf71acb5511bf71b7f91f"
+          },
+          "job": {
+            "path": "target/control-t13/scoped-files/catalyst-ingress-check/verified-job.json",
+            "sha256": "2d3d47a30ec01e456769bd858fb6413d3a3708f1d59c6d05527d091f31779c26"
+          },
+          "admission_elapsed_ns": 49495917,
+          "workspace_scope": false
+        },
+        "files": {
+          "receipt": {
+            "path": "target/control-t13/scoped-files/catalyst-ingress-files/receipt.json",
+            "sha256": "db2a9415d96fe3ec228508af0bef089e18ed6a32c494d6852c75d7a5d6a216a7"
+          },
+          "job": {
+            "path": "target/control-t13/scoped-files/catalyst-ingress-files/verified-job.json",
+            "sha256": "921103f7d929134544f945eec51ac8559ae3d96b51d2140584dea02cd0de08ad"
+          },
+          "admission_elapsed_ns": 32737958,
+          "workspace_scope": false
+        },
+        "scoped": {
+          "receipt": {
+            "path": "target/control-t13/scoped-files/catalyst-ingress-scoped/receipt.json",
+            "sha256": "557e249935883934ac214cc76b6c31953db660f1493e8fdb26af8e0fab1ffe5e"
+          },
+          "job": {
+            "path": "target/control-t13/scoped-files/catalyst-ingress-scoped/verified-job.json",
+            "sha256": "08ba68c6b7388b7b6429f4c88ec3736b101f821953f427f80610c85fd0c5d08c"
+          },
+          "admission_elapsed_ns": 34029459,
+          "workspace_scope": true
+        }
+      },
+      "consumers": {
+        "declarations": {
+          "passed": 23,
+          "log": {
+            "path": "target/control-t13/scoped-files/catalyst-declarations.log",
+            "sha256": "a942f5b8f50a36a0d745089338b2082160e37e9b65ce5dd5ff610f5ba1b25871"
+          }
+        },
+        "preservation": {
+          "passed": 14,
+          "log": {
+            "path": "target/control-t13/scoped-files/catalyst-preservation.log",
+            "sha256": "e8fc68f0075a9aafc77a467cd6fb37fb8a09b5761219c418055d57cc1e5b855f"
+          }
+        },
+        "public": {
+          "passed": 8,
+          "log": {
+            "path": "target/control-t13/scoped-files/catalyst-public.log",
+            "sha256": "6eb3a267ad5afcfdbaaabe18e05dbd5778c64fdff2262ae2a382a5fd0fc60b29"
+          }
+        }
+      },
+      "files_fixture": {
+        "path": "target/control-t13/scoped-files/catalyst-files-reviewed.log",
+        "sha256": "4ab9468ef748a3e6dbe8e27f84b124b21069a86f9eef7df4dcd7ffebdc65484e"
+      },
+      "requirement": {
+        "path": "target/control-t13/scoped-files/catalyst-installed-requirement.txt",
+        "sha256": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "install": {
+        "path": "target/control-t13/scoped-files/catalyst-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      }
+    },
+    "catalyst-mini": {
+      "installed_sha256": "59b1e7f0fe1831846f9a3ff433ea6ba4eed7d5bc7ef5a39e4da7b6c20d19b86d",
+      "native": {
+        "dispatch": {
+          "passed": 19,
+          "receipt": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-dispatch/receipt.json",
+            "sha256": "e00f2d375df117dd23a53cba343b86acf7856e0f9506d16ccc53c0a78c78a7e0"
+          },
+          "log": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-dispatch/native.log",
+            "sha256": "c534bb654aa061b6281176be7328e2f5028c8ce531a56fba2f8950b783e21331"
+          }
+        },
+        "service": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-service/receipt.json",
+            "sha256": "0e72360977491e3f5d45b99ba47d7bd165ed46205cd39359f1232aa887dafcbd"
+          },
+          "log": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-service/native.log",
+            "sha256": "3eb8a1740dac57b02583ac7613152f1e21b17936005c9cba2c76efd999c325cd"
+          }
+        },
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-launch/receipt.json",
+            "sha256": "de9b5d0b31325bfdced6893df9005fba7d4a44afd051aaa44a8bd628888fbe89"
+          },
+          "log": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-launch/native.log",
+            "sha256": "d4a3d5c7531135bd21c3d3d0e9998eb8ebeeb599563b314f5960557aca731cb0"
+          }
+        }
+      },
+      "installed_ingress": {
+        "check": {
+          "receipt": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-ingress-check/receipt.json",
+            "sha256": "c3869173fb664680d4af790b76ca5a1465c890dcc5a386f52f5fbee816f97df9"
+          },
+          "job": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-ingress-check/verified-job.json",
+            "sha256": "a58bf8bc26db7ef434607e7f0b6548a7802137f769de807f1e7a0613c919fdf8"
+          },
+          "admission_elapsed_ns": 23350208,
+          "workspace_scope": false
+        },
+        "files": {
+          "receipt": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-ingress-files/receipt.json",
+            "sha256": "76c3e364e4607125fe2719db64b21ec5dbc74ba065b1bc641f3f86d4322c556a"
+          },
+          "job": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-ingress-files/verified-job.json",
+            "sha256": "ce2a8220b9babdc2c152c36a0d240ffd8c3daf058a9f6d48c51b77c60d34b225"
+          },
+          "admission_elapsed_ns": 32346875,
+          "workspace_scope": false
+        },
+        "scoped": {
+          "receipt": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-ingress-scoped/receipt.json",
+            "sha256": "5c7542666c2a50b1353786af673371dfe1d437c3fc1b529a3026bd2126274699"
+          },
+          "job": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-ingress-scoped/verified-job.json",
+            "sha256": "a820571beaef6525cabd7902086fbc05a395e3a67f5d2e3b7a3bbc2a54aa4c65"
+          },
+          "admission_elapsed_ns": 24109625,
+          "workspace_scope": true
+        }
+      },
+      "consumers": {
+        "declarations": {
+          "passed": 23,
+          "log": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-declarations.log",
+            "sha256": "8a125b7dc5bd9101584bf74b89b7201ae24d2d92ee04247c7d001841b1b746f2"
+          }
+        },
+        "preservation": {
+          "passed": 14,
+          "log": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-preservation.log",
+            "sha256": "2b6c9cdf18d4f2ec712ad993d45a9f7d95124d00d0f3fe882d76b47a71dbd8d8"
+          }
+        },
+        "public": {
+          "passed": 8,
+          "log": {
+            "path": "target/control-t13/scoped-files/mini-evidence/mini-public.log",
+            "sha256": "703ee35f3a471f36605fcff075a4b2732d0d54526c834bf5c709b341421908d1"
+          }
+        }
+      },
+      "files_fixture": {
+        "path": "target/control-t13/scoped-files/mini-evidence/mini-files.log",
+        "sha256": "fcbf0cf6e8250b1f4688b29a309a2bdcf2da1258c0de5c9679bbb5be1335975e"
+      },
+      "requirement": {
+        "path": "target/control-t13/scoped-files/mini-evidence/mini-installed-requirement.txt",
+        "sha256": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "install": {
+        "path": "target/control-t13/scoped-files/mini-evidence/mini-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      }
+    }
+  },
+  "review": {
+    "review-wait.json": {
+      "path": "target/control-t13/scoped-files/review-wait.json",
+      "sha256": "8e117f8acfd2b9e8f74c9812e2d13bd939f98a399bcd7c9b7e6ad9bdd68b6f09"
+    },
+    "review-corrections-wait.json": {
+      "path": "target/control-t13/scoped-files/review-corrections-wait.json",
+      "sha256": "2560169c46e9d87c027b1b02b0e5306e02dc7d3fab04309f43d3b038e3732513"
+    },
+    "review-source-final.json": {
+      "path": "target/control-t13/scoped-files/review-source-final.json",
+      "sha256": "7559c366e73bf459d425de3dc345a9af82356590862e86bf64a575c82289cf18"
+    },
+    "review-peer.json": {
+      "path": "target/control-t13/scoped-files/review-peer.json",
+      "sha256": "07ae12ed19cd9d27e31382122817ac58cc596c21f82dcb45ce33262609d0f086"
+    },
+    "review-conversation-closed.json": {
+      "path": "target/control-t13/scoped-files/review-conversation-closed.json",
+      "sha256": "50c6e0b9b71afd01db77676b6be914f36d70db5287f13ab4c5a50eb4ab96ef25"
+    },
+    "review-peer-closed.json": {
+      "path": "target/control-t13/scoped-files/review-peer-closed.json",
+      "sha256": "21b59bd87500d5b4efa8c99286218f3c75d2468b2e10380f667b79ad6a7985ac"
+    }
+  },
+  "placement": {
+    "quick_tests": "internal storage only",
+    "mini_source_checkout_accessed": false,
+    "initial_laptop_fixture_failure": {
+      "path": "target/control-t13/scoped-files/catalyst-files.log",
+      "sha256": "1bb235d92938efb89a0faf687bbac25908022020be89126519fd12a85efcaa91"
+    },
+    "correction": "Use /private/tmp for policy fixtures outside the enclosing source Git tree; no source change.",
+    "superseded_artifacts": "target/control-t13/scoped-files/frozen is not the delivered artifact set."
+  },
+  "remaining": [
+    "Public Files and other foreground routes",
+    "Native Git and activity probes",
+    "Paged results and fair/shared quanta",
+    "First-seen observation publication",
+    "Lifetime v2 runtime integration and lease/store conversion",
+    "Legacy bridge and old-reader barriers",
+    "Native conversation archive profiles, independent retrieval and verified source release",
+    "Remaining Linux and stalled-filesystem conformance"
+  ]
+}
