@@ -45,6 +45,16 @@ pub enum Task {
 }
 
 impl Task {
+  /// Return the complete physical reservation required by this task.
+  fn resources(&self) -> Resources {
+    match self {
+      Self::Check { scope, .. } | Self::PreviewFiles { scope, .. } => Resources::Bulk {
+        physical_volumes: scope.physical_volumes.clone(),
+      },
+      _ => Resources::Resolver,
+    }
+  }
+
   fn validate(&self) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
 
@@ -169,6 +179,7 @@ pub struct Owned {
   pipe: UnixStream,
   key: Key,
   launch: Launch,
+  process: String,
   task: Vec<u8>,
   delivery_attempted: bool,
   bytes: Vec<u8>,
@@ -205,18 +216,19 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, task: Task) -> io:
       return Ok(Start::Retained(previous));
     }
   }
-  let resources = match &task {
-    Task::Check { scope, .. } | Task::PreviewFiles { scope, .. } => Resources::Bulk {
-      physical_volumes: scope.physical_volumes.clone(),
-    },
-    _ => Resources::Resolver,
-  };
+  let resources = task.resources();
   let Some(launch) = journal.reserve_launch(key, sequence, resources)? else {
     return Ok(Start::Busy);
   };
+  let process = launch.worker.token.clone();
+  spawn(key, launch, process, bytes)
+}
+
+/// Create only a previously reserved worker or helper. A spawn failure retains its intent.
+fn spawn(key: &Key, launch: Launch, process: String, task: Vec<u8>) -> io::Result<Start> {
   let (pipe, input) = UnixStream::pair()?;
   pipe.set_nonblocking(true)?;
-  let mut command = command(&launch)?;
+  let mut command = command(&launch, &process)?;
   command.env_clear();
   #[cfg(test)]
   if let Some(gate) = std::env::var_os("REAP_NATIVE_EXECUTION_GATE") {
@@ -233,7 +245,8 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, task: Task) -> io:
     pipe,
     key: key.clone(),
     launch,
-    task: bytes,
+    process,
+    task,
     delivery_attempted: false,
     bytes: Vec::new(),
     incomplete: None,
@@ -248,6 +261,67 @@ impl Owned {
     self.child.id()
   }
 
+  /// Reserve and create one direct helper for this exact live, granted worker.
+  /// The coordinator fixes the task; this is not an arbitrary worker/client RPC.
+  /// Helpers cannot create helpers. The caller retains, polls, and releases each returned handle.
+  /// Retries return retained ownership, not completion or another process.
+  pub fn start_helper(
+    &mut self,
+    journal: &mut Journal,
+    slot: usize,
+    sequence: u64,
+    token: &str,
+    task: Task,
+  ) -> io::Result<Start> {
+    if self.process != self.launch.worker.token || self.finished || slot >= 2 {
+      return Ok(Start::Rejected(
+        "helper requires an owned worker and a direct slot".into(),
+      ));
+    }
+    let bytes = match task.validate().and_then(|()| {
+      if task.resources() != self.launch.resources {
+        return Err(invalid(
+          "helper task changes its worker's physical reservation",
+        ));
+      }
+      let bytes = serde_json::to_vec(&task)?;
+      if bytes.len() > MAX_PACKET {
+        return Err(invalid("helper task exceeds its bound"));
+      }
+      Ok(bytes)
+    }) {
+      Ok(bytes) => bytes,
+      Err(reason) => {
+        return Ok(Start::Rejected(
+          reason.to_string().chars().take(2048).collect(),
+        ))
+      }
+    };
+    let current = journal
+      .launch(&self.key)?
+      .ok_or_else(|| invalid("helper worker has no retained launch"))?;
+    if current.token != self.launch.token || current.sequence != self.launch.sequence {
+      return Err(invalid("helper worker launch changed"));
+    }
+    if let Some(previous) = &current.helpers[slot] {
+      if (previous.sequence == sequence && previous.token == token) || !previous.exited() {
+        return Ok(Start::Retained(current));
+      }
+    }
+    if self.child.try_wait()?.is_some() {
+      return Err(invalid("helper worker exited before reservation"));
+    }
+    let identity = ProcessIdentity::read(self.child.id())?
+      .ok_or_else(|| invalid("helper worker exited before reservation"))?;
+    if !matches!(&current.worker.state,
+      crate::launch::ProcessState::Granted { identity: granted, .. } if granted == &identity)
+    {
+      return Err(invalid("helper worker has no matching native grant"));
+    }
+    journal.reserve_helper(&self.key, &current.token, slot, sequence, token)?;
+    spawn(&self.key, current, token.into(), bytes)
+  }
+
   /// Persist this owned child's native identity, then deliver its exact grant and task once.
   /// A failed delivery retains the durable reservation. It does not permit a replacement.
   pub fn deliver(&mut self, journal: &mut Journal) -> io::Result<()> {
@@ -257,12 +331,7 @@ impl Owned {
     self.delivery_attempted = true;
     let identity = ProcessIdentity::read(self.child.id())?
       .ok_or_else(|| invalid("owned worker exited before its grant"))?;
-    let grant = journal.grant_process(
-      &self.key,
-      &self.launch.token,
-      &self.launch.worker.token,
-      identity,
-    )?;
+    let grant = journal.grant_process(&self.key, &self.launch.token, &self.process, identity)?;
     self.pipe.set_nonblocking(false)?;
     let result = grant
       .send(&mut self.pipe)
@@ -325,7 +394,7 @@ impl Owned {
     if !self.finished {
       return Ok(false);
     }
-    journal.observe_exit(&self.key, &self.launch.token, &self.launch.worker.token)
+    journal.observe_exit(&self.key, &self.launch.token, &self.process)
   }
 }
 
@@ -381,15 +450,12 @@ pub fn run(launch: &str, process: &str) -> i32 {
   }
 }
 
-fn command(launch: &Launch) -> io::Result<Command> {
+fn command(launch: &Launch, process: &str) -> io::Result<Command> {
   #[cfg(test)]
   if std::env::var_os("REAP_TEST_WORKER_BIN").is_none() {
     let mut command = Command::new(std::env::current_exe()?);
     command.args(["--exact", "worker::tests::process_entry", "--nocapture"]);
-    command
-      .arg("--")
-      .arg(&launch.token)
-      .arg(&launch.worker.token);
+    command.arg("--").arg(&launch.token).arg(process);
     return Ok(command);
   }
   #[cfg(test)]
@@ -397,7 +463,7 @@ fn command(launch: &Launch) -> io::Result<Command> {
   #[cfg(not(test))]
   let executable = std::env::current_exe()?;
   let mut command = Command::new(executable);
-  command.args(["worker", &launch.token, &launch.worker.token]);
+  command.args(["worker", &launch.token, process]);
   Ok(command)
 }
 

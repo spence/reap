@@ -1114,6 +1114,8 @@ applying operations are not activated.
 Internal declaration preview also has native resolver and worker phases with structured counters.
 It can assess one workspace with governing ancestor policy and required sibling retention measurements.
 It does not recursively scan unrelated sibling subtrees for display sizing.
+The owned launcher supports two direct helpers with separate durable grants inside the worker's reservation.
+This interface does not activate native Git/activity adapters or a worker-request service.
 Public `files` still uses its foreground route; its activation and caller-migration gates remain open.
 These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.

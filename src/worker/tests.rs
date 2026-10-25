@@ -188,6 +188,207 @@ fn granted_native_resolver_returns_complete_identity_and_physical_resources_with
   assert_eq!(fs::read_dir(directory).unwrap().count(), 1);
 }
 
+#[cfg(target_os = "macos")]
+struct ResumeOwned(crate::launch::ProcessIdentity);
+
+#[cfg(target_os = "macos")]
+impl Drop for ResumeOwned {
+  fn drop(&mut self) {
+    if ProcessIdentity::read(self.0.pid).ok().flatten().as_ref() == Some(&self.0) {
+      // SAFETY: the exact identity belongs to the stopped child created by this fixture.
+      unsafe {
+        libc::kill(self.0.pid as i32, libc::SIGCONT);
+      }
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn owned_helpers_use_their_own_tokens_and_keep_worker_reservations() {
+  let fixture = Fixture::new();
+  fs::write(fixture.0.join("valuable"), b"helper survivor").unwrap();
+  let root = fixture.0.join("journal");
+  let mut journal = Journal::open(&root).unwrap();
+  let key = admit(&mut journal);
+  let waiting = admit(&mut journal);
+  let task = Task::Resolve {
+    directory: fixture.0.clone(),
+  };
+  let mut parent = spawned(start(&mut journal, &key, 1, task.clone()).unwrap());
+  let identity = ProcessIdentity::read(parent.pid()).unwrap().unwrap();
+  let resume = ResumeOwned(identity.clone());
+  // SAFETY: this exact child was created above and waits without target authority.
+  assert_eq!(unsafe { libc::kill(identity.pid as i32, libc::SIGSTOP) }, 0);
+  parent.deliver(&mut journal).unwrap();
+  let directory = File::open(&fixture.0).unwrap();
+  let physical = crate::volumes::resolve(&directory).unwrap();
+  let scope: crate::dispatch::Scope = serde_json::from_value(serde_json::json!({
+    "project":fixture.0, "physical_volumes":physical,
+    "objects":[{"path":fixture.0,"identity":ObjectIdentity::read(&directory).unwrap(),
+      "physical_volumes":physical,"content":null,"missing":[]}]
+  }))
+  .unwrap();
+  scope.validate().unwrap();
+  let different_resources = Task::Check {
+    scope,
+    input: Prepared {
+      request: "read-only helper".into(),
+      context: "private directory".into(),
+      authority: "no cleanup permission".into(),
+      volumes: vec![],
+    },
+  };
+  different_resources.validate().unwrap();
+  let before = journal.launch(&key).unwrap();
+  assert!(
+    matches!(parent.start_helper(&mut journal, 0, 1, &random_token().unwrap(), different_resources).unwrap(),
+    Start::Rejected(reason) if reason.contains("physical reservation"))
+  );
+  assert_eq!(journal.launch(&key).unwrap(), before);
+  let first_token = random_token().unwrap();
+  let second_token = random_token().unwrap();
+  let mut first = spawned(
+    parent
+      .start_helper(&mut journal, 0, 1, &first_token, task.clone())
+      .unwrap(),
+  );
+  first.deliver(&mut journal).unwrap();
+  let mut second = spawned(
+    parent
+      .start_helper(&mut journal, 1, 1, &second_token, task.clone())
+      .unwrap(),
+  );
+  second.deliver(&mut journal).unwrap();
+  let launch = journal.launch(&key).unwrap().unwrap();
+  for (slot, child, token) in [(0, &first, &first_token), (1, &second, &second_token)] {
+    let process = launch.helpers[slot].as_ref().unwrap();
+    assert_eq!(&process.token, token);
+    assert!(matches!(&process.state,
+      crate::launch::ProcessState::Granted { identity, .. } if identity.pid == child.pid()));
+  }
+  drop(journal);
+  let mut journal = Journal::open(&root).unwrap();
+  assert!(
+    matches!(parent.start_helper(&mut journal, 0, 1, &first_token, task.clone()).unwrap(),
+    Start::Retained(value) if value == launch)
+  );
+  assert!(matches!(
+    parent
+      .start_helper(&mut journal, 2, 1, &random_token().unwrap(), task.clone())
+      .unwrap(),
+    Start::Rejected(_)
+  ));
+  assert!(matches!(
+    first
+      .start_helper(&mut journal, 0, 1, &random_token().unwrap(), task.clone())
+      .unwrap(),
+    Start::Rejected(_)
+  ));
+  assert_eq!(journal.launch(&key).unwrap(), Some(launch));
+  for child in [&mut first, &mut second] {
+    let done = complete(child);
+    assert_eq!(done.exit_code, 0);
+    assert!(matches!(done.report, Ok(Report::Resolved { .. })));
+  }
+  assert!(first.release(&mut journal).unwrap());
+  let next_token = random_token().unwrap();
+  let mut replacement = spawned(
+    parent
+      .start_helper(&mut journal, 0, 2, &next_token, task.clone())
+      .unwrap(),
+  );
+  replacement.deliver(&mut journal).unwrap();
+  let replacement_launch = journal.launch(&key).unwrap();
+  assert!(first.release(&mut journal).is_err());
+  assert_eq!(journal.launch(&key).unwrap(), replacement_launch);
+  assert!(
+    matches!(parent.start_helper(&mut journal, 0, 1, &first_token, task.clone()).unwrap(),
+    Start::Retained(value) if value.helpers[0].as_ref().unwrap().token == next_token)
+  );
+  assert_eq!(complete(&mut replacement).exit_code, 0);
+  assert!(replacement.release(&mut journal).unwrap());
+  drop(resume);
+  complete(&mut parent);
+  assert!(!parent.release(&mut journal).unwrap());
+  assert!(matches!(
+    start(&mut journal, &waiting, 1, task.clone()).unwrap(),
+    Start::Busy
+  ));
+  assert!(second.release(&mut journal).unwrap());
+  assert!(parent.release(&mut journal).unwrap());
+  assert_eq!(
+    fs::read(fixture.0.join("valuable")).unwrap(),
+    b"helper survivor"
+  );
+  let mut next = spawned(start(&mut journal, &waiting, 1, task).unwrap());
+  next.deliver(&mut journal).unwrap();
+  assert_eq!(complete(&mut next).exit_code, 0);
+  assert!(next.release(&mut journal).unwrap());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn helper_runtime_refuses_ungranted_workers_and_retains_cancelled_ungranted_helpers() {
+  let fixture = Fixture::new();
+  fs::write(fixture.0.join("valuable"), b"ungranted helper survivor").unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let key = admit(&mut journal);
+  let task = Task::Resolve {
+    directory: fixture.0.clone(),
+  };
+  let mut parent = spawned(start(&mut journal, &key, 1, task.clone()).unwrap());
+  assert!(parent
+    .start_helper(&mut journal, 0, 1, &random_token().unwrap(), task.clone())
+    .is_err());
+  assert!(journal
+    .launch(&key)
+    .unwrap()
+    .unwrap()
+    .helpers
+    .iter()
+    .all(Option::is_none));
+  let identity = ProcessIdentity::read(parent.pid()).unwrap().unwrap();
+  let resume = ResumeOwned(identity.clone());
+  // SAFETY: this exact child was created above and waits without target authority.
+  assert_eq!(unsafe { libc::kill(identity.pid as i32, libc::SIGSTOP) }, 0);
+  parent.deliver(&mut journal).unwrap();
+  let token = random_token().unwrap();
+  let mut helper = spawned(
+    parent
+      .start_helper(&mut journal, 0, 1, &token, task.clone())
+      .unwrap(),
+  );
+  journal.request_cancel(&key, 2).unwrap();
+  assert!(helper.deliver(&mut journal).is_err());
+  let done = complete(&mut helper);
+  assert_eq!(done.exit_code, 1);
+  assert!(matches!(done.report, Ok(Report::Refused { .. })));
+  assert!(!helper.release(&mut journal).unwrap());
+  assert!(matches!(
+    parent
+      .start_helper(&mut journal, 0, 1, &token, task.clone())
+      .unwrap(),
+    Start::Retained(_)
+  ));
+  assert!(parent
+    .start_helper(&mut journal, 1, 1, &random_token().unwrap(), task)
+    .is_err());
+  drop(resume);
+  complete(&mut parent);
+  assert!(!parent.release(&mut journal).unwrap());
+  let launch = journal.launch(&key).unwrap().unwrap();
+  assert!(matches!(
+    launch.helpers[0].as_ref().unwrap().state,
+    crate::launch::ProcessState::Intent
+  ));
+  assert!(!launch.released());
+  assert_eq!(
+    fs::read(fixture.0.join("valuable")).unwrap(),
+    b"ungranted helper survivor"
+  );
+}
+
 #[test]
 fn incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence() {
   let body = serde_json::to_vec(&Report::Refused {

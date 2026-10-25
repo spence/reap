@@ -1,6 +1,6 @@
 # SPEC-WORKER-GRANTS — durable process ownership
 
-- Status: ownership core and native resolver runtime; public dispatch remains open.
+- Status: ownership core and native worker/helper runtime; applying routes remain open.
 - Consumers: Reap state writer, launcher, target workers, and direct helpers.
 - Grounds: owner-authorized `DEC-LIFETIME-AUTHORITY`, sections 7 and 10.
 - Bindings: `src/journal.rs`, `src/launch.rs`, and the cases below.
@@ -35,12 +35,12 @@
 ## Boundary
 
 The journal, pipe handshake, and owned runtime implement process ownership rules.
-`worker::start` persists a new resolver intent before it creates a process.
+`worker::start` persists a new worker intent before it creates a process.
 An existing launch returns retained ownership, not another child. The child uses the installed
 binary's hidden `worker` entry and a private socket. It does not inherit client stdout/stderr.
 Grant delivery occurs once, after the owned native process identity is durable.
-The child reads no target before its grant. Its initial task resolves native directory identity
-and physical resource keys; it cannot perform cleanup or complete the original command.
+The child reads no target before its grant. Tasks resolve native physical identity or perform the
+read-only assessments defined by [job execution](job-execution.md). They cannot perform cleanup.
 Complete result framing, EOF, and process exit are required. An incomplete result or unsuccessful
 exit cannot become successful scope evidence. Polling consumes at most 64 KiB per call.
 Resolved directory identities require nonzero native identifiers. The volume UUID has lowercase
@@ -48,12 +48,19 @@ hexadecimal groups of 8-4-4-4-12 digits; the file ID has 16 lowercase hexadecima
 Malformed identities refuse complete evidence.
 An ungranted or ambiguously spawned intent stays occupied, even after an owned child exits.
 
-The public CLI does not dispatch target workers through this interface yet.
+`Owned::start_helper` requires the exact current native identity of its owned, granted worker.
+The coordinator supplies a bounded task with the same complete physical reservation.
+The helper has a separate token, private socket, durable intent, native identity, and grant.
+Helpers cannot create helpers. The coordinator retains, polls, and releases each returned handle.
+An existing unresolved helper returns retained ownership, not another process or completed evidence.
+The same hidden worker entry handles helper grants; it does not accept a worker/client helper request.
+
+Public Check and internal Files use owned workers. Native Git/activity helper adapters remain open.
 The parent launcher must retain its owned child handles and supply identities from those children.
 An arbitrary client cannot supply a PID as proof of process ownership.
 The target resolver must supply canonical physical-volume keys, not APFS volume UUIDs or path strings.
 The [physical resource contract](physical-resources.md) defines admitted native topologies.
-Overlapping-scope reservations, platform launcher isolation, and dispatcher integration remain required before activation.
+Applying operations still require unified authority, overlapping-scope reservations, and legacy fences before activation.
 
 An intent without a durably recorded process remains occupied after a same-boot restart.
 Absence of a PID in that intent does not prove that process creation never occurred.
@@ -75,7 +82,7 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 | Clauses | Executable binding |
 | --- | --- |
 | C1, C2, C5 | `unresolved_launch_reserves_all_volumes_across_restart_without_blocking_other_volumes` |
-| C2 | `resource_sets_require_sorted_unique_safe_keys`; canonical native resolver integration remains open |
+| C2 | `resource_sets_require_sorted_unique_safe_keys`; `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |
 | C1, C3 | `ungranted_child_exits_without_effects_and_ambiguous_intent_is_not_replaced` |
 | C3, C5 | `durable_grant_survives_writer_restart_and_release_requires_native_exit` |
 | C4, C5 | `two_helpers_remain_owned_and_retain_worker_slots_until_all_exits_are_proved` |
@@ -92,3 +99,5 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 | C2, C3, C6 | `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |
 | C6 | `worker::tests::incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence`; `worker::tests::invalid_task_cannot_create_a_reservation_or_process` |
 | C6 | `worker::tests::invalid_native_directory_identities_cannot_be_complete_resolver_evidence` |
+| C1, C3, C4, C5, C7 | `worker::tests::owned_helpers_use_their_own_tokens_and_keep_worker_reservations` |
+| C1, C3, C4, C5 | `worker::tests::helper_runtime_refuses_ungranted_workers_and_retains_cancelled_ungranted_helpers` |
