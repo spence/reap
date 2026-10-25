@@ -1,0 +1,372 @@
+{
+  "certificate_identities": {
+    "declaration-tests": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "fault.dylib": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "reap-release": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "reap-unit": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+  },
+  "fleet": {
+    "catalyst": {
+      "artifacts": {
+        "declarations": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "59441ea2f2107cfe4ed5ce52b96668989385102070466ebcb2a0b73f9463f550",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "f63e5ebe7ab650243d5854eb27e56a57ce7b5e9c34f1bff0d7cb57f671ae0000",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "8c2e3ff203ee16ce014423e895ea301fbcd9f420d7f1e609bbefab5878f73f80",
+          "team": "35A87BDK48"
+        }
+      },
+      "ingress": {
+        "cancel-check": {
+          "acknowledgement_state": "pending",
+          "admission_elapsed_ns": 41995000,
+          "cancel_requested_at": 1792909712,
+          "cancellation": true,
+          "client_receipt_sha256": "414f5a85cb598a8f6e0a6c9da2fc6c06f9f7be97d95ef9aa65b355929c64b991",
+          "job_frame_sha256": "99dfc77b79d9e25466b301937d8c30eac7ace65c5b5bd62e2500ae2cc23e8faf",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "ca73f552011fb725b0bac5879643e7c1e1b4ecfc2674ec09011e14f5e848df96",
+          "released_bulk_launch": false,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 1
+        },
+        "cancel-files": {
+          "acknowledgement_state": "pending",
+          "admission_elapsed_ns": 45936041,
+          "cancel_requested_at": 1792909714,
+          "cancellation": true,
+          "client_receipt_sha256": "7231c045092884ae410f75e971c9e466d814d169c3e386e099f7d6d912893c73",
+          "job_frame_sha256": "0c2422f0afd3898432b1c737d18db1dc816d115c4dc68261c84e8faa6b543709",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "def72fd41cfb06d34f0c428555cdac708e98bf98ee6c023eb15660a5be274727",
+          "released_bulk_launch": false,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 1
+        },
+        "ingress-check": {
+          "admission_elapsed_ns": 30301375,
+          "cancellation": false,
+          "client_receipt_sha256": "3617191248d76a2b7c7186696711402314b7653c0f16d6d979a7702d544997d7",
+          "job_frame_sha256": "9473441cd593485a48637318bf94b8cb2a670e3500ad4470d1b5cd95961c7760",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "9615e318adb3c7217bd63c06c13b6474cfd34b6ee6e8de90c1b2feba5db49267",
+          "released_bulk_launch": true,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        },
+        "ingress-files": {
+          "admission_elapsed_ns": 31901708,
+          "cancellation": false,
+          "client_receipt_sha256": "b9e00971cc0902d91eca0518332534ae7bae36ff4cf3262b071bf02f08a0fad1",
+          "job_frame_sha256": "c300bb2adb4734dc31c3bfe05a0630d723b313330c59dfa9be54211fabb9e5fd",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "78bbf5f224cb9fcb981632988be1bba1fd00dc42639b12e7b47410c2018c8b1d",
+          "released_bulk_launch": true,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        }
+      },
+      "installed": {
+        "declarations": {
+          "ignored": 0,
+          "log_sha256": "def0dbfd1a237aad173e1804269bbc79b7b14d863badbe8517bfa78439750cd5",
+          "passed": 23
+        },
+        "installer_log_sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+        "job_help_sha256": "018eb2da2577fc4bda3a242dffa006d5524a99b25a8e240a6c71b5a339ad178b",
+        "preservation": {
+          "log_sha256": "a2233aaf1645f3dd7ded35cf48d66ab3334fd0bae3e8c4aa6e8fbf595369b5aa",
+          "passed": 14
+        },
+        "public": {
+          "log_sha256": "137b5377c16faab2b9f19b4351e7b0193a22e5dda6895eb53e7a0624d5b02ff1",
+          "passed": 8
+        }
+      },
+      "internal_data_device": 16777232,
+      "native": {
+        "blocked_sync_scenarios": 4,
+        "dispatch": {
+          "ignored": 0,
+          "log_sha256": "839d51b69bbc3406c2aed036546011d299fade32fc844c9bab4f9d0f706168ce",
+          "passed": 18,
+          "receipt_sha256": "13dd864603bdc49e92ff424eece9f8b855aa49e21b9e6f42a176127633c9f78d",
+          "runtime_removed": true
+        },
+        "launch": {
+          "ignored": 0,
+          "log_sha256": "8323bc0d131f8c987a6f7f1511bf87811212c89c53e5090f6a3b4ea2e134a1ad",
+          "passed": 13,
+          "receipt_sha256": "33c4cc93e865be9ef6302502c261aec3539ef431812a245360ee1da2566b1a58",
+          "runtime_removed": true
+        },
+        "live_files_slot_scenarios": 4,
+        "service": {
+          "ignored": 0,
+          "log_sha256": "351341fea6aa6a103aa655c359022010620261110998da19ee3830946b5f95a3",
+          "passed": 13,
+          "receipt_sha256": "f7387d70b653f5bc8f9127d3bb7adce108f4a3cee57f33f3ee90e34b06a6a182",
+          "runtime_removed": true
+        },
+        "staged_result_recovery_scenarios": 4
+      }
+    },
+    "catalyst-mini": {
+      "artifacts": {
+        "declarations": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "59441ea2f2107cfe4ed5ce52b96668989385102070466ebcb2a0b73f9463f550",
+          "team": "35A87BDK48"
+        },
+        "installed": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "f63e5ebe7ab650243d5854eb27e56a57ce7b5e9c34f1bff0d7cb57f671ae0000",
+          "team": "35A87BDK48"
+        },
+        "unit": {
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "sha256": "8c2e3ff203ee16ce014423e895ea301fbcd9f420d7f1e609bbefab5878f73f80",
+          "team": "35A87BDK48"
+        }
+      },
+      "ingress": {
+        "cancel-check": {
+          "acknowledgement_state": "pending",
+          "admission_elapsed_ns": 51812666,
+          "cancel_requested_at": 1792909712,
+          "cancellation": true,
+          "client_receipt_sha256": "5b9d5731f2fe787ed954f3f629cb2ba107e440d0de562a95af87bdc82a92dd7e",
+          "job_frame_sha256": "764f2409023a8d2ce9b127bc2f244bb7f0dc9c0d3f06695b693509e0c0a7f696",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "0b9956217982776c0d6055bdc5fb2d4214cd2783a08ac14c93d6fc14a79c5d40",
+          "released_bulk_launch": false,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 1
+        },
+        "cancel-files": {
+          "acknowledgement_state": "pending",
+          "admission_elapsed_ns": 17525750,
+          "cancel_requested_at": 1792909714,
+          "cancellation": true,
+          "client_receipt_sha256": "85ffc660b845a393c81cb173fb2a3d6696d05415e23c255dbba90be368d1d42b",
+          "job_frame_sha256": "39989df2885992f227a657c77a38e1f54b214ce611ad856f45c68d87b01d7392",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "d0105a6d77ed2d2df9e4ca2e56550f74ef647fbef6612acd592dd79330f8423c",
+          "released_bulk_launch": false,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 1
+        },
+        "ingress-check": {
+          "admission_elapsed_ns": 17361500,
+          "cancellation": false,
+          "client_receipt_sha256": "d34ce11d4642451b90c971114e31daacd3d629d0c3575a6d934e93ce6e2bb7b9",
+          "job_frame_sha256": "384e1f0c24e517e492b86456cc977b74356fa211ba582817febca3c106c4cbf6",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "d7929b90b9fbd95489bb34e5bf6a3de370f5ee6296d9837c34cbb29bb8e254fa",
+          "released_bulk_launch": true,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        },
+        "ingress-files": {
+          "admission_elapsed_ns": 15737250,
+          "cancellation": false,
+          "client_receipt_sha256": "fa65da74ac3866b46439de35ddfbe5fada83aa0d021f730be50c6e19b3773fd4",
+          "job_frame_sha256": "07e18a621fae3299bbc9659314b7a58bdbee87e2d6870401bca6247266fa207a",
+          "managed_services_preserved": true,
+          "production_services_stopped": false,
+          "protected_survivor": true,
+          "read_only_execution": true,
+          "receipt_sha256": "0c99a30b6befdfc0242b1d29feeb5bc63a3906d1161cb08b4b53a34982c58053",
+          "released_bulk_launch": true,
+          "runtime_removed": true,
+          "terminal_effects": 0,
+          "terminal_exit_code": 0
+        }
+      },
+      "installed": {
+        "declarations": {
+          "ignored": 0,
+          "log_sha256": "d6d798ec1de4cfc17013a6ed9af1144b6016932479fe3aaa277c9430dbc72925",
+          "passed": 23
+        },
+        "installer_log_sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+        "job_help_sha256": "018eb2da2577fc4bda3a242dffa006d5524a99b25a8e240a6c71b5a339ad178b",
+        "preservation": {
+          "log_sha256": "08da1c982aecb1911b86518fcf6bd69530a575db070450601534c2daca59b885",
+          "passed": 14
+        },
+        "public": {
+          "log_sha256": "c0a06b4d11c1cdffcc284f15952977aed0293603a82ae2e18c4e92d07378951c",
+          "passed": 8
+        }
+      },
+      "internal_data_device": 16777234,
+      "native": {
+        "blocked_sync_scenarios": 4,
+        "dispatch": {
+          "ignored": 0,
+          "log_sha256": "66c067f65617c16623d3228a05e4d6c49479653c6044e2f9f4cc2159b42bc275",
+          "passed": 18,
+          "receipt_sha256": "919cb2260bd17922b7a2df0fab96bdad1eb15c4e96a82b85a1de741038939dd2",
+          "runtime_removed": true
+        },
+        "launch": {
+          "ignored": 0,
+          "log_sha256": "b38e55b7aeda265b8f37bc7cf8d76617ed3e9088548e22d203d51b39c75dbd59",
+          "passed": 13,
+          "receipt_sha256": "e546a00e949dc1649ef6ec4ac7b0da07f8c7c277938de7f7692bc6084ed9bb98",
+          "runtime_removed": true
+        },
+        "live_files_slot_scenarios": 4,
+        "service": {
+          "ignored": 0,
+          "log_sha256": "dc2468df9ebf61f68d7628cb534b4dd4b34c079eed56aa07c5bf3065fe5e395e",
+          "passed": 13,
+          "receipt_sha256": "6087554febd0231486b2c1e87cb6532c97e93c0fc9a24b5c92b8464d40dda0c6",
+          "runtime_removed": true
+        },
+        "staged_result_recovery_scenarios": 4
+      }
+    }
+  },
+  "guides": {
+    "fleet": {
+      "catalyst": {
+        "trees": {
+          "claude": {
+            "SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00",
+            "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e",
+            "references/workspaces.md": "5e2b77213aa77ff76643a48ae1cd5d020bc678f71a85053d925080431016ca38"
+          },
+          "codex": {
+            "SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00",
+            "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e",
+            "references/workspaces.md": "5e2b77213aa77ff76643a48ae1cd5d020bc678f71a85053d925080431016ca38"
+          }
+        },
+        "verified_at_unix": 1792910203
+      },
+      "catalyst-mini": {
+        "trees": {
+          "claude": {
+            "SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00",
+            "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e",
+            "references/workspaces.md": "5e2b77213aa77ff76643a48ae1cd5d020bc678f71a85053d925080431016ca38"
+          },
+          "codex": {
+            "SKILL.md": "12cd10bf4953c12ba23f7f293b75f2210b263c5b7c6434b8704f5b94366abd00",
+            "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e",
+            "references/workspaces.md": "5e2b77213aa77ff76643a48ae1cd5d020bc678f71a85053d925080431016ca38"
+          }
+        },
+        "verified_at_unix": 1792910203
+      }
+    },
+    "fresh_discovery": {
+      "claude": {
+        "correct_command_and_pending_and_retained_success_semantics": true,
+        "correlated_reply_sha256": "35448286dfde5b96c148931ab7e5fd3f5c28ca0e6cc88fc63d8182d1bd50d00d",
+        "effort": "medium",
+        "host": "catalyst",
+        "model": "claude-haiku-5-5"
+      },
+      "codex": {
+        "correct_command_and_pending_and_retained_success_semantics": true,
+        "correlated_reply_sha256": "fc90c698ec777263943f513195efdeb697043fb50048bf0adceebcdd894b9fb3",
+        "effort": "medium",
+        "host": "catalyst",
+        "model": "gpt-6-luna"
+      }
+    },
+    "source_revision": "027c6788933da51b9a119280df68886bd77a0432"
+  },
+  "other_applying_routes": "unchanged foreground execution",
+  "production_conversion_archival_or_source_pruning": false,
+  "public_files_activation": false,
+  "python": {
+    "consumer_verifier": 17,
+    "service_installer": 23,
+    "signing_publication": 19
+  },
+  "rejected_busy_gate": {
+    "cause": "healthy busy state rejected cancellation before metadata queue",
+    "failed_log_sha256": "f7590977a31cfaa174383d34b238d8b0d904f2d93b9f9c9f52771083bcac353d",
+    "original_mini_kytos_timeouts": "not root-caused by this healthy-busy request rejection",
+    "patch_sha256": "8c15ad3c3ad0097677cbf21dde43390bd94ef27492d754f94533429da5631381",
+    "service_source_sha256": "5ffff583c9fb257f99e5a50b9db1e289164614b1d883a467ae8a8f6a77ad1383",
+    "writer_sample_sha256": "1a892ff49cd742b7584dd005a057bff3e79a665e5067493ac0440c43d4696cb1"
+  },
+  "rust": {
+    "cross_device_conformance": "not claimed; opt-in root was not enabled by these commands",
+    "declaration": 23,
+    "explicit_native_fault_cases": 5,
+    "full_log_sha256": "ce3ab83ae1122a6f2a2e2bd1964e5267c74e96c40b0e79bdd4ef0f4d9486c300",
+    "lifecycle_entries": 57,
+    "regular_unit": 242
+  },
+  "source_review": {
+    "approval_sha256": "fee825a369dfa0b1d666bf385900ad2087e88798e591d9374e5e243fa4983f20",
+    "effort": "high",
+    "freeze_helper_sha256": "23c997fc9a98d965e45e0cc57490f2e1264874df9137ae59ddd172f177a5c4ad",
+    "model": "claude-sonnet-5-5",
+    "scope_sha256": "890aad95785467e0b1b1386012485c72e1948015fec26334c9ee96e911897e69",
+    "source_only": true,
+    "verdict": "ACCEPT"
+  },
+  "source_revision": "5401bd18a2938c15bdedad81248d3361f18af24e",
+  "source_sha256": {
+    "README.md": "a5873b5b586801b718c67abb8fc3eff439d2ff37d3afc07140b1a8381571ae05",
+    "docs/specs/admission.md": "cc2690511e3426d045d0489b9f30a691e724737a072da0e315c2029d431ea1fc",
+    "docs/specs/job-client.md": "227a2de146cbe42f89d59555e0970d98db97800300ead050d5608419dcffa053",
+    "docs/specs/job-execution.md": "21693944bfc264884fa7db989a40ca24b357d426585c4cc7e9eeea32c6d7b7a8",
+    "skill/SKILL.md": "c44719e47d4cdba7f495bf25de185a12ba4ce10f537fef171cf31a44a882bd74",
+    "src/client.rs": "fd38c32176cabce32b4c71c3e368ecd56f0138e4be08b067375be7f57a8eaa09",
+    "src/client/tests.rs": "8a2a66a3a607ca5b5c7164524ab6bf9b744398bc927c1475137dbedba31de8ab",
+    "src/dispatch.rs": "e78e61f48c63db9009a1d56b32c666cf4a68544c438b99dee93a155e2143d626",
+    "src/dispatch/tests.rs": "fce98bb7c19b0dbe87b872bef91db8c7a416d7e89583cefdb3d1413558a26f41",
+    "src/journal.rs": "e228b3114515b514f6d33103e4a393b57bde622b744282af0cb756b850e7a5f8",
+    "src/journal/tests.rs": "eafdbaa44911fa0e3bb0221dce44318672ced05abad3610433ff0dabdfe522f0",
+    "src/main.rs": "3f69a52c7f64dd121c252442fd0b2ff1ad974f31fd0ef126589474b6deba5485",
+    "src/service.rs": "bc5d9b6d67cb671215ea46c34accdab37c4023d8fcf98443468f1eba108be685",
+    "src/service/tests.rs": "ae00205a1bb9a95db6657bb0fa33253fc1c1bb0ee9aae9fa99760ace287e0f32",
+    "tests/test_ingress_execution_verifier.py": "f7701823f51b2fc212e5272fb63134640ff2832c712cf49ece63d5f3665a3e7e",
+    "tests/test_public_check.py": "9877acc2720627f83f480fb3296e5df6098c40087258a7e4c59cebd6087a833d",
+    "tools/verify_ingress_macos.py": "f2117e67deb1ca304bf0a402a8fa9b08133071da64dcfc8a6ae267c172de55c5"
+  }
+}
