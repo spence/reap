@@ -1,0 +1,377 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "source_revision": "f4df0a58273df4d002a83cc637efc25f59959332",
+  "scope": "Private framed worker requests to coordinator-owned helpers; native resolver identity probe consumer",
+  "source_files": {
+    "src/worker.rs": "8514292ac066a318f1c2708def56d6fa4b3313ded12fa00d3b9c9f665fcb3e95",
+    "src/worker/tests.rs": "869cc9a753036bb55acc360e6f6e1d2c23c0b06dbb336c4894e3ce233595e1b3",
+    "src/dispatch.rs": "b6dbdb4eb2fcaf3c6af036144ddfd0f075562398e117f0d5da5a5ca711f9ebe5",
+    "src/dispatch/tests.rs": "2581f57e97f97465ef55a8a6273b831d196ed3446b58ac0f1a4a04d4865e2dec",
+    "docs/specs/worker-grants.md": "74ad8c35146fb574cfe81db471f19da40f6acabe7b63ea21583a7a166aff86ed",
+    "README.md": "8e1003b6149403392a5d2f1ca7fd46bd36c0bb33bf2aa593d6989dd183535a24"
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "424625b390c2f38d0a70ec8c8e014b4ea4f0b6bab5110675dd0c6227fde89c55",
+      "signature": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-channel/frozen-reviewed/reap-unit\nIdentifier=dev.micro.reap.native-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=35839 flags=0x0(none) hashes=1114+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 2:30:44\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "declaration-tests": {
+      "sha256": "2bb25bbb9935fa4b68a2d0dfa8642dc7f217e267e649cc33bb85cc73de51e6fd",
+      "signature": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-channel/frozen-reviewed/declaration-tests\nIdentifier=dev.micro.reap.declaration-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=4068 flags=0x0(none) hashes=121+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 2:30:44\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "reap-release": {
+      "sha256": "480b6212fe7bd753ad98d86b8619da926991572fe4c0bf778d01979ed01b8142",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-channel/frozen-reviewed/reap-release\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=7026 flags=0x0(none) hashes=214+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 2:30:44\u202fAM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "signature": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/helper-channel/frozen-reviewed/fault.dylib\nIdentifier=dev.micro.reap.native-faults\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=288 flags=0x0(none) hashes=3+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 24, 2026 at 12:51:35\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    }
+  },
+  "certificates": {
+    "reap-release": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "480b6212fe7bd753ad98d86b8619da926991572fe4c0bf778d01979ed01b8142"
+    },
+    "reap-unit": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "424625b390c2f38d0a70ec8c8e014b4ea4f0b6bab5110675dd0c6227fde89c55"
+    },
+    "declaration-tests": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "2bb25bbb9935fa4b68a2d0dfa8642dc7f217e267e649cc33bb85cc73de51e6fd"
+    },
+    "fault.dylib": {
+      "certificate_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+    }
+  },
+  "goal_complete": false,
+  "native_git_activity_adapters_activated": false,
+  "public_helper_command_activated": false,
+  "live_migration_activated": false,
+  "source_pruning_activated": false,
+  "source_verification": {
+    "full-rust-reviewed.log": {
+      "path": "target/control-t13/helper-channel/full-rust-reviewed.log",
+      "sha256": "6e5b3715e8963b93cd72f5df097cdcbde309a44ee4ea0eb6a52c9f4b77f0f9a8"
+    },
+    "worker-corrections.log": {
+      "path": "target/control-t13/helper-channel/worker-corrections.log",
+      "sha256": "83b3095525c1ff9edec364fcae9e402e29810b47617fbf2bc3cc7c05d6587315"
+    },
+    "exited-worker-before.log": {
+      "path": "target/control-t13/helper-channel/exited-worker-before.log",
+      "sha256": "cfcf80bf5892e8a3f5307b8e1f57d07e890aa3a2d74825c8b3d723e41a5acb5d"
+    },
+    "install-signing.log": {
+      "path": "target/control-t13/helper-channel/install-signing.log",
+      "sha256": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4"
+    },
+    "ingress-verifier.log": {
+      "path": "target/control-t13/helper-channel/ingress-verifier.log",
+      "sha256": "166a19e481e74e542a6a933f18db7892e7ecf92497c833712a8d196b8860492e"
+    },
+    "service-installation.log": {
+      "path": "target/control-t13/helper-channel/service-installation.log",
+      "sha256": "a80988313fb9c0307b9e905837e58527e1ecce340c70dd8ead74f68cac233ef7"
+    },
+    "counts": {
+      "regular_unit": 253,
+      "lifecycle_entries": 57,
+      "declaration_cases": 23,
+      "native_fault_cases_separate": 5,
+      "python_ingress_verifier": 18,
+      "python_installer_signing": 19,
+      "python_service_installation": 23
+    }
+  },
+  "review": {
+    "review-wait.json": {
+      "path": "target/control-t13/helper-channel/review-wait.json",
+      "sha256": "4807c926488427060d0f528fc4600520c781dd0195ea9cc2a13dbe635908e09e"
+    },
+    "review-corrections-wait.json": {
+      "path": "target/control-t13/helper-channel/review-corrections-wait.json",
+      "sha256": "716a930ce3ff366d005dcd11aca18c7d83fc5b5a032682258fb80fdcf0560adc"
+    },
+    "review-peer.json": {
+      "path": "target/control-t13/helper-channel/review-peer.json",
+      "sha256": "1b82be5bde71c53da3346c69802b53937eb9eecce7017f852246a64a8fae07e7"
+    },
+    "review-source-final.json": {
+      "path": "target/control-t13/helper-channel/review-source-final.json",
+      "sha256": "b0bc37fdc1ff0d9f5a09bb1095ea194cf02f4e527e3f2159b810c6bbbc4a2efb"
+    },
+    "review-conversation-closed.json": {
+      "path": "target/control-t13/helper-channel/review-conversation-closed.json",
+      "sha256": "f93849631a77741e1345743c5217a0740a522e06d0d95b00d4aeb6b4376ce27c"
+    },
+    "review-peer-closed.json": {
+      "path": "target/control-t13/helper-channel/review-peer-closed.json",
+      "sha256": "2ce21d80681a845b557e68638dd5d51c730a7bd6b7c47dedd9c5d15788aa140c"
+    }
+  },
+  "hosts": {
+    "catalyst": {
+      "installed_sha256": "480b6212fe7bd753ad98d86b8619da926991572fe4c0bf778d01979ed01b8142",
+      "requirement": {
+        "path": "target/control-t13/helper-channel/catalyst-installed-requirement.txt",
+        "sha256": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "install": {
+        "path": "target/control-t13/helper-channel/catalyst-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      },
+      "native": {
+        "worker": {
+          "passed": 15,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-worker/receipt.json",
+            "sha256": "985010902d87ccced875fe8a7146968359b6eb6927be83fd332e073a6780952c"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-worker/native.log",
+            "sha256": "bf1eb5b178d067e2f0abcc90fd2525845ae642535f3c33cae7cbc18dde707987"
+          }
+        },
+        "installed-worker": {
+          "passed": 15,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-installed-worker/receipt.json",
+            "sha256": "2097a8a151144416bbcfcabfb906748b660f47383e6fb4ae5d224281f489e4c7"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-installed-worker/native.log",
+            "sha256": "3e03c91439cdda62f2ac82b3d1717e112ddef095d6442d6a606dd5635d9ee57e"
+          }
+        },
+        "dispatch": {
+          "passed": 19,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-dispatch/receipt.json",
+            "sha256": "939a316b195c8a02baba1671bd708a470c3457c5dc653812ad58f8a2dfa1fda5"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-dispatch/native.log",
+            "sha256": "3a293560f01245f944b7138f4a123abff8928dffbaea1e43b25a6d13e532de13"
+          }
+        },
+        "service": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-service/receipt.json",
+            "sha256": "787185a729aa32ca1f8c8c5704f7830ca4a468fffa960a561400bda2c8013126"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-service/native.log",
+            "sha256": "916165359f477c0db1ab4a035cff918a9cdca28ad54652fb795e24256b15d080"
+          }
+        },
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-launch/receipt.json",
+            "sha256": "7640472324d462192cd06eef3d355b23ab6295c5429e5d992a9c27d6f51e3ac3"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-launch/native.log",
+            "sha256": "5d2073972e5dd60a8cd73da6f2e01cbb500ade58d32082bb362ee2ad7478c3c2"
+          }
+        }
+      },
+      "consumers": {
+        "declarations": {
+          "passed": 23,
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-declarations.log",
+            "sha256": "cd5b913c327969794f87e9b0a8f05f84890ce7a7bbe5c5270954cdc6729b6552"
+          }
+        },
+        "preservation": {
+          "passed": 14,
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-preservation.log",
+            "sha256": "5dc922f33c4773580c0e6f7cb8ccf83d602bb0d0dae9fcf3ae9dc053fd76e1a4"
+          }
+        },
+        "public": {
+          "passed": 8,
+          "log": {
+            "path": "target/control-t13/helper-channel/catalyst-public.log",
+            "sha256": "3fd274662468e8f9b56d7d6f264ac4dee1e73d530f881a1109f22aa9a904e107"
+          }
+        }
+      },
+      "ingress": {
+        "check": {
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-ingress-check/receipt.json",
+            "sha256": "1362d53f429f308eb74a242f9efcce7bed73e5a4a58ea2f4829f4a7b5a5567ab"
+          },
+          "job": {
+            "path": "target/control-t13/helper-channel/catalyst-ingress-check/verified-job.json",
+            "sha256": "c0754384b5904253f670c7ab0c96115007244cce31c18b7ab4c1ef1693c82c91"
+          }
+        },
+        "files": {
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-ingress-files/receipt.json",
+            "sha256": "ed2d8191fca3cacbe73c8b1bfe468af8949988eaf2bfda0402266120b77d7225"
+          },
+          "job": {
+            "path": "target/control-t13/helper-channel/catalyst-ingress-files/verified-job.json",
+            "sha256": "3f709458592f425b6876c0b47a0ad3656f0f97ef3bd00d008b06ee7d85928dc1"
+          }
+        },
+        "scoped": {
+          "receipt": {
+            "path": "target/control-t13/helper-channel/catalyst-ingress-scoped/receipt.json",
+            "sha256": "d39fabaa5a647ed57a9c856937052604c069be67ee9c5494b6c6306c3c5fbff6"
+          },
+          "job": {
+            "path": "target/control-t13/helper-channel/catalyst-ingress-scoped/verified-job.json",
+            "sha256": "f957bfd973ba0020cc6b521dc0b522acac20531471de335bbb447cea46803962"
+          }
+        }
+      }
+    },
+    "catalyst-mini": {
+      "installed_sha256": "480b6212fe7bd753ad98d86b8619da926991572fe4c0bf778d01979ed01b8142",
+      "requirement": {
+        "path": "target/control-t13/helper-channel/mini-evidence/mini-installed-requirement.txt",
+        "sha256": "6cd7bf1cdb08e7aca59126a6e1c5182626e37a6c372cfa9fb6a5180569e2d6c6"
+      },
+      "install": {
+        "path": "target/control-t13/helper-channel/mini-evidence/mini-install.log",
+        "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5"
+      },
+      "native": {
+        "worker": {
+          "passed": 15,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-worker/receipt.json",
+            "sha256": "db0998d680e2caccb901e22ca2efc523fcccf4bc62ceb15b25650f387b9cc037"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-worker/native.log",
+            "sha256": "9f0b3125e4d224eb03ec439e1b008fccb2854af7a58493cbcc65994b20a446bb"
+          }
+        },
+        "installed-worker": {
+          "passed": 15,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-installed-worker/receipt.json",
+            "sha256": "13dcdb0ff97b794ad410f5f4bf1d72900166e5863322b3609e0b4ba6a12b9acb"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-installed-worker/native.log",
+            "sha256": "14464ad2f5f22d2fa11bd933510d177adbd97577883254b0cbdee6244906ef58"
+          }
+        },
+        "dispatch": {
+          "passed": 19,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-dispatch/receipt.json",
+            "sha256": "52d846bcd9120c47657a418e4294c909ddcc83e27696566de1188f0974563fac"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-dispatch/native.log",
+            "sha256": "4f111a347fa7ef11937ba79fff3c74bdfe5ad39f600f5b099cd235f69f4dfdd5"
+          }
+        },
+        "service": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-service/receipt.json",
+            "sha256": "8753e96ab2dc3e899060cab4a7a89bf0efa7e6f023f8a5029580b1b19487b18b"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-service/native.log",
+            "sha256": "06bcf0c8f64fa78e46b76ca49736d91d202e23df1fa62d5cf69157ec100fc1a1"
+          }
+        },
+        "launch": {
+          "passed": 13,
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-launch/receipt.json",
+            "sha256": "f9b12ec9dfbacf7fb121813cebac4c778003429b536c567389375d51e6ab401b"
+          },
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-launch/native.log",
+            "sha256": "482d9c2a5e1cc078ba09658161c257d1a2a878a90e6f77c0726be2ccb96746e2"
+          }
+        }
+      },
+      "consumers": {
+        "declarations": {
+          "passed": 23,
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-declarations.log",
+            "sha256": "2cf313631e1f6412dad5dc6719116d6a8019e97d92bbba6f07aad1357d50bf8f"
+          }
+        },
+        "preservation": {
+          "passed": 14,
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-preservation.log",
+            "sha256": "dc32d6bb2c0355ac2bfc75b374283aca73d76571679693bce5b58fc5d42ddd71"
+          }
+        },
+        "public": {
+          "passed": 8,
+          "log": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-public.log",
+            "sha256": "66d387e455b0ab2df1ce4152f732b395d88326d29e1ebfd9089cc39ce4752073"
+          }
+        }
+      },
+      "ingress": {
+        "check": {
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-ingress-check/receipt.json",
+            "sha256": "e4b22746c3602fecafcb9176810c85a00b7213598ec8111ea522766c42e6f41f"
+          },
+          "job": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-ingress-check/verified-job.json",
+            "sha256": "f53c280bc7ed25dcfa2fb46d46f998e37445106cabd51ac85ee62948728e6969"
+          }
+        },
+        "files": {
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-ingress-files/receipt.json",
+            "sha256": "aad021dfd999f1253ff085d0f983d0f842d3076fb6207cece5174e3f232a45b9"
+          },
+          "job": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-ingress-files/verified-job.json",
+            "sha256": "e80139b6c3caa65352b5acbbc6d45859423ac6796923326f782ad3d65b7a29fd"
+          }
+        },
+        "scoped": {
+          "receipt": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-ingress-scoped/receipt.json",
+            "sha256": "01a9a0c5873d09ce9679bd330842fcb0f6733f976a5d60781a5b537cb9cc54f4"
+          },
+          "job": {
+            "path": "target/control-t13/helper-channel/mini-evidence/mini-ingress-scoped/verified-job.json",
+            "sha256": "c35d2907af0aa35ea739b87af9c7e60bf8350c2c730385678435ebf46f48ad7c"
+          }
+        }
+      }
+    }
+  },
+  "placement": {
+    "quick_tests": "internal only",
+    "mini_source_checkout_accessed": false,
+    "foreign_agents_or_provider_hosts_stopped": false,
+    "superseded_artifacts": "target/control-t13/helper-channel/frozen predates review corrections and is not delivered"
+  },
+  "remaining": [
+    "Concrete native Git/activity safety adapters",
+    "Public Files and effectful unified execution",
+    "Fair/shared discovery quanta, paging and first-seen publication",
+    "Lifetime activation, legacy bridge/old-reader fences and lease/store conversion",
+    "Native conversation capture profiles, independent retrieval and separate source release",
+    "Remaining native Linux and stalled-filesystem conformance"
+  ]
+}
