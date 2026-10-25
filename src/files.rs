@@ -544,6 +544,7 @@ struct Preview {
   ancestor_devices: Vec<u64>,
   guard_incomplete: Cell<bool>,
   activity: Result<BTreeMap<PathBuf, bool>, String>,
+  tracking: crate::git_index::Tracking,
   preservation: BTreeMap<PathBuf, String>,
   ancestors: Vec<libc::stat>,
   reason_bytes: usize,
@@ -613,7 +614,7 @@ impl Preview {
 
 /// Preview one granted, physical governed root through its held directory descriptor.
 /// No cache or target writes occur. Unsafe or incomplete discovery protects the entire root.
-/// Git evidence that requires an external process is incomplete, not implicit disposal permission.
+/// Index tracking uses bounded native snapshots. Git recovery remains a separate guard.
 /// Ancestor devices must come from the caller's freshly verified native physical closure.
 pub(crate) fn preview(
   root: &Path,
@@ -744,20 +745,36 @@ impl PreviewDiscovery<'_> {
         .map_err(|e| e.to_string())
         .and_then(Decl::parse);
       let (mut parsed, pending) = declaration_grace(parsed, self.now, first, self.grace);
-      let set_aside = if self.preview.ancestor_git
+      let has_git = self.preview.ancestor_git
         || path
           .ancestors()
           .take_while(|parent| parent.starts_with(self.root))
-          .any(|parent| self.preview.nodes.contains_key(&parent.join(".git")))
-      {
-        let why = "bounded preview cannot prove Git tracking".to_string();
-        self.errors.insert(self.root.to_path_buf(), why.clone());
-        parsed = Err(why.clone());
-        Some(why)
+          .any(|parent| self.preview.nodes.contains_key(&parent.join(".git")));
+      let mut tracked = false;
+      let set_aside = if has_git {
+        match self
+          .preview
+          .tracking
+          .tracked(&path.join(FILE_NAME), &self.preview.remaining)
+        {
+          Ok(true) => {
+            tracked = true;
+            Some("tracked by git".into())
+          }
+          Ok(false) => pending,
+          Err(reason) => {
+            let why = format!("bounded preview cannot prove Git tracking: {reason}");
+            self.errors.insert(self.root.to_path_buf(), why.clone());
+            parsed = Err(why.clone());
+            Some(why)
+          }
+        }
       } else {
         pending
       };
-      self.decls.insert(path.to_path_buf(), parsed);
+      if !tracked {
+        self.decls.insert(path.to_path_buf(), parsed);
+      }
       self.found.push(Found {
         dir: path.to_path_buf(),
         set_aside,
@@ -952,6 +969,7 @@ fn scan_bounded(
   boundary: PreviewBoundary<'_>,
   now: i64,
   grace: i64,
+  resources: Option<crate::launch::Resources>,
 ) -> Result<Scan, String> {
   let PreviewBoundary {
     directory: held,
@@ -987,6 +1005,7 @@ fn scan_bounded(
     ancestor_devices: ancestor_devices.to_vec(),
     guard_incomplete: Cell::new(false),
     activity: Err("no granted activity helper".into()),
+    tracking: crate::git_index::Tracking::new(resources),
     preservation: BTreeMap::new(),
     ancestors: vec![],
     reason_bytes: 0,
@@ -1147,6 +1166,10 @@ fn finish_preview(
     if preview.exhausted.get() || preview.guard_incomplete.get() || scan.incomplete {
       return Err("preview coverage is incomplete".into());
     }
+    preview
+      .tracking
+      .revalidate()
+      .map_err(|reason| reason.to_string())?;
     for (path, node) in &preview.nodes {
       let current = if path == &preview.anchor {
         descriptor_stat(&open_physical(path).map_err(|e| e.to_string())?)
@@ -1531,7 +1554,15 @@ fn execute_inner(
       continue;
     }
     let scan = match boundary {
-      Some(boundary) => scan_bounded(&root, boundary, now as i64, grace),
+      Some(boundary) => scan_bounded(
+        &root,
+        boundary,
+        now as i64,
+        grace,
+        helpers
+          .as_deref()
+          .map(|helpers| helpers.resources().clone()),
+      ),
       None => scan(&root, now as i64, grace),
     };
     let mut scan = match scan {
@@ -1938,7 +1969,7 @@ mod tests {
       ancestor_devices: &devices,
       scope: &root,
     };
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     assert!(!scan.incomplete);
     fs::write(fixture.0.join("unrelated"), b"unrelated parent entry").unwrap();
     let mut report = Report::default();
@@ -1954,20 +1985,20 @@ mod tests {
     )
     .unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     fs::write(
       fixture.0.join(".reap"),
       br#"{"version":1,"keep":{"reason":"changed ancestor hold"}}"#,
     )
     .unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     fs::write(root.join("selected/valuable"), b"changed selected input").unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     fs::remove_file(fixture.0.join(".reap")).unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     fs::write(
       fixture.0.join(".reap"),
       br#"{"version":2,"role":"permanent_archive","keep":{"reason":"archive"},"seal":true}"#,
@@ -1975,7 +2006,7 @@ mod tests {
     .unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
     fs::remove_file(fixture.0.join(".reap")).unwrap();
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     fs::create_dir(fixture.0.join(".git")).unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
   }
@@ -2038,6 +2069,7 @@ mod tests {
         },
         now_secs() as i64,
         0,
+        None,
       )
       .unwrap()
     };
@@ -2413,7 +2445,7 @@ mod tests {
       ancestor_devices: &devices,
       scope: &root,
     };
-    scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     let mut expected_native = expected.clone();
     #[cfg(target_os = "macos")]
     {
@@ -2509,7 +2541,7 @@ mod tests {
       assert!(!unreadable_result.coverage_complete);
     }
 
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
     let snapshot = scan.view.preview.as_ref().unwrap();
     assert!(!snapshot.charge(PREVIEW_BUDGET));
     let mut exhausted = Report::default();

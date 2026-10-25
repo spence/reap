@@ -29,7 +29,7 @@ def main():
                                             "lifetime::tests", "archive::tests", "archive::sqlite::tests",
                                             "quarantine::tests", "util::tests", "worker::tests",
                                             "journal::tests", "volumes::", "dispatch::tests",
-                                            "client::tests", "preservation::tests"], default="control::tests")
+                                            "client::tests", "preservation::tests", "git_index::tests"], default="control::tests")
     parser.add_argument("--fault-library", type=pathlib.Path)
     parser.add_argument("--worker-binary", type=pathlib.Path)
     arguments = parser.parse_args()
@@ -138,6 +138,17 @@ def main():
                               "granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation",
                               "incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence",
                               "invalid_native_directory_identities_cannot_be_complete_resolver_evidence"],
+            "git_index::tests": ["native_indexes_keep_tracked_paths_across_versions_and_hash_kinds",
+                                 "malformed_truncated_checksum_and_capacity_evidence_never_proves_untracked",
+                                 "native_extended_flags_stages_and_skip_hash_remain_tracked",
+                                 "compressed_paths_are_bounded_before_index_decode",
+                                 "native_tracking_matches_git_for_linked_worktrees_and_revalidates_index_changes",
+                                 "native_tracking_never_executes_monitor_settings_and_refuses_split_dependencies",
+                                 "native_alias_binding_changes_cannot_reuse_a_negative_tracking_verdict",
+                                 "nearer_repository_cannot_reuse_an_outer_untracked_verdict",
+                                 "all_conflict_stage_pairs_remain_tracked",
+                                 "optional_cache_payloads_never_enter_the_recursive_extension_decoder",
+                                 "native_sha256_tracking_and_worktree_settings_are_bound_to_the_checkout"],
             "journal::tests": ["prior_boot_intents_release_without_pids_but_same_boot_and_legacy_unknown_intents_stay",
                                "prior_boot_launch_cannot_grant_current_processes_or_create_helper_intents",
                                "writer_restart_reconciles_prior_boot_worker_and_ungranted_helper_before_admission"],
@@ -146,6 +157,7 @@ def main():
                           "unknown_virtual_raid_and_incomplete_topologies_refuse",
                           "external_tunneled_nvme_requires_exact_endpoint"],
             "dispatch::tests": ["native_check_pipeline_completes_once_with_local_store_and_protected_survivors",
+                                "native_files_tracking_uses_one_bound_index_without_git_process_helpers",
                                 "native_files_batches_activity_helpers_and_preserves_open_and_retained_work",
                                 "changed_native_scope_caller_config_and_grant_resources_refuse",
                                 "special_oversized_external_and_incomplete_check_inputs_never_report_success",

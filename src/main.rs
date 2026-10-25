@@ -24,6 +24,7 @@ mod discover;
 pub mod dispatch;
 mod doctor;
 mod files;
+mod git_index;
 pub mod identity;
 mod inventory;
 pub mod invocation;

@@ -1119,7 +1119,10 @@ Workers can request helpers over their private channel; the coordinator creates 
 Internal declaration preview batches activity targets into one supervised native scan per selected root.
 The granted helper becomes the fixed system tool in the same process. Complete parsed output,
 empty stderr, native exit, and durable release precede a successful activity reply.
-Incomplete evidence protects the selection. Native Git recovery and a public helper command remain unavailable.
+Incomplete evidence protects the selection. Native preview reads Git tracking from bounded index snapshots
+inside its granted worker. Native file identity resolves case and Unicode aliases.
+Changed or unsupported Git dependencies protect the selection. Native Git recovery remains unavailable.
+A public helper command is not provided.
 Public `files` still uses its foreground route; its activation and caller-migration gates remain open.
 These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.

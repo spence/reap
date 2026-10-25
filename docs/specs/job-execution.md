@@ -57,6 +57,7 @@ The public `files` route is not activated by that internal adapter.
   Revalidation requires unchanged ancestor identity, permissions, and policy-file evidence.
   Unrelated ancestor directory entries do not invalidate a selected inventory.
   Unknown Git or activity evidence remains incomplete; preview does not start ungranted helpers.
+  Git tracking uses the [bound index snapshot contract](git-tracking.md); it starts no Git process.
   Structured counters remain complete when diagnostic output is discarded. Large complete terminal reports refuse capacity rather than omit counters into success.
   Binding: `files::tests::structured_preview_fixture`,
   `preview_revalidation_distinguishes_parent_entries_from_policy_and_selected_changes`,
@@ -138,7 +139,8 @@ Honored child declarations exclude their units from parent retention accounting.
 Unmatched sibling subtrees are not measured for display. Unmeasured ancestors do not supply unit statistics.
 Configured root aliases remain resolver dependencies; this profile does not narrow their physical reservations.
 Incomplete evidence still protects the whole request; independent partial progress is not yet supported.
-Fresh owned Git/activity probes, paged large reports, first-seen observation publication, fair discovery quanta,
+Native activity and bounded index tracking supply their separate evidence.
+Git recovery, paged large reports, first-seen observation publication, fair discovery quanta,
 legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.
 No recovery path reruns an uncertain mutating operation; none is supported by this dispatcher.

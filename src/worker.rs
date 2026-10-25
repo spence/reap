@@ -232,6 +232,11 @@ pub(crate) struct Helpers<'a> {
 }
 
 impl Helpers<'_> {
+  /// The exact physical reservation already bound to this worker's execution grant.
+  pub(crate) fn resources(&self) -> &Resources {
+    self.resources
+  }
+
   /// One complete host-wide scan for this candidate set; never one scan per candidate.
   pub(crate) fn activity(&mut self, directories: Vec<PathBuf>) -> io::Result<Vec<bool>> {
     if let Some(reason) = &self.activity_failure {

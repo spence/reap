@@ -396,6 +396,101 @@ fn native_files_rejects_applying_flags_without_poisoning_later_read_jobs() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_files_tracking_uses_one_bound_index_without_git_process_helpers() {
+  let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+    .map(PathBuf::from)
+    .unwrap_or_else(std::env::temp_dir);
+  let path = base.join(format!("dispatch-index-{}", random_token().unwrap()));
+  fs::create_dir_all(path.join("home/.config/reap")).unwrap();
+  fs::create_dir_all(path.join("project/workspace")).unwrap();
+  fs::create_dir(path.join("templates")).unwrap();
+  let fixture = Fixture(fs::canonicalize(path).unwrap());
+  let workspace = fixture.0.join("project/workspace");
+  for name in ["tracked", "untracked"] {
+    fs::create_dir(workspace.join(name)).unwrap();
+    fs::write(
+      workspace.join(name).join(".reap"),
+      br#"{"version":1,"keep":{"reason":"retained work"}}"#,
+    )
+    .unwrap();
+    fs::write(workspace.join(name).join("valuable"), name.as_bytes()).unwrap();
+  }
+  for arguments in [
+    vec![
+      "init".to_owned(),
+      format!("--template={}", fixture.0.join("templates").display()),
+      ".".into(),
+    ],
+    vec!["add".into(), "--".into(), "tracked/.reap".into()],
+  ] {
+    let output = std::process::Command::new("/usr/bin/git")
+      .env_clear()
+      .env("PATH", "/usr/bin:/bin")
+      .env("LC_ALL", "C")
+      .env("GIT_CONFIG_NOSYSTEM", "1")
+      .env("GIT_CONFIG_SYSTEM", "/dev/null")
+      .env("GIT_CONFIG_GLOBAL", "/dev/null")
+      .current_dir(&workspace)
+      .args(arguments)
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+  }
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({
+      "governed_roots":[fixture.0.join("project")], "reap_file_grace_hours":0
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec!["files".into(), workspace.to_str().unwrap().into()];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal.admit_execution(key.clone(), input, 1).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  scheduler.enqueue(&mut journal, key.clone()).unwrap();
+  let result = terminal(&mut journal, &mut scheduler, &key);
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 0);
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["reports"][0]["coverage_complete"], true);
+  assert_eq!(detail["reports"][0]["declarations"], 2);
+  assert_eq!(detail["reports"][0]["honored"], 1);
+  assert_eq!(detail["reports"][0]["planned_units"], 0);
+  assert!(
+    detail["stdout"].as_str().unwrap().contains(&format!(
+      "{}  (tracked by git)",
+      workspace.join("tracked").display()
+    )),
+    "{}",
+    result.detail
+  );
+  let launch = journal.launch(&key).unwrap().unwrap();
+  assert!(launch.released());
+  assert!(launch.helpers.iter().all(Option::is_none));
+  for name in ["tracked", "untracked"] {
+    assert_eq!(
+      fs::read(workspace.join(name).join("valuable")).unwrap(),
+      name.as_bytes()
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn native_files_batches_activity_helpers_and_preserves_open_and_retained_work() {
   let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
     .map(PathBuf::from)
