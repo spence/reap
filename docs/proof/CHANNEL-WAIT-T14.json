@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "source_revision": "b6c996d271648d6563427cb118409a965d7a948d",
+  "source_manifest": {
+    "README.md": "394d20387124241773e6fea835e1f96196be115b01378aff56fa8ecd8333c525",
+    "docs/specs/job-execution.md": "f410e395a1f322976f8496e4ca1aae24b6cc51cc2325da812ebd880cd574e778",
+    "src/dispatch.rs": "124552cc501c738976d6c486089ff585b561897ee7614188b997103942f8adad",
+    "src/service.rs": "3473304364430f09c441b8df206eab6b2647f873512f89f89eac38fe5115d0ba",
+    "src/worker.rs": "55766660cdecebc29dd4752225f867c2eda2bdfcd5268b355ebd42a62e3bbb70",
+    "src/worker/tests.rs": "4a2d86da72ad0028a049abc8b0435898730a89fb21436a9f0b3afdd59d3c3550"
+  },
+  "component": "bounded channel wait with wake-on-arrival",
+  "full_goal_complete": false,
+  "full_source_suite": {
+    "unit_passed": 317,
+    "ignored_fault_only": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23,
+    "exit_code": 0
+  },
+  "native": {
+    "catalyst": {
+      "worker": 22,
+      "control": 10,
+      "service": 14,
+      "launch": 13,
+      "dispatch": 29,
+      "ignored": 0
+    },
+    "catalyst-mini": {
+      "worker": 22,
+      "control": 10,
+      "service": 14,
+      "launch": 13,
+      "dispatch": 29,
+      "ignored": 0
+    }
+  },
+  "catalyst_dispatch_groups": [
+    14,
+    15
+  ],
+  "dispatch_timeout_seconds": 60,
+  "managed_first_seen": {
+    "catalyst": {
+      "verification_exit": 0,
+      "native_exit": 0,
+      "first_seen_rounds": 2,
+      "terminal_exit_code": 0,
+      "terminal_effects": 0,
+      "protected_survivor": true,
+      "released_bulk_launch": true,
+      "managed_services_preserved": true,
+      "installed_sha256": "ccee8167faeda138b48e08e149bb3757a753daca35ffc8c6c23b1c78934a6466",
+      "client_sha256": "018886107981b7c1d811088b225d5a618b250ab0d478041c4573aaae6648ef29"
+    },
+    "catalyst-mini": {
+      "verification_exit": 0,
+      "native_exit": 0,
+      "first_seen_rounds": 2,
+      "terminal_exit_code": 0,
+      "terminal_effects": 0,
+      "protected_survivor": true,
+      "released_bulk_launch": true,
+      "managed_services_preserved": true,
+      "installed_sha256": "ccee8167faeda138b48e08e149bb3757a753daca35ffc8c6c23b1c78934a6466",
+      "client_sha256": "018886107981b7c1d811088b225d5a618b250ab0d478041c4573aaae6648ef29"
+    }
+  },
+  "job_journal_second_differences": {
+    "catalyst": [
+      {
+        "file": "verified-job.json",
+        "journal_seconds": 1,
+        "exit_code": 0,
+        "effects": 0
+      },
+      {
+        "file": "first-seen-job-0.json",
+        "journal_seconds": 0,
+        "exit_code": 0,
+        "effects": 0
+      },
+      {
+        "file": "first-seen-job-1.json",
+        "journal_seconds": 1,
+        "exit_code": 0,
+        "effects": 0
+      }
+    ],
+    "catalyst-mini": [
+      {
+        "file": "verified-job.json",
+        "journal_seconds": 0,
+        "exit_code": 0,
+        "effects": 0
+      },
+      {
+        "file": "first-seen-job-0.json",
+        "journal_seconds": 0,
+        "exit_code": 0,
+        "effects": 0
+      },
+      {
+        "file": "first-seen-job-1.json",
+        "journal_seconds": 1,
+        "exit_code": 0,
+        "effects": 0
+      }
+    ]
+  },
+  "timing_limit": "Whole-second journal differences are not precise wall-clock durations. Both fresh non-instrumented clients passed their original 10-second waits.",
+  "installed_public_check": {
+    "catalyst": 8,
+    "catalyst-mini": 8
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "018886107981b7c1d811088b225d5a618b250ab0d478041c4573aaae6648ef29",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "declaration-tests": {
+      "sha256": "de4fa2d68aaac450e1135bde62b4d96c63a70f19ab272ce3797b8912072e56be",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "reap-release": {
+      "sha256": "ccee8167faeda138b48e08e149bb3757a753daca35ffc8c6c23b1c78934a6466",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    }
+  },
+  "installed": {
+    "catalyst": {
+      "sha256": "ccee8167faeda138b48e08e149bb3757a753daca35ffc8c6c23b1c78934a6466",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "help_same_argv0": true,
+      "version": "reap 0.1.0"
+    },
+    "catalyst-mini": {
+      "sha256": "ccee8167faeda138b48e08e149bb3757a753daca35ffc8c6c23b1c78934a6466",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "help_same_argv0": true,
+      "version": "reap 0.1.0"
+    }
+  },
+  "independent_review": {
+    "peer": "peer-18e2103f973fc690-356285",
+    "conversation": "conversation-18e2103f98de8270-356289",
+    "request": "cmsg-18e21280a6359ce0-359080",
+    "verdict": "ACCEPT source only; exact v2 manifest"
+  },
+  "retained_native_failure": {
+    "host": "catalyst",
+    "case": "native_blocked_context_open_preserves_resolver_slot_and_abandons_late_capture",
+    "initial_service_passed": 13,
+    "initial_service_failed": 1,
+    "unchanged_complete_repeat_passed": 14,
+    "issue": "ISS-DIAGNOSE-INTERMITTENT-NATIVE-RESOLVER-PI",
+    "root_cause_known": false
+  },
+  "evidence_root": "target/control-t13/ready-stream",
+  "mini_runtime_root": "/private/tmp/reap-cores-transport-8yjfimnx/ready-stream-t14",
+  "external_fixture_enabled": false,
+  "live_conversion_or_source_pruning": false,
+  "guide_installation": "Existing operator guides preserved by both installers."
+}
