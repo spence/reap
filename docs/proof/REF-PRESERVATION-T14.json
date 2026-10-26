@@ -1,0 +1,335 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "issue": "ISS-PRESERVE-NON-BRANCH-GIT-REFS-BEFORE-APPL",
+  "source_revision": "fe7fba3a0cfa756272cdde3ca45ccdff6d90f55a",
+  "scope": "Preserve non-branch reference metadata in native read-only recovery and the shared legacy retirement/declaration guard; no new cleanup authority or public-route activation",
+  "source_files": {
+    "AGENTS.md": "e870a29d8f7ba4d1cc0d13c03db75113d9f49cf2755daffbb64dfcc6cfc5caa2",
+    "README.md": "f2498d2068490d083b3ec4da8acd67e15589e7ecaf9e5da833ce468ff86e3916",
+    "skill/SKILL.md": "93c29844de8cb421776d12e2b1a54b30a367965569b744d92393ac4f5fa86e02",
+    "docs/specs/git-tracking.md": "34595346b856d83ce7fca5b7576ca203a2754b019e31fa93003d5111dbd189c2",
+    "docs/specs/reap-file.md": "bf7582598de227260c07e68f336e10854c5bf446ff1b2a714cd8788691c6dd76",
+    "src/git_recovery.rs": "15ec79feed482c261eb749d3fbd841f3bc21777208e6b1fdd4bc82c3da73c397",
+    "src/quarantine.rs": "1cc000fe10f223a8d3ef3095189d22af87080c8f731cbc2401f4c11308557a97",
+    "src/dispatch/tests.rs": "320741754f6ba3a8019369bdfc667c14392506e6696f7bfc97a607595525e586",
+    "tests/test_preservation.py": "247e4dfd513a22149ddc3fa409961fb113f5bf6325e5a10ac37c84922863f1e6",
+    "tools/verify_control_macos.py": "a05867c5568fe1f6e7b428af12c2c5bea9e1ea48d5320b701de90c435a084bf3"
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "a6c8c55bf5afacd6b099048ff38acbfa2c43c0aa3701bf09a5c20fcb49398e24",
+      "signature": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/ref-preservation/frozen-reviewed/reap-unit\nIdentifier=dev.micro.reap.native-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=48319 flags=0x0(none) hashes=1504+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 10:21:41\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "declaration-tests": {
+      "sha256": "99029ac2c9ad93e034bd710682c92cab7714d6e70e40b860318ed9ccb1579916",
+      "signature": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/ref-preservation/frozen-reviewed/declaration-tests\nIdentifier=dev.micro.reap.declaration-tests\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=4068 flags=0x0(none) hashes=121+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 10:21:41\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "reap-release": {
+      "sha256": "b71dad86eb2bb52b714ed9d4c3b61a28ddbadf25690344311382e0b0e845770c",
+      "signature": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/ref-preservation/frozen-reviewed/reap-release\nIdentifier=dev.micro.reap\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=8370 flags=0x0(none) hashes=256+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 25, 2026 at 10:21:42\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "signature": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"\nExecutable=/Users/spencer/src/reap/target/control-t13/ref-preservation/frozen-reviewed/fault.dylib\nIdentifier=dev.micro.reap.native-faults\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=288 flags=0x0(none) hashes=3+2 location=embedded\nSignature size=4672\nAuthority=Developer ID Application: MICRO LABS, INC (35A87BDK48)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nSigned Time=Oct 24, 2026 at 12:51:35\u202fPM\nInfo.plist=not bound\nTeamIdentifier=35A87BDK48\nSealed Resources=none\n"
+    }
+  },
+  "leaf_certificates": {
+    "reap-unit": {
+      "sha256": "a6c8c55bf5afacd6b099048ff38acbfa2c43c0aa3701bf09a5c20fcb49398e24",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    },
+    "declaration-tests": {
+      "sha256": "99029ac2c9ad93e034bd710682c92cab7714d6e70e40b860318ed9ccb1579916",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    },
+    "reap-release": {
+      "sha256": "b71dad86eb2bb52b714ed9d4c3b61a28ddbadf25690344311382e0b0e845770c",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E"
+    }
+  },
+  "installed": {
+    "catalyst": {
+      "sha256": "b71dad86eb2bb52b714ed9d4c3b61a28ddbadf25690344311382e0b0e845770c",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206"
+      },
+      "version": "reap 0.1.0"
+    },
+    "catalyst-mini": {
+      "sha256": "b71dad86eb2bb52b714ed9d4c3b61a28ddbadf25690344311382e0b0e845770c",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206"
+      },
+      "version": "reap 0.1.0"
+    }
+  },
+  "source_gates": {
+    "regular_unit_passed": 301,
+    "fault_only_ignored": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23,
+    "whole_suite_exit": 0,
+    "test_threads": 1,
+    "installer_cases": 19,
+    "service_installer_cases": 23,
+    "skills_delivery_cases": 6,
+    "candidate_preservation_cases": 15
+  },
+  "native_gates": {
+    "local": {
+      "recovery": {
+        "passed": 7,
+        "receipt": "target/control-t13/ref-preservation/local-recovery-driver/receipt.json"
+      },
+      "quarantine": {
+        "passed": 17,
+        "receipt": "target/control-t13/ref-preservation/local-quarantine-driver/receipt.json"
+      },
+      "dispatch": {
+        "passed": 26,
+        "receipt": "target/control-t13/ref-preservation/local-dispatch-driver/receipt.json"
+      },
+      "installed-dispatch": {
+        "passed": 25,
+        "receipt": "target/control-t13/ref-preservation/local-installed-dispatch/receipt.json",
+        "skipped": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+        ]
+      },
+      "installed_exits": [
+        {
+          "gate": "local-installed-dispatch",
+          "exit": 0,
+          "elapsed": 40.31317316694185
+        },
+        {
+          "gate": "local-declaration",
+          "exit": 0,
+          "elapsed": 36.33900250005536
+        },
+        {
+          "gate": "local-preservation",
+          "exit": 0,
+          "elapsed": 14.619942457880825
+        },
+        {
+          "gate": "local-workspaces",
+          "exit": 0,
+          "elapsed": 6.890143707860261
+        },
+        {
+          "gate": "local-public",
+          "exit": 0,
+          "elapsed": 2.9617572920396924
+        },
+        {
+          "gate": "local-managed-check",
+          "exit": 0,
+          "elapsed": 2.254202999873087
+        },
+        {
+          "gate": "local-managed-files",
+          "exit": 0,
+          "elapsed": 2.226988916983828
+        }
+      ]
+    },
+    "mini": {
+      "recovery": {
+        "passed": 7,
+        "receipt": "target/control-t13/ref-preservation/mini-evidence/mini-recovery-driver/receipt.json"
+      },
+      "quarantine": {
+        "passed": 17,
+        "receipt": "target/control-t13/ref-preservation/mini-evidence/mini-quarantine-driver/receipt.json"
+      },
+      "dispatch": {
+        "passed": 26,
+        "receipt": "target/control-t13/ref-preservation/mini-evidence/mini-dispatch-driver/receipt.json"
+      },
+      "installed-dispatch": {
+        "passed": 25,
+        "receipt": "target/control-t13/ref-preservation/mini-evidence/mini-installed-dispatch/receipt.json",
+        "skipped": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
+        ]
+      },
+      "installed_exits": [
+        {
+          "gate": "mini-installed-dispatch",
+          "exit": 0,
+          "elapsed": 25.47546079196036
+        },
+        {
+          "gate": "mini-declaration",
+          "exit": 0,
+          "elapsed": 17.00016516679898
+        },
+        {
+          "gate": "mini-preservation",
+          "exit": 0,
+          "elapsed": 7.9260442920494825
+        },
+        {
+          "gate": "mini-workspaces",
+          "exit": 0,
+          "elapsed": 3.6473267499823123
+        },
+        {
+          "gate": "mini-public",
+          "exit": 0,
+          "elapsed": 2.5989125829655677
+        },
+        {
+          "gate": "mini-managed-check",
+          "exit": 0,
+          "elapsed": 1.9411622919142246
+        },
+        {
+          "gate": "mini-managed-files",
+          "exit": 0,
+          "elapsed": 1.921062707901001
+        }
+      ]
+    }
+  },
+  "operator_guide": {
+    "source": {
+      "revision": "9ed2bc4e097d4d8d302748e1425b0834dd26ab76",
+      "scope": "shared/skills/reap/SKILL.md; unrelated untracked source excluded",
+      "snapshot": "target/control-t13/ref-preservation/skills-source"
+    },
+    "sha256": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206",
+    "targets": [
+      "catalyst/.claude",
+      "catalyst/.codex",
+      "catalyst-mini/.claude",
+      "catalyst-mini/.codex"
+    ],
+    "fresh_sessions": "All four read the installed rule and computed the matching hash. Native catalog tools/startup metadata were unavailable in the headless Gateway profiles; native catalog registration is not claimed.",
+    "scope": "Named-skill shipment from the committed tracked source snapshot; foreign untracked skill drafts are excluded."
+  },
+  "review": {
+    "peer": "peer-18e1fc0cdaed29d8-334910",
+    "conversation": "conversation-18e1fc0cdc462640-334915",
+    "request": "cmsg-18e1fc6ce5ed51b8-336758",
+    "source_manifest": "target/control-t13/ref-preservation/review-source-v2.json",
+    "verdict": "ACCEPT exact 12 hashes; source only",
+    "closed": true
+  },
+  "retained_failures": [
+    {
+      "evidence": "target/control-t13/ref-preservation/reproduction-red.log",
+      "result": "Before the fix, native recovery omitted a local-only tag. The test was extended after this red run; the final full version passed."
+    },
+    {
+      "evidence": "target/control-t13/ref-preservation/legacy-installed-red.log",
+      "result": "Old installed retirement moved the synthetic source. The initial Files subcase was confounded by enclosing repository protection and is not the decisive Files reproduction."
+    },
+    {
+      "evidence": "target/control-t13/ref-preservation/legacy-installed-neutral-red.log",
+      "result": "Both old installed applying routes moved synthetic sources in the neutral fixture. No user data was involved."
+    },
+    {
+      "evidence": "target/control-t13/ref-preservation/full-rust.log",
+      "result": "The first parallel suite passed 299 regular cases and failed two unchanged service-startup assertions. It did not run the integration suites. The focused regular service selection then passed; the unchanged full serial repeat passed all cases with the same deadlines and assertions. Cause remains unclassified."
+    },
+    {
+      "evidence": "target/control-t13/ref-preservation/skill-delivery-tests.log",
+      "result": "The live Skills worktree test found missing routers only in foreign untracked skill drafts. The committed source snapshot excludes those drafts and passes all six delivery tests."
+    }
+  ],
+  "open_boundaries": [
+    "ORIG_HEAD, other pseudorefs and reflog-only history remain a separate recovery-profile finding under ISS-DEFINE-PSEUDOREF-AND-REFLOG-RECOVERY-BEF; this change does not claim their recovery.",
+    "Main-checkout tags and other non-branch refs remain protected regardless of target reachability; independent ref-metadata recovery is not supported.",
+    "Public Files still uses the legacy foreground route. Unified effectful execution, fair discovery, portable lifetime activation, safe conversion, native archive profiles and source-release gates remain open.",
+    "Five native control/launch fault cases were not rerun in this guard-only change. Their unchanged control/launch implementation has the prior FIRST-SEEN-T14 native proof.",
+    "Linux-native acceptance and the full combined redesign goal remain open."
+  ],
+  "raw_evidence_sha256": {
+    "target/control-t13/ref-preservation/full-rust-serial-exit.json": "5bc232b82de377a5655a39a2af9d7ae0fc868de5b9df957e18905cb914606c88",
+    "target/control-t13/ref-preservation/full-rust-serial-repeat.log": "f7a873abeb5c59c5144c3518552158969b39941874e382fc566f72be84326a66",
+    "target/control-t13/ref-preservation/full-rust.log": "d21eaad2df57d3c262e6cacd4c5af62cedae713b680b80cc4403e343ff139db3",
+    "target/control-t13/ref-preservation/guide-local-claude-closed-status.json": "9971fe0b4f93b0e9f2200ef39c3622e38d74a52da407502f3e552a0ac981efd5",
+    "target/control-t13/ref-preservation/guide-local-claude-launch.json": "ea8a064e90350c6752463ec7ff0cba95da855a205b4241f3dac8bdbea2d995ed",
+    "target/control-t13/ref-preservation/guide-local-claude-wait.json": "64cbd90c1ab41c8c9363727351fde9f3c71d068bbae3bea041bdccffe10269d1",
+    "target/control-t13/ref-preservation/guide-local-codex-closed-status.json": "2a77b5998bc379ca50ec9c2a95d82a90a6f7c13a4728d5a594d03c2b7e1035b8",
+    "target/control-t13/ref-preservation/guide-local-codex-launch.json": "8e1f587ec56e5d4d276c1d6f4a9e2b6b234338a6f9b8cd90b6f356188338003e",
+    "target/control-t13/ref-preservation/guide-local-codex-wait.json": "7ec94af5496c8d805c924fa1dd4e5b8ded6491205fdb2af085fe74ab34bb298f",
+    "target/control-t13/ref-preservation/install-signing.log": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4",
+    "target/control-t13/ref-preservation/legacy-debug-green.log": "498a4e90e936601c69c2b2fdf4635883788424f24f8a0b71c8cdc247a9008c9b",
+    "target/control-t13/ref-preservation/legacy-installed-neutral-red.log": "45666e770a12251f2b78a59df491bc9940940e914910fd807f950f2a7fc0f06e",
+    "target/control-t13/ref-preservation/legacy-installed-red.log": "52d3990bc1efabca653b748b4e2d849fc14496fb32a31b64e73f881140f32b62",
+    "target/control-t13/ref-preservation/local-before-install.json": "ac1b9f2147e00829a6f97c01730021e5d5ffd58d2eddb13951cea18c49ada5e4",
+    "target/control-t13/ref-preservation/local-declaration.log": "57d678d796a5e394f839fd5b34b78f0deed553e8cb880adec1a96bf4aac3fcd3",
+    "target/control-t13/ref-preservation/local-dispatch-driver/native.log": "ccc9399184ef905b466c04ba7ed40bd19b33d5a0b97bac6fe72413c977b5607a",
+    "target/control-t13/ref-preservation/local-dispatch-driver/receipt.json": "40e4706f002c6fd906d2afaaf0cb35e2a6eb3f24fe7658b1cd54b64facbb86d1",
+    "target/control-t13/ref-preservation/local-guide-install-preservation.json": "772c1eceb1f49a633fee72e65020ad58e3508f4c645a89ae7a24de9358cb038e",
+    "target/control-t13/ref-preservation/local-guide-ship.log": "9dc1154253417899350773d76c22f0fdd14a2094e86164d8343286536793f3ba",
+    "target/control-t13/ref-preservation/local-install.log": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+    "target/control-t13/ref-preservation/local-installed-dispatch/native.log": "4c1c5cee10d4078dc03c620fe9b570fe269898219b9f8a14b5a6613fb1916572",
+    "target/control-t13/ref-preservation/local-installed-dispatch/receipt.json": "7f620f640ecf96e2af59985b1adbbf7ace14dc4d8cc66958c8f339ba0fc1fcc6",
+    "target/control-t13/ref-preservation/local-installed-exits.json": "d90ec1badde08207210319cd1a3370de823505eb64fc32c16b5bd111a9ca6144",
+    "target/control-t13/ref-preservation/local-installed-identity.json": "4c27633bc2b74f370ec9c4f8db36caced728526ef4330661faacae83e51371c5",
+    "target/control-t13/ref-preservation/local-managed-check/receipt.json": "9314f486054286cda79002d150b671a2e525bdba81996e8ffdcf32c8ecce8dfd",
+    "target/control-t13/ref-preservation/local-managed-files/receipt.json": "2c0720bd654761b4240630d202e20d7d8c15a6306e7c7183d5e2dd9f4b63adb7",
+    "target/control-t13/ref-preservation/local-preservation.log": "5009fa194b3af59913ec6a88d6b9685477678f8b9f099e4a866b448c803ba160",
+    "target/control-t13/ref-preservation/local-public.log": "d622398447ee07309add86ac066532b73e7fbaf1d04d5286b9ab84f6a924120f",
+    "target/control-t13/ref-preservation/local-quarantine-driver/native.log": "cbc4ad9bc45bfa71beffa86003945918165dd3e5eba672c331ff3ec4836a316c",
+    "target/control-t13/ref-preservation/local-quarantine-driver/receipt.json": "388a069b8a24ce5ba771eafe034ceced7329311efbd5bbbaf4214f01e3472d04",
+    "target/control-t13/ref-preservation/local-recovery-driver/native.log": "9ac758ff8194c82c6f34a27b18ce90607e7876d5db4b5f89be68dca0b85e4eed",
+    "target/control-t13/ref-preservation/local-recovery-driver/receipt.json": "eceb4d8588e4714f6d2737003d6cf9767ef1973e2549f7fcaa265e8b60968c2f",
+    "target/control-t13/ref-preservation/local-repeat-install.log": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+    "target/control-t13/ref-preservation/local-workspaces.log": "d155b58e45326cdffeb35f36d69c588ffc3d881ef7dc0510cae97d30ed6ceeb9",
+    "target/control-t13/ref-preservation/mini-evidence/guide-mini-claude-closed-status.json": "8a3fa7352d016790f420354aef4f6be4f17709f97bec1e4ab9f261baba493ab7",
+    "target/control-t13/ref-preservation/mini-evidence/guide-mini-claude-launch.json": "638516ff1849425ace80775e250d674029aa6a4dbdd2f795d996ee234a4b3119",
+    "target/control-t13/ref-preservation/mini-evidence/guide-mini-claude-wait.json": "5664666b652a7e5cb395688ac4a335e60f30c90c38098aef20b5af43c3926366",
+    "target/control-t13/ref-preservation/mini-evidence/guide-mini-codex-closed-status.json": "20d40572cfab3e1d2e2b4ee083ba8b3ae2722d3ed6d97d193fbf99844636ff8b",
+    "target/control-t13/ref-preservation/mini-evidence/guide-mini-codex-launch.json": "0243ad5c445385f9b71462b0cf36cf29d7cfb44ed92dd1ea786efdc6cd99245e",
+    "target/control-t13/ref-preservation/mini-evidence/guide-mini-codex-wait.json": "bfbca402b94ba3ae313b5c03681a58c8ccd46afeb7a472d6b373c31600f26bf2",
+    "target/control-t13/ref-preservation/mini-evidence/mini-before-install.json": "ac1b9f2147e00829a6f97c01730021e5d5ffd58d2eddb13951cea18c49ada5e4",
+    "target/control-t13/ref-preservation/mini-evidence/mini-declaration.log": "979de4875846efa5abd2b9fbb3fbe0cc401a14326e63129ef4c8a23cb57d2766",
+    "target/control-t13/ref-preservation/mini-evidence/mini-dispatch-driver/native.log": "3afa8fbb36e2bff2dd8d7bde1e7e563d93d7235a315f6f2f759cfb32d7b5d429",
+    "target/control-t13/ref-preservation/mini-evidence/mini-dispatch-driver/receipt.json": "8337c4f9e4c3db123283f8140cf2acb00bf56be39eff7d12ef52ef48f0d3f528",
+    "target/control-t13/ref-preservation/mini-evidence/mini-guide-install-preservation.json": "772c1eceb1f49a633fee72e65020ad58e3508f4c645a89ae7a24de9358cb038e",
+    "target/control-t13/ref-preservation/mini-evidence/mini-guide-ship.log": "9dc1154253417899350773d76c22f0fdd14a2094e86164d8343286536793f3ba",
+    "target/control-t13/ref-preservation/mini-evidence/mini-install.log": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+    "target/control-t13/ref-preservation/mini-evidence/mini-installed-dispatch/native.log": "765198dd74ef56590d461a219ac6701d6efcefbcf73256d730935ea1f80e6a1a",
+    "target/control-t13/ref-preservation/mini-evidence/mini-installed-dispatch/receipt.json": "159e37851948caaec2ba362119d439c91ce82f77131133142fb167f0b80fe6de",
+    "target/control-t13/ref-preservation/mini-evidence/mini-installed-exits.json": "6e0effe12665473010156978cc0416a9b65cc0647e0699fada8353a0d4905e76",
+    "target/control-t13/ref-preservation/mini-evidence/mini-installed-identity.json": "4c27633bc2b74f370ec9c4f8db36caced728526ef4330661faacae83e51371c5",
+    "target/control-t13/ref-preservation/mini-evidence/mini-managed-check/receipt.json": "4c0a7e9158441050eeab6acf894ec236ef75e56fa277fba6a2e2a621e239a345",
+    "target/control-t13/ref-preservation/mini-evidence/mini-managed-files/receipt.json": "4612ab11fb36b72d30c0762b4e286eecbe293c44b0327853a8e5b008969835aa",
+    "target/control-t13/ref-preservation/mini-evidence/mini-preservation.log": "dc88d6b809de7062623586ba398a58b3704d8a9bfdd030dddc41aae6aa4dfe8d",
+    "target/control-t13/ref-preservation/mini-evidence/mini-public.log": "bdaa3415db586e3046d5008dfbcaf1162ecee6dbdecc51e161d72bab6c292140",
+    "target/control-t13/ref-preservation/mini-evidence/mini-quarantine-driver/native.log": "c1ec7fbc543f89c824be449bf501a785929226d69cb07ebb4ff2cc7cc5883064",
+    "target/control-t13/ref-preservation/mini-evidence/mini-quarantine-driver/receipt.json": "a9ce1baf3039bae133fb213ea834dd84940f77d1c857c5e13d7ed6c0a4a8ac7d",
+    "target/control-t13/ref-preservation/mini-evidence/mini-recovery-driver/native.log": "9ca7400229345ec129602a271c94b8c314aa825e49a10cb9954eca796548a876",
+    "target/control-t13/ref-preservation/mini-evidence/mini-recovery-driver/receipt.json": "5075b802607b687140d064881504181d28c25fadbeab7c1e174f13a387e84b99",
+    "target/control-t13/ref-preservation/mini-evidence/mini-repeat-install.log": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+    "target/control-t13/ref-preservation/mini-evidence/mini-workspaces.log": "c65add08959c7588fed5e6509f7190a7c362f4ae44849088df5e8fa047d07609",
+    "target/control-t13/ref-preservation/native-dispatch-focused.log": "aff0d561b2eeb72495f24f2456def051735d1eae00d5fbf1de8eb0629a5908f8",
+    "target/control-t13/ref-preservation/recovery-unit.log": "3578ae856a442c9537372e9b3d91a50e14eb9e394ea23b6e2270a2b4e3298b8f",
+    "target/control-t13/ref-preservation/reproduction-green.log": "6cc4a20939ff4c90956642bb1bb0f6ac225f7de7243c196ca0ad9497e162566f",
+    "target/control-t13/ref-preservation/reproduction-red.log": "51c842848cf4ee6a4017718c08f42b327dce5d981650bec91c424c3d84448deb",
+    "target/control-t13/ref-preservation/review-source-v2.json": "41ea215ad6c035d8e1d3bece76b2aeda88a15485d8344491cf9dc2fdb2014712",
+    "target/control-t13/ref-preservation/review-wait-v1.json": "04257b6a9ee9f15ca1b46ce02e99b54adc560c5fcf5391b5d3ecbf4f18a25bee",
+    "target/control-t13/ref-preservation/review-wait-v2.json": "89785c7298916434819614e1e811430d5323e6ab20d89ab5111f53c10310c1b7",
+    "target/control-t13/ref-preservation/service-installation.log": "0d60fb8860972a71d2043646ee72f6a0783933facb37af39acc6c748a1ae9d27",
+    "target/control-t13/ref-preservation/service-recheck.log": "b229eb1ce505c9f7cd91b2bc4561fbb0436a1d86b8e7a4bfb5231fdebb6f2719",
+    "target/control-t13/ref-preservation/shared-legacy-unit.log": "88233a5d9dd937c64fa42fce09db63bf03e8a0145be659e93c5ea0c471c6a8b3",
+    "target/control-t13/ref-preservation/skill-delivery-committed.log": "27979bc2fd02680779242d369f174232aca6d8bf9dd93e1dd08b3dced2023fb0",
+    "target/control-t13/ref-preservation/skill-delivery-tests.log": "85badfb14cfe8a5bd2d8ffe9e9661adf76f2320aceb34d191ddffc0efdd50325",
+    "target/control-t13/ref-preservation/skills-source-revision.json": "021671deb3f7b2ebb27f297334809b814313436b56f5b0ed7aef053b35bb91d2"
+  }
+}
