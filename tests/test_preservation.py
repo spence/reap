@@ -17,8 +17,8 @@ PAYLOAD = b"synthetic protected conversation bytes\n"
 
 
 class Fixture:
-    def __init__(self):
-        base = ROOT / "target/control-t13"
+    def __init__(self, base=None):
+        base = base or ROOT / "target/control-t13"
         base.mkdir(parents=True, exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(prefix="preservation-cli-", dir=base)
         self.root = pathlib.Path(self.temporary.name).resolve()
@@ -82,14 +82,60 @@ class Fixture:
 
 @unittest.skipUnless(BINARY, "install reap or set REAP_TEST_BIN")
 class Preservation(unittest.TestCase):
-    def fixture(self):
-        fixture = Fixture()
+    def fixture(self, base=None):
+        fixture = Fixture(base)
         self.addCleanup(fixture.close)
         return fixture
 
     def assert_payload(self, path):
         self.assertTrue(path.is_file(), f"protected payload was removed: {path}")
         self.assertEqual(path.read_bytes(), PAYLOAD)
+
+    def test_legacy_retire_and_files_preserve_non_branch_reference_metadata(self):
+        for operation in ("retire", "files"):
+            with self.subTest(operation=operation):
+                fixture = self.fixture(pathlib.Path(tempfile.gettempdir()))
+                workspace = fixture.projects / "ref-workspace"
+                workspace.mkdir()
+
+                def git(*arguments):
+                    result = subprocess.run(
+                        ["/usr/bin/git", "-c", "user.name=Fixture", "-c", "user.email=fixture@invalid",
+                         "-c", "commit.gpgsign=false", *arguments], cwd=workspace,
+                        env=fixture.environment, capture_output=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result)
+                    return result.stdout.strip()
+
+                git("init", "-q", "--initial-branch=main")
+                payload = fixture.payload(workspace)
+                git("add", "payload")
+                git("commit", "-qm", "initial fixture")
+                git("update-ref", "refs/remotes/origin/main", "HEAD")
+                git("config", "remote.origin.url", "../remote")
+                git("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+                git("config", "branch.main.remote", "origin")
+                git("config", "branch.main.merge", "refs/heads/main")
+                payload.write_bytes(b"private ref payload\n")
+                git("commit", "-qam", "private fixture")
+                unique = git("rev-parse", "HEAD")
+                git("update-ref", "refs/custom/retained", unique.decode())
+                git("reset", "--hard", "HEAD~1")
+                git("pack-refs", "--all")
+                if operation == "retire":
+                    added = fixture.run("lease", "add", workspace, "--ttl", "0",
+                                        "--owner", "ref-fixture", "--purpose", "synthetic ref fixture")
+                    self.assertEqual(added.returncode, 0, added)
+                else:
+                    (workspace / ".reap").write_text(json.dumps({
+                        "version": 1, "expires": "2020-01-01T00:00:00Z"}))
+                fixture.age(workspace)
+                if operation == "retire":
+                    result = fixture.run("retire", workspace, "--now", "--apply", "--min-age-minutes", "0")
+                else:
+                    result = fixture.run("files", fixture.projects, "--apply")
+                self.assert_payload(payload)
+                self.assertIn(b"non-branch reference metadata", result.stdout + result.stderr)
+                self.assertEqual(git("rev-parse", "refs/custom/retained"), unique)
 
     def test_cargo_ancestor_roles_veto_compaction_but_ordinary_keep_does_not(self):
         for role in (*ROLES, "ordinary"):

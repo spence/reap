@@ -162,6 +162,8 @@ infer an actor from an old free-form owner string.
   requires clean + fully pushed + no stashes + no unapproved ignored local data with
   unproved recoverability. A non-Git directory is refused. `.gitignore` is not
   deletion authority.
+  Main-checkout non-branch refs and private worktree refs also block retirement.
+  Shared tags alone do not block linked-worktree retirement.
 - `--owner` (or `$REAP_OWNER` with `lease add`): name the creating agent/session. When you copy
   a project to ANOTHER machine (e.g. for benchmarking), lease the copy on that
   machine with yourself as owner — whoever later sweeps that machine sees who
@@ -397,7 +399,7 @@ Incomplete coverage also blocks whole-ancestor removal, even with seal or scratc
 the command returns a failure while unrelated eligible units can proceed.
 Removal re-checks quiet time, open handles,
 mounts, lease overlap, and symlinks, and quarantines by default. A git tree
-with uncommitted, stashed, or unpushed work survives unless the declaration
+with uncommitted, stashed, unpushed work, or non-branch reference metadata survives unless the declaration
 sets `"scratch": true`. This guard includes enclosing checkouts for partial
 removals and nested checkouts at any depth. Leases and
 stores remain in force during the transition; a `.reap` path that overlaps a
@@ -406,6 +408,8 @@ lease is never removed by its declaration.
 Declaration and lease Git checks cover all local branches, HEAD, stashes,
 uncommitted/untracked paths, and ignored local data. Only the exact lifecycle
 control file is exempt. A declaration does not make an ignored Cargo target disposable.
+Main-checkout non-branch refs and private worktree refs also block removal.
+Shared tags alone do not block linked-worktree retirement.
 
 ## 4. Exception manifest (v1, unchanged)
 

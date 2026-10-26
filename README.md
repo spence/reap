@@ -646,15 +646,18 @@ without crossing a symlink, that it was not modified within
 file handle, that it does not overlap a recorded lease, and that the current
 directory is outside it. `disposition` `quarantine` (the default) moves the path
 into the indexed quarantine with the declaration's owner and reason;
-`delete` removes it directly. Whatever the disposition, a path holding a git
-work tree with uncommitted, stashed, or unpushed work, or no upstream, is never
-removed unless its declaration sets `"scratch": true`. Partial file and directory
+`delete` removes it directly. Whatever the disposition, a Git worktree with failed recovery
+checks is not removed unless its declaration sets `"scratch": true`. This includes uncommitted,
+stashed, or unpushed work, no upstream, main-checkout non-branch refs, and private worktree refs.
+Partial file and directory
 removals also use enclosing checkout guards. Nested checkout discovery has no
 depth-three safety cutoff. First-seen times live in `reap-files-seen.json` in the state
 directory; deleting that cache only delays action.
 
 Declaration and lease checks use the same Git recoverability assessment: all local
 branches, HEAD, stashes, uncommitted/untracked paths, and ignored local data.
+Main-checkout non-branch refs and private worktree refs also block removal.
+Shared tags alone do not block linked-worktree retirement.
 Only the exact lifecycle control file is exempt from local-file checks.
 An ignored `target/` is not disposal permission for declaration cleanup.
 The separate lease retirement option for explicitly disposable Cargo output remains available.
@@ -760,7 +763,9 @@ opaque token mirrored in a `.reap-lease` marker inside the directory, an
 owner, a purpose, and the TTL. `--scratch` marks the checkout disposable even
 if dirty; without it, retirement requires the checkout to be clean, fully
 pushed, stash-free, and free of unapproved ignored local data whose recoverability
-Git cannot prove. Git ignore rules alone are not deletion authority. A non-scratch
+Git cannot prove. Main-checkout non-branch refs and private worktree refs also block retirement.
+Shared tags alone do not block linked-worktree retirement.
+Git ignore rules alone are not deletion authority. A non-scratch
 directory without real Git metadata is refused.
 
 ### Disposable Cargo output at retirement
@@ -1130,6 +1135,8 @@ inside its granted worker. Native file identity resolves case and Unicode aliase
 Changed or unsupported Git dependencies protect the selection. Native Git recovery uses granted snapshots
 of refs, commit ancestry, HEAD trees, the index, and raw worktree files. It starts no Git process.
 The supported profile includes ordinary regular files, standard upstream mappings, and loose or packed objects.
+Main-checkout tags and custom refs remain protected because their reference metadata lacks independent recovery proof.
+Linked-worktree private refs also protect their worktree; shared tags alone do not.
 Untracked and ignored files remain protective; an ignored Cargo target is not exempt in Files preview.
 Native first-seen grace uses directory identity, declaration identity, and policy-byte digest.
 Rename retains credit; copies and policy changes receive fresh grace. KEEP remains effective immediately.

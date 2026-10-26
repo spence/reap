@@ -150,23 +150,39 @@ impl Repository {
         }
       }
     }
-    let mut directories = vec![self.common.join("refs")];
-    while let Some(directory) = directories.pop() {
+    let mut directories = vec![(self.common.join("refs"), false)];
+    if self.directory != self.common {
+      let private = self.directory.join("refs");
+      if binding_source(&private, resources, budget, &mut self.sources)?.is_some() {
+        directories.push((private, true));
+      }
+    }
+    while let Some((directory, private)) = directories.pop() {
       for path in capture_names(&directory, resources, budget, &mut self.sources)? {
         let metadata = fs::symlink_metadata(&path)?;
         if metadata.is_dir() {
           charge(budget, 128 + path.as_os_str().len() * 2)?;
-          directories.push(path);
+          directories.push((path, private));
         } else {
           let bytes = capture_bytes(&path, resources, budget, &mut self.sources)?
             .ok_or_else(|| invalid("Git reference disappeared"))?;
           let name = path
-            .strip_prefix(&self.common)
+            .strip_prefix(if private {
+              &self.directory
+            } else {
+              &self.common
+            })
             .map_err(|_| invalid("Git reference leaves metadata"))?
             .as_os_str()
             .as_bytes();
           reference_name(name)?;
-          refs.insert(name.to_vec(), Reference::parse(&bytes, self.kind)?);
+          let reference = Reference::parse(&bytes, self.kind)?;
+          if private {
+            return Err(protected(
+              "Git private worktree references need preservation",
+            ));
+          }
+          refs.insert(name.to_vec(), reference);
         }
       }
     }
@@ -175,6 +191,15 @@ impl Repository {
     }
     if refs.keys().any(|name| name.starts_with(b"refs/replace/")) {
       return Err(invalid("Git replacement objects need additional recovery evidence").into());
+    }
+    if self.directory == self.common
+      && refs
+        .keys()
+        .any(|name| !name.starts_with(b"refs/heads/") && !name.starts_with(b"refs/remotes/"))
+    {
+      return Err(protected(
+        "Git non-branch reference metadata needs preservation",
+      ));
     }
     let head = capture_bytes(
       &self.directory.join("HEAD"),
@@ -903,6 +928,96 @@ mod tests {
         b"retained source\n"
       );
       assert!(fixture.root.join(".reap").is_file());
+    }
+  }
+
+  #[test]
+  fn non_branch_refs_preserve_unique_commits_and_names_in_main_and_linked_metadata() {
+    for format in ["sha1", "sha256"] {
+      for (name, packed) in [
+        ("refs/tags/local-only", false),
+        ("refs/tags/local-only", true),
+        ("refs/notes/local-only", false),
+        ("refs/custom/local-only", true),
+      ] {
+        let fixture = Fixture::new(format);
+        fixture.assess().unwrap();
+        fs::write(
+          fixture.root.join("tracked"),
+          b"only the private ref retains this commit\n",
+        )
+        .unwrap();
+        fixture.git(&["commit", "-am", "private ref payload"]);
+        let unique = String::from_utf8(fixture.git(&["rev-parse", "HEAD"])).unwrap();
+        fixture.git(&["reset", "--hard", "HEAD~1"]);
+        fixture.git(&["update-ref", name, unique.trim()]);
+        if packed {
+          fixture.git(&["pack-refs", "--all"]);
+        }
+        let before = fixture.git(&["show-ref"]);
+        let result = fixture.assess();
+        assert!(
+          result.is_err(),
+          "{format} {name} packed={packed} omitted a private ref"
+        );
+        assert!(!result.unwrap_err().incomplete);
+        assert_eq!(fixture.git(&["show-ref"]), before);
+        assert_eq!(
+          fs::read(fixture.root.join("tracked")).unwrap(),
+          b"retained source\n"
+        );
+      }
+
+      let fixture = Fixture::new(format);
+      fixture.git(&["tag", "-a", "shared-tag", "-m", "retained common metadata"]);
+      assert!(fixture.assess().is_err());
+      fixture.git(&["worktree", "add", "-b", "linked", "../linked", "main"]);
+      fixture.git(&["config", "branch.linked.remote", "origin"]);
+      fixture.git(&["config", "branch.linked.merge", "refs/heads/main"]);
+      let linked = fixture.container.join("linked");
+      fs::write(linked.join(".reap"), b"linked fixture control\n").unwrap();
+      let assess = || {
+        fixture.tracking().recoverable(
+          &linked,
+          &[linked.join(".reap")],
+          &Cell::new(32 * 1024 * 1024),
+        )
+      };
+      assess().unwrap();
+      let mut captured = fixture.tracking();
+      captured
+        .recoverable(
+          &linked,
+          &[linked.join(".reap")],
+          &Cell::new(32 * 1024 * 1024),
+        )
+        .unwrap();
+      fixture.git(&[
+        "-C",
+        "../linked",
+        "update-ref",
+        "refs/worktree/private",
+        "HEAD",
+      ]);
+      assert!(captured.revalidate().is_err());
+      fixture.git(&["-C", "../linked", "pack-refs", "--all"]);
+      let before = fixture.git(&["-C", "../linked", "show-ref"]);
+      let result = assess();
+      assert!(result.is_err(), "linked private metadata must survive");
+      assert!(!result.unwrap_err().incomplete);
+      assert_eq!(fixture.git(&["-C", "../linked", "show-ref"]), before);
+      assert_eq!(
+        fs::read(linked.join("tracked")).unwrap(),
+        b"retained source\n"
+      );
+      fixture.git(&[
+        "-C",
+        "../linked",
+        "update-ref",
+        "-d",
+        "refs/worktree/private",
+      ]);
+      assess().unwrap();
     }
   }
 

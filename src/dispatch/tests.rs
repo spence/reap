@@ -930,8 +930,13 @@ fn native_files_recovery_proves_packed_git_and_preserves_ignored_data_without_gi
   input.request = serde_json::to_string(&intent).unwrap();
   let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
   let mut scheduler = Scheduler::recover(&mut journal).unwrap();
-  for ignored in [false, true] {
-    if ignored {
+  for case in ["clean", "non-branch", "ignored"] {
+    if case == "non-branch" {
+      git(&["tag", "-a", "retained", "-m", "private ref metadata"]);
+      git(&["pack-refs", "--all"]);
+    }
+    if case == "ignored" {
+      git(&["update-ref", "-d", "refs/tags/retained"]);
       fs::create_dir_all(workspace.join(".git/info")).unwrap();
       fs::write(workspace.join(".git/info/exclude"), b"target/\n").unwrap();
       fs::create_dir(workspace.join("target")).unwrap();
@@ -971,13 +976,13 @@ fn native_files_recovery_proves_packed_git_and_preserves_ignored_data_without_gi
     assert_eq!(report["coverage_complete"], true, "{}", result.detail);
     assert_eq!(
       report["planned_units"],
-      u64::from(!ignored),
+      u64::from(case == "clean"),
       "{}",
       result.detail
     );
     assert_eq!(
       report["blocked_units"],
-      u64::from(ignored),
+      u64::from(case != "clean"),
       "{}",
       result.detail
     );
@@ -990,7 +995,13 @@ fn native_files_recovery_proves_packed_git_and_preserves_ignored_data_without_gi
       b"recoverable source\n"
     );
     assert!(workspace.join(".reap").is_file());
-    if ignored {
+    if case == "non-branch" {
+      assert!(detail["stdout"]
+        .as_str()
+        .unwrap()
+        .contains("non-branch reference metadata"));
+    }
+    if case == "ignored" {
       assert!(workspace.join("target/valuable").is_file());
     }
   }

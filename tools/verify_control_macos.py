@@ -130,6 +130,7 @@ def main():
                                       "expired_and_interrupted_budgets_never_acknowledge_a_snapshot",
                                       "unsafe_existing_and_link_paths_preserve_original_bytes"],
             "quarantine::tests": ["activity_stream_retains_a_late_protection_path_without_retaining_host_wide_output",
+                                  "shared_tags_survive_linked_retirement_but_private_refs_need_preservation",
                                   "activity_stream_requires_complete_valid_bounded_fields_before_a_negative_guard",
                                   "scratch_retire_moves_to_quarantine_with_owner"],
             "util::tests": ["guard_probe_refuses_combined_output_above_the_capture_bound",
@@ -145,6 +146,7 @@ def main():
                               "incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence",
                               "invalid_native_directory_identities_cannot_be_complete_resolver_evidence"],
             "git_index::recovery::tests": [
+                "non_branch_refs_preserve_unique_commits_and_names_in_main_and_linked_metadata",
                 "pushed_clean_checkout_has_native_recovery_with_loose_and_packed_objects",
                 "dirty_staged_untracked_ignored_and_unpushed_branch_work_survives",
                 "branch_ancestry_upstream_and_actual_pack_deltas_have_bounded_evidence",

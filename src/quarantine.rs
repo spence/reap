@@ -1549,7 +1549,73 @@ pub(crate) fn git_recovery_checks(
       "git unavailable".to_string(),
     ),
   }
+  match git_reference_recovery(dir) {
+    Ok(()) => push(&mut checks, "git-refs", true, String::new()),
+    Err(reason) => push(&mut checks, "git-refs", false, reason),
+  }
   checks
+}
+
+/// Shared reference metadata survives a linked-worktree removal; private metadata does not.
+/// The legacy routes use bounded Git probes. Native Files uses descriptor-bound snapshots.
+fn git_reference_recovery(dir: &Path) -> Result<(), String> {
+  let probe = |args: &[&str]| {
+    let mut command = crate::util::git_command(dir);
+    let output = crate::util::capture_probe(command.args(args), std::time::Duration::from_secs(2))
+      .map_err(|reason| format!("Git reference evidence is incomplete: {reason}"))?;
+    if !output.status.success() || !output.stderr.is_empty() {
+      return Err("Git reference probe did not return complete clean evidence".to_string());
+    }
+    Ok(output.stdout)
+  };
+  let layout = probe(&[
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-dir",
+    "--git-common-dir",
+  ])?;
+  let paths: Vec<_> = layout
+    .split(|byte| *byte == b'\n')
+    .filter(|line| !line.is_empty())
+    .collect();
+  let [private, common] = paths.as_slice() else {
+    return Err("Git reference storage layout is unsupported".into());
+  };
+  let metadata = |path: &[u8]| {
+    let path = Path::new(OsStr::from_bytes(path));
+    if !path.is_absolute() {
+      return Err("Git reference storage path is not absolute".to_string());
+    }
+    fs::metadata(path).map_err(|_| "Git reference storage is unavailable".to_string())
+  };
+  let (private, common) = (metadata(private)?, metadata(common)?);
+  if !private.is_dir() || !common.is_dir() {
+    return Err("Git reference storage is not a directory".into());
+  }
+  let main = (private.dev(), private.ino()) == (common.dev(), common.ino());
+  let refs = probe(&["for-each-ref", "--format=%(refname)"])?;
+  for name in refs
+    .split(|byte| *byte == b'\n')
+    .filter(|line| !line.is_empty())
+  {
+    if !name.starts_with(b"refs/") {
+      return Err("Git reference name is unsupported".into());
+    }
+    if main && !name.starts_with(b"refs/heads/") && !name.starts_with(b"refs/remotes/") {
+      return Err("Git non-branch reference metadata needs preservation".into());
+    }
+    if [
+      b"refs/worktree/".as_slice(),
+      b"refs/bisect/",
+      b"refs/rewritten/",
+    ]
+    .iter()
+    .any(|prefix| name.starts_with(prefix))
+    {
+      return Err("Git private worktree references need preservation".into());
+    }
+  }
+  Ok(())
 }
 
 #[cfg(test)]
@@ -2043,6 +2109,35 @@ mod tests {
     assert!(a.failures().iter().any(|c| c.label == "no-nested-lease"));
 
     let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn shared_tags_survive_linked_retirement_but_private_refs_need_preservation() {
+    let root = tmp();
+    let main = root.join("main");
+    fs::create_dir(&main).unwrap();
+    git(&main, &["init", "-q", "--initial-branch=main"]);
+    fs::write(main.join("valuable"), b"preserved ref fixture\n").unwrap();
+    git(&main, &["add", "valuable"]);
+    git(&main, &["commit", "-qm", "fixture"]);
+    git(&main, &["tag", "retained"]);
+    assert!(git_reference_recovery(&main).is_err());
+    git(&main, &["worktree", "add", "-b", "linked", "../linked"]);
+    let linked = root.join("linked");
+    git_reference_recovery(&linked).unwrap();
+    git(&linked, &["update-ref", "refs/worktree/private", "HEAD"]);
+    assert!(git_reference_recovery(&linked).is_err());
+    git(&linked, &["update-ref", "-d", "refs/worktree/private"]);
+    git_reference_recovery(&linked).unwrap();
+    assert_eq!(
+      fs::read(main.join("valuable")).unwrap(),
+      b"preserved ref fixture\n"
+    );
+    assert_eq!(
+      fs::read(linked.join("valuable")).unwrap(),
+      b"preserved ref fixture\n"
+    );
+    fs::remove_dir_all(root).unwrap();
   }
 
   #[test]

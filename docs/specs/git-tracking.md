@@ -35,6 +35,8 @@
   The current branch also requires its explicit upstream proof, as required by version 1.
   HEAD trees, the index, raw worktree bytes, file kinds, and executable modes must agree.
   Stashes, dirty files, staged changes, untracked files, and ignored files protect the affected unit.
+  Main-checkout tags, notes, and other non-branch refs require preservation, even when their target commit is remotely reachable.
+  Linked-worktree private refs also protect their worktree; unchanged shared tags alone do not.
   Only the exact governing lifecycle control file is exempt from untracked-file protection.
   Files preview has no Cargo-target exemption.
 - **C7** — Recovery metadata and worktree bytes require the same native physical grant before reads.
@@ -49,6 +51,10 @@
 
 Ordinary and linked worktrees can use SHA-1 or SHA-256, loose objects, packed objects, and packed refs.
 Main checkouts with registered linked-worktree metadata remain protected.
+Main-checkout refs outside `refs/heads/` and `refs/remotes/` have no supported independent metadata recovery proof.
+Their presence therefore protects the checkout. This includes loose and packed refs.
+Linked-worktree private refs are read from its own Git directory, not only the common directory.
+The [Git worktree reference rules](https://git-scm.com/docs/git-worktree#_refs) distinguish these storage owners.
 Tracked paths must be single-link regular files. Raw bytes must match; no conversion is attempted.
 Standard single wildcard fetch mappings and local upstream branches are supported.
 Symlinks, submodules, shallow boundaries, alternates, replacement objects, promisor packs,
@@ -89,3 +95,5 @@ with the installed worker binary. Source-only success does not prove that bounda
 an enclosing checkout's subdirectory, and scratch selection without a recovery entry.
 `missing_native_recovery_blocks_a_file_but_scratch_needs_no_recovery_entry` covers a missing per-file verdict
 and incomplete publication. Main-checkout coverage includes a detached linked commit and staged work.
+`non_branch_refs_preserve_unique_commits_and_names_in_main_and_linked_metadata` covers unique local ref targets,
+loose/packed refs, SHA-1/SHA-256, shared versus private metadata, and changed private-ref discovery.

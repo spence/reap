@@ -97,10 +97,14 @@ reap's existing behavior and are governed by its own documentation, not by this 
   recoverability proof. Nested checkout discovery has no depth-three safety cutoff.
   The proof covers all local branches and HEAD. Ignored local data also blocks removal;
   ignore rules do not prove recoverability. Only exact lifecycle control files are exempt.
+  Main-checkout non-branch refs and private linked-worktree refs also protect their metadata.
+  Shared tags alone do not block linked-worktree retirement.
   · Binding: `tests/reap_files.rs::git_work_survives_unless_scratch`,
     `tests/reap_files.rs::partial_cleanup_preserves_unrecoverable_enclosing_checkout_and_metadata`,
-    `tests/reap_files.rs::deeply_nested_unrecoverable_checkout_survives_expired_container`
-    and the native ignored-data and noncurrent-branch cases in `tests/skill_workspaces.py`
+    `tests/reap_files.rs::deeply_nested_unrecoverable_checkout_survives_expired_container`,
+    the native ignored-data and noncurrent-branch cases in `tests/skill_workspaces.py`,
+    `tests/test_preservation.py::test_legacy_retire_and_files_preserve_non_branch_reference_metadata`,
+    and `quarantine::tests::shared_tags_survive_linked_retirement_but_private_refs_need_preservation`
   · Conformance: `met`
 - **C13** — `owner` and `purpose` are informational and never change what is removed.
   · Binding: `fixture:build-output-expired` (`purpose` present) · Conformance: `met`
