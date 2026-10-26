@@ -1131,6 +1131,10 @@ Changed or unsupported Git dependencies protect the selection. Native Git recove
 of refs, commit ancestry, HEAD trees, the index, and raw worktree files. It starts no Git process.
 The supported profile includes ordinary regular files, standard upstream mappings, and loose or packed objects.
 Untracked and ignored files remain protective; an ignored Cargo target is not exempt in Files preview.
+Native first-seen grace uses directory identity, declaration identity, and policy-byte digest.
+Rename retains credit; copies and policy changes receive fresh grace. KEEP remains effective immediately.
+Complete results publish bounded observations in the job journal, without target or legacy-cache writes.
+Result retirement can forget this derived evidence; lost credit restarts grace.
 A public helper command is not provided.
 Public `files` still uses its foreground route; its activation and caller-migration gates remain open.
 These changes do not migrate leases, capture live conversations, or release sources.

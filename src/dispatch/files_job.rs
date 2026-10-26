@@ -158,7 +158,6 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   inspector.optional_directory(&state)?;
   inspector.optional_directory(&state.join("reap"))?;
   inspector.bytes(&state.join("reap/leases.json"))?;
-  inspector.bytes(&state.join("reap/reap-files-seen.json"))?;
   let bytes = inspector.bytes(&intent.namespace.home.join(".config/reap/config.json"))?;
   let (intent, caller, directory) = crate::invocation::fresh(input)?;
   inspector.directory(&caller.base)?;

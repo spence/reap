@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 
 use crate::config::{home, load_config, Config};
 use crate::lease::{load_leases, Lease};
@@ -286,10 +287,11 @@ fn declaration_grace(
   first: i64,
   grace: i64,
 ) -> (Result<Decl, String>, Option<String>) {
-  let pending = (now - first < grace).then(|| {
+  let age = now.saturating_sub(first);
+  let pending = (first < 0 || first > now || age < grace).then(|| {
     format!(
       "new; disposal takes effect in {}",
-      fmt_rel(grace - (now - first))
+      fmt_rel(grace.saturating_sub(age))
     )
   });
   if let Some(why) = &pending {
@@ -717,13 +719,13 @@ pub(crate) fn preview(
 
 /// Capture only the selected subtree and the policy inputs that can affect its selection.
 /// Ancestor inventories contain names, not recursive statistics for unrelated children.
-struct PreviewDiscovery<'a> {
+struct PreviewDiscovery<'a, 'h, 'p> {
   root: &'a Path,
   held: &'a File,
   device: u64,
   now: i64,
   grace: i64,
-  previous: HashMap<String, i64>,
+  helpers: Option<&'h mut crate::worker::Helpers<'p>>,
   preview: Preview,
   decls: BTreeMap<PathBuf, Result<Decl, String>>,
   found: Vec<Found>,
@@ -732,7 +734,7 @@ struct PreviewDiscovery<'a> {
   errors: BTreeMap<PathBuf, String>,
 }
 
-impl PreviewDiscovery<'_> {
+impl PreviewDiscovery<'_, '_, '_> {
   /// Record one device-bound identity. Each repeated observation must match the first one.
   fn capture(&mut self, path: &Path, meta: libc::stat) -> Result<(), String> {
     if meta.st_dev as u64 != self.device {
@@ -780,7 +782,8 @@ impl PreviewDiscovery<'_> {
         }
         continue;
       }
-      let bytes = read_declaration_at(&directory, &meta).map_err(|e| e.to_string())?;
+      let (bytes, identity) =
+        declaration_snapshot_at(&directory, &meta).map_err(|e| e.to_string())?;
       if !self.preview.charge(bytes.len().saturating_mul(32)) {
         return Err("declarations exceed the preview memory budget".into());
       }
@@ -795,12 +798,9 @@ impl PreviewDiscovery<'_> {
       {
         continue;
       }
-      let key = format!("{}:{}:{}", self.root.display(), meta.st_dev, meta.st_ino);
-      let first = *self.previous.get(&key).unwrap_or(&self.now);
-      let parsed = std::str::from_utf8(&bytes)
+      let mut parsed = std::str::from_utf8(&bytes)
         .map_err(|e| e.to_string())
         .and_then(Decl::parse);
-      let (mut parsed, pending) = declaration_grace(parsed, self.now, first, self.grace);
       let has_git = self.preview.ancestor_git
         || path
           .ancestors()
@@ -817,7 +817,7 @@ impl PreviewDiscovery<'_> {
             tracked = true;
             Some("tracked by git".into())
           }
-          Ok(false) => pending,
+          Ok(false) => None,
           Err(reason) => {
             let why = format!("bounded preview cannot prove Git tracking: {reason}");
             self.errors.insert(self.root.to_path_buf(), why.clone());
@@ -826,8 +826,27 @@ impl PreviewDiscovery<'_> {
           }
         }
       } else {
-        pending
+        None
       };
+      let mut set_aside = set_aside;
+      if !tracked && parsed.is_ok() {
+        let identity = identity
+          .map_err(|error| format!("native first-seen identity is unavailable: {error}"))?;
+        let digest = format!("{:x}", sha2::Sha256::digest(&bytes));
+        let key = crate::observations::key(&identity, &digest).map_err(|e| e.to_string())?;
+        let first = match self.helpers.as_deref_mut() {
+          Some(helpers) => helpers
+            .first_seen(key)
+            .map_err(|e| e.to_string())?
+            .map(|time| i64::try_from(time).map_err(|_| "invalid first-seen timestamp".to_string()))
+            .transpose()?
+            .unwrap_or(self.now),
+          None => self.now,
+        };
+        let (current, pending) = declaration_grace(parsed, self.now, first, self.grace);
+        parsed = current;
+        set_aside = pending;
+      }
       if !tracked {
         self.decls.insert(path.to_path_buf(), parsed);
       }
@@ -1026,6 +1045,7 @@ fn scan_bounded(
   now: i64,
   grace: i64,
   resources: Option<crate::launch::Resources>,
+  helpers: Option<&mut crate::worker::Helpers<'_>>,
 ) -> Result<Scan, String> {
   let PreviewBoundary {
     directory: held,
@@ -1047,14 +1067,10 @@ fn scan_bounded(
   if !same_stat(&before, &named) {
     return Err("preview root was replaced".into());
   }
-  let previous = bounded_state(&state_dir().join(SEEN_FILE))?
-    .map(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
-    .transpose()?
-    .unwrap_or_default();
   let mut preview = Preview {
     anchor: root.to_path_buf(),
     nodes: BTreeMap::new(),
-    remaining: Cell::new(PREVIEW_BUDGET),
+    remaining: Cell::new(PREVIEW_BUDGET - crate::observations::WORKER_BYTES),
     exhausted: Cell::new(false),
     ancestor_veto: None,
     ancestor_git: false,
@@ -1077,7 +1093,7 @@ fn scan_bounded(
     device,
     now,
     grace,
-    previous,
+    helpers,
     preview,
     decls: BTreeMap::new(),
     found: vec![],
@@ -1286,6 +1302,13 @@ fn bounded_leases() -> Result<crate::lease::LeaseFile, String> {
 }
 
 fn read_declaration_at(directory: &File, observed: &libc::stat) -> io::Result<Vec<u8>> {
+  declaration_snapshot_at(directory, observed).map(|(bytes, _)| bytes)
+}
+
+fn declaration_snapshot_at(
+  directory: &File,
+  observed: &libc::stat,
+) -> io::Result<(Vec<u8>, io::Result<crate::identity::InstanceIdentity>)> {
   if observed.st_mode & libc::S_IFMT != libc::S_IFREG
     || observed.st_nlink != 1
     || observed.st_size < 0
@@ -1299,6 +1322,7 @@ fn read_declaration_at(directory: &File, observed: &libc::stat) -> io::Result<Ve
   if !same_stat(observed, &descriptor_stat(&file)?) {
     return Err(io::Error::other("declaration changed before read"));
   }
+  let identity = crate::identity::InstanceIdentity::read(directory, &file);
   let mut bytes = Vec::new();
   (&mut file)
     .take(crate::lifetime::MAX_POLICY_BYTES as u64 + 1)
@@ -1309,7 +1333,7 @@ fn read_declaration_at(directory: &File, observed: &libc::stat) -> io::Result<Ve
   {
     return Err(io::Error::other("declaration changed during read"));
   }
-  Ok(bytes)
+  Ok((bytes, identity))
 }
 
 fn bounded_state(path: &Path) -> Result<Option<Vec<u8>>, String> {
@@ -1619,6 +1643,7 @@ fn execute_inner(
         helpers
           .as_deref()
           .map(|helpers| helpers.resources().clone()),
+        helpers.as_deref_mut(),
       ),
       None => scan(&root, now as i64, grace),
     };
@@ -2014,7 +2039,7 @@ mod tests {
       ancestor_devices: &devices,
       scope: &root,
     };
-    let mut scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let mut scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     scan.view.preview.as_mut().unwrap().activity = Ok(BTreeMap::from([(file.clone(), false)]));
     let removal = Removal {
       path: file.clone(),
@@ -2078,7 +2103,7 @@ mod tests {
       ancestor_devices: &devices,
       scope: &root,
     };
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     assert!(!scan.incomplete);
     fs::write(fixture.0.join("unrelated"), b"unrelated parent entry").unwrap();
     let mut report = Report::default();
@@ -2094,20 +2119,20 @@ mod tests {
     )
     .unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     fs::write(
       fixture.0.join(".reap"),
       br#"{"version":1,"keep":{"reason":"changed ancestor hold"}}"#,
     )
     .unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     fs::write(root.join("selected/valuable"), b"changed selected input").unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     fs::remove_file(fixture.0.join(".reap")).unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     fs::write(
       fixture.0.join(".reap"),
       br#"{"version":2,"role":"permanent_archive","keep":{"reason":"archive"},"seal":true}"#,
@@ -2115,7 +2140,7 @@ mod tests {
     .unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
     fs::remove_file(fixture.0.join(".reap")).unwrap();
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     fs::create_dir(fixture.0.join(".git")).unwrap();
     assert!(finish_preview(&scan, Some(boundary), &mut Report::default()).is_some());
   }
@@ -2178,6 +2203,7 @@ mod tests {
         },
         now_secs() as i64,
         0,
+        None,
         None,
       )
       .unwrap()
@@ -2554,7 +2580,7 @@ mod tests {
       ancestor_devices: &devices,
       scope: &root,
     };
-    scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     let mut expected_native = expected.clone();
     #[cfg(target_os = "macos")]
     {
@@ -2650,7 +2676,7 @@ mod tests {
       assert!(!unreadable_result.coverage_complete);
     }
 
-    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None).unwrap();
+    let scan = scan_bounded(&root, boundary, now_secs() as i64, 0, None, None).unwrap();
     let snapshot = scan.view.preview.as_ref().unwrap();
     assert!(!snapshot.charge(PREVIEW_BUDGET));
     let mut exhausted = Report::default();

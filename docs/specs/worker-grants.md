@@ -72,6 +72,11 @@ After the grant, a private role marker distinguishes a worker from a helper.
 Only worker channels accept monotonically numbered helper requests.
 The coordinator supervises the returned helper handles without filesystem or process work in control reply handlers.
 The private request path is not a public service command or permission to run arbitrary executables.
+Files workers also use this private channel for bounded first-seen cache pages and observation batches.
+These lookups read only the writer's memory index and consume no helper process or additional execution slot.
+Pages and batches contain at most 512 keys; the worker cache and actual observation set each hold at most 8192.
+The parent retains only actual observation keys; cache-page keys and worker-supplied timestamps cannot become observation credit.
+Only complete assessment results publish those facts through the journal transaction.
 
 Public Check and internal Files use owned workers. Internal Files uses supervised native activity probes.
 Internal Files supplies bounded native Git recovery without Git process helpers.

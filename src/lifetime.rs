@@ -793,9 +793,7 @@ impl Observation {
       .identity
       .as_ref()
       .ok_or("native identity is unavailable")?;
-    let bytes =
-      serde_json::to_vec(&(identity, self.policy.digest()?)).map_err(|e| e.to_string())?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    crate::observations::key(identity, &self.policy.digest()?).map_err(|error| error.to_string())
   }
 
   fn permission(&self, context: &Context) -> Result<(), String> {

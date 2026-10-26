@@ -606,6 +606,7 @@ fn paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profil
   let report = Report::FilesPreviewed {
     terminal: terminal.clone(),
     pages: vec![],
+    observations: vec![],
   };
   let frame = |body: Vec<u8>| {
     let mut bytes = (body.len() as u32).to_be_bytes().to_vec();
@@ -711,6 +712,7 @@ fn paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profil
       Ok(Report::FilesPreviewed {
         terminal: actual,
         pages: actual_pages,
+        ..
       }) if case == "complete" => {
         assert_eq!(actual, terminal);
         assert_eq!(actual_pages.concat(), body);
@@ -791,6 +793,8 @@ fn private_helper_client_refuses_wrong_incomplete_and_mismatched_replies() {
       resources: &Resources::Resolver,
       request_id: 0,
       activity_failure: None,
+      first_seen_cache: None,
+      observed: BTreeSet::new(),
     };
     let result = helpers.run(Task::Resolve {
       directory: PathBuf::from("/private/tmp"),
@@ -963,6 +967,8 @@ fn failed_activity_evidence_is_not_retried_for_later_selections() {
     resources: &resources,
     request_id: 0,
     activity_failure: None,
+    first_seen_cache: None,
+    observed: BTreeSet::new(),
   };
   let first = helpers.activity(vec!["/first".into()]).unwrap_err();
   let second = helpers.activity(vec!["/second".into()]).unwrap_err();
@@ -970,6 +976,150 @@ fn failed_activity_evidence_is_not_retried_for_later_selections() {
   assert!(!first.to_string().contains("SECRET"));
   assert_eq!(helpers.request_id, 1);
   thread.join().unwrap();
+}
+
+#[test]
+fn first_seen_lookups_use_cache_pages_and_batches_not_one_round_trip_per_declaration() {
+  let (mut client, mut server) = UnixStream::pair().unwrap();
+  let thread = std::thread::spawn(move || {
+    for request_id in 1..=2 {
+      let request: HelperRequest =
+        serde_json::from_slice(&receive_packet(&mut server).unwrap()).unwrap();
+      assert_eq!(request.request_id, request_id);
+      let Task::FirstSeen { keys, after, .. } = request.task else {
+        panic!("expected the bounded cache protocol");
+      };
+      assert!(after.is_none());
+      let values = if request_id == 1 {
+        assert!(keys.is_empty());
+        (0..64)
+          .map(|number| (format!("{number:064x}"), 100))
+          .collect()
+      } else {
+        assert_eq!(
+          keys,
+          (0..128)
+            .map(|number| format!("{number:064x}"))
+            .collect::<Vec<_>>()
+        );
+        BTreeMap::new()
+      };
+      send_packet(
+        &mut server,
+        &serde_json::to_vec(&HelperReply {
+          request_id,
+          result: Ok(Report::FirstSeen { values, next: None }),
+        })
+        .unwrap(),
+      )
+      .unwrap();
+    }
+  });
+  let resources = Resources::Bulk {
+    physical_volumes: vec!["fixture-physical".into()],
+  };
+  let mut helpers = Helpers {
+    pipe: &mut client,
+    resources: &resources,
+    request_id: 0,
+    activity_failure: None,
+    first_seen_cache: None,
+    observed: BTreeSet::new(),
+  };
+  for number in 0..128 {
+    assert_eq!(
+      helpers.first_seen(format!("{number:064x}")).unwrap(),
+      (number < 64).then_some(100)
+    );
+  }
+  assert_eq!(helpers.request_id, 1);
+  helpers.flush_observations().unwrap();
+  assert_eq!(helpers.request_id, 2);
+  thread.join().unwrap();
+}
+
+#[test]
+fn invalid_first_seen_pages_refuse_without_partial_credit_or_repeated_requests() {
+  for case in ["cursor", "timestamp", "partial"] {
+    let (mut client, mut server) = UnixStream::pair().unwrap();
+    let thread = std::thread::spawn(move || {
+      let request: HelperRequest =
+        serde_json::from_slice(&receive_packet(&mut server).unwrap()).unwrap();
+      if case == "partial" {
+        server.write_all(&100u32.to_be_bytes()).unwrap();
+        server.write_all(b"{").unwrap();
+        return;
+      }
+      let reply = HelperReply {
+        request_id: request.request_id,
+        result: Ok(Report::FirstSeen {
+          values: BTreeMap::from([(
+            "a".repeat(64),
+            if case == "timestamp" { u64::MAX } else { 100 },
+          )]),
+          next: (case == "cursor").then(|| "b".repeat(64)),
+        }),
+      };
+      send_packet(&mut server, &serde_json::to_vec(&reply).unwrap()).unwrap();
+    });
+    let resources = Resources::Bulk {
+      physical_volumes: vec!["fixture-physical".into()],
+    };
+    let mut helpers = Helpers {
+      pipe: &mut client,
+      resources: &resources,
+      request_id: 0,
+      activity_failure: None,
+      first_seen_cache: None,
+      observed: BTreeSet::new(),
+    };
+    assert!(helpers.first_seen("a".repeat(64)).is_err());
+    assert!(helpers.first_seen("b".repeat(64)).is_err());
+    assert!(helpers.observed.is_empty());
+    assert_eq!(helpers.request_id, 1);
+    thread.join().unwrap();
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn first_seen_requests_require_the_files_profile_and_an_uncancelled_grant() {
+  for cancelled in [false, true] {
+    let (fixture, mut journal, mut owned, mut peer, resume) = granted_private_peer();
+    // isolate the profile/cancellation gate after the request's resource comparison
+    owned.launch.resources = Resources::Bulk {
+      physical_volumes: vec!["fixture-physical".into()],
+    };
+    if cancelled {
+      owned.output_allowed = true;
+      journal.request_cancel(&owned.key, 2).unwrap();
+    }
+    let before = journal.launch(&owned.key).unwrap();
+    inject_private(
+      &mut owned,
+      &HelperRequest {
+        request_id: 1,
+        task: Task::FirstSeen {
+          keys: vec!["a".repeat(64)],
+          after: None,
+          physical_volumes: vec!["fixture-physical".into()],
+        },
+      },
+      &mut journal,
+    );
+    let reply: HelperReply = serde_json::from_slice(&receive_packet(&mut peer).unwrap()).unwrap();
+    assert!(reply.result.is_err());
+    assert!(owned.observations.is_empty());
+    assert!(owned.helper.is_none());
+    assert_eq!(journal.launch(&owned.key).unwrap(), before);
+    drop(peer);
+    drop(resume);
+    assert!(complete(&mut owned, &mut journal).report.is_err());
+    assert_eq!(
+      fs::read(fixture.0.join("valuable")).unwrap(),
+      b"private helper survivor"
+    );
+  }
 }
 
 #[cfg(target_os = "macos")]

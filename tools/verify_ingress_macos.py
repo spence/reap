@@ -157,6 +157,57 @@ def cleanup_owned(owned, receipt):
     return safe
 
 
+def validate_first_seen_rounds(rounds, frames):
+    """Require installed publication and identity-bound credit across an actual rename."""
+    assert len(rounds) == len(frames) == 2
+    initial = None
+    for index, (item, data) in enumerate(zip(rounds, frames)):
+        terminal = item["terminal"]
+        assert terminal["protocol"] == 2 and terminal["state"] == "completed"
+        assert terminal["key"] == item["key"] == item["receipt"]["key"]
+        assert len(data) <= 2 * 1024 * 1024 and data[:4] == b"REJ1"
+        assert int.from_bytes(data[4:8], "big") == len(data) - 40
+        assert hashlib.sha256(data[40:]).digest() == data[8:40]
+        job = json.loads(data[40:])
+        assert job["document"] == "Job" and job["view"] == terminal["job"]
+        assert job["view"]["key"] == item["key"] and job["input"] == item["receipt"]["input"]
+        result = job["view"]["result"]
+        assert type(result["exit_code"]) is type(result["effects"]) is int
+        assert result["exit_code"] == result["effects"] == 0
+        assert job["execution"] == {"phase": "result", "terminal": result}
+        request = json.loads(job["input"]["request"])
+        assert request["argv"][0] == "files" and len(request["argv"]) == 2
+        path = pathlib.PurePath(request["argv"][1])
+        assert path.is_absolute() and path.name == ("lifetime-workspace" if index == 0 else "renamed-workspace")
+        identity = {name: {field: item["identity"][name][field] for field in ("volume_uuid", "file_id")}
+                    for name in ("directory", "declaration")}
+        digest = item["policy_digest"]
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+        key = hashlib.sha256(json.dumps([identity, digest], separators=(",", ":")).encode()).hexdigest()
+        observations = job["observations"]
+        assert set(observations["first_seen"]) == {key}
+        first = observations["first_seen"][key]
+        assert type(first) is type(observations["at"]) is int
+        assert 0 < first <= observations["at"] <= job["view"]["completed_at"]
+        detail = json.loads(result["detail"])
+        report = detail["reports"][0]
+        assert report["coverage_complete"] is True and type(report["exit_code"]) is int and report["exit_code"] == 0
+        assert all(type(report[name]) is int for name in ("declarations", "honored", "invalid", "planned_units", "blocked_units", "completed_units"))
+        assert report["declarations"] == 1 and report["honored"] == index and report["invalid"] == 1 - index
+        if index == 0:
+            assert "new; disposal takes effect in" in detail["stdout"]
+        assert report["planned_units"] == index and report["blocked_units"] == report["completed_units"] == 0
+        assert job["launch"]["worker"]["state"]["phase"] == "exited"
+        assert all(helper is None or helper["state"]["phase"] == "exited" for helper in job["launch"]["helpers"])
+        if initial is None:
+            assert first == observations["at"] and first >= job["view"]["created_at"]
+            initial = (identity, digest, key, first, path)
+        else:
+            assert (identity, digest, key, first) == initial[:4]
+            assert path.parent == initial[4].parent and item["key"] != rounds[0]["key"]
+            assert observations["at"] >= first + 2
+
+
 def validate_execution(evidence, frame, survivor, operation=None, cancel=False, workspace_scope=False, result_pages=False):
     """Bind actual terminal work to its original and prepared request key."""
     assert not evidence["metadata_only"] and evidence["read_only_execution"]
@@ -298,11 +349,15 @@ def main():
                         help="require scoped Files discovery with ancestor policy and an unrelated FIFO")
     parser.add_argument("--result-pages", action="store_true",
                         help="require complete multi-root Files output through the installed page command")
+    parser.add_argument("--first-seen", action="store_true",
+                        help="require installed first-seen publication and rename continuity")
     args = parser.parse_args()
     if args.workspace_scope and (args.operation != "files" or args.cancel):
         parser.error("--workspace-scope requires --operation files without --cancel")
     if args.result_pages and (args.operation != "files" or args.cancel or args.workspace_scope):
         parser.error("--result-pages requires whole-root Files without cancellation")
+    if args.first_seen and (not args.managed_services or args.operation != "files" or args.cancel or args.workspace_scope or args.result_pages):
+        parser.error("--first-seen requires managed whole-root Files without cancellation or paging")
     if platform.system() != "Darwin":
         parser.error("the native macOS runtime is required")
     host_home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir) if args.managed_services else pathlib.Path.home()
@@ -326,6 +381,7 @@ def main():
     receipt = {"host": platform.node(), "runtime": str(runtime), "cwd": str(cwd), "operation": args.operation,
                "cancellation": args.cancel,
                "workspace_scope": args.workspace_scope,
+               "first_seen": args.first_seen,
                "installed_binary": str(installed), "native_exit": None,
                "service_mode": "managed" if args.managed_services else "isolated"}
     if args.managed_services:
@@ -405,9 +461,12 @@ def main():
             environment["REAP_INSTALLED_INGRESS_FILES_SCOPE"] = "1"
         if args.result_pages:
             environment["REAP_INSTALLED_INGRESS_RESULT_PAGES"] = "1"
+        environment.pop("REAP_INSTALLED_INGRESS_FIRST_SEEN", None)
+        if args.first_seen:
+            environment["REAP_INSTALLED_INGRESS_FIRST_SEEN"] = "1"
         with (runtime / "client.log").open("wb") as log:
             run = subprocess.run([str(client), "--exact", "service::tests::native::server_process", "--nocapture"],
-                                 env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=20)
+                                 env=environment, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=40 if args.first_seen else 20)
         receipt["native_exit"] = run.returncode
         if run.returncode != 0 and not args.managed_services:
             # inspect only this verifier's still-registered, agentless resolver before cleanup.
@@ -430,6 +489,14 @@ def main():
         terminal = validate_execution(evidence, frame,
                                       (runtime / "check-project/valuable").read_bytes(), args.operation, args.cancel,
                                       args.workspace_scope, args.result_pages)
+        if args.first_seen:
+            rounds = evidence["first_seen_rounds"]
+            frames = [execution_record(journal, item, managed=True)[0] for item in rounds]
+            validate_first_seen_rounds(rounds, frames)
+            for index, data in enumerate(frames):
+                (output / f"first-seen-job-{index}.json").write_bytes(data)
+            assert (runtime / "check-project/renamed-workspace/valuable").read_bytes() == b"installed grace survivor"
+            receipt["first_seen_rounds"] = len(rounds)
         if args.result_pages:
             for index in range(24):
                 assert (runtime / f"page-root-{index:02}/valuable").read_bytes() == b"installed paged survivor"

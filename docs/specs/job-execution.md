@@ -47,7 +47,8 @@ The public `files` route is not activated by that internal adapter.
   Binding: `oversized_combined_task_fails_only_its_job_without_creating_a_bulk_process`.
 - **C8** — Internal files preview binds caller, namespace, configuration, governed roots, state inputs, and native physical resources.
   It accepts only read mode. Proven absent roots differ from existing non-directories.
-  Changed configuration or namespace refuses assessment. It does not write targets or first-seen observations.
+  Changed configuration or namespace refuses assessment. The worker does not write targets or first-seen observations.
+  The metadata writer publishes complete first-seen facts with the result under C13.
   Binding: `native_files_distinguishes_missing_and_nondirectory_governed_roots`,
   `native_files_changed_configuration_and_namespace_refuse_before_assessment`,
   `native_files_rejects_applying_flags_without_poisoning_later_read_jobs`.
@@ -87,6 +88,20 @@ The public `files` route is not activated by that internal adapter.
   `scoped_preview_uses_policy_dependencies_without_unrelated_subtree_walks`,
   `native_files_scoped_pipeline_honors_outer_policy_and_skips_unrelated_subtrees`,
   and `tools/verify_ingress_macos.py --operation files --workspace-scope`.
+- **C13** — First-seen grace binds both native policy objects and the authored policy digest, not the pathname.
+  Rename preserves credit. Copy, declaration replacement, or policy-byte change starts fresh grace.
+  KEEP remains effective during grace. Legacy pathname-cache credit is not imported.
+  A granted Files worker queries retained facts through its private channel; lookup creates no process or metadata write.
+  Only complete, uncancelled assessment results publish facts, after source revalidation, both EOFs, and native child exit.
+  Facts, result phase, and complete result pages share one durable journal transaction before reservation release.
+  The writer supplies publication time for new facts; job admission and worker input cannot backdate them.
+  Replays cannot change retained facts. Cache loss and capacity eviction lose credit, never grant it.
+  Facts are bounded derived evidence, not adoption, a selection verdict, or disposal permission.
+  Checks: `first_seen_facts_publish_with_complete_files_results_and_cache_loss_restarts_grace`,
+  `native_files_first_seen_survives_rename_and_restart_but_not_copy_or_policy_change`,
+  `native_files_incomplete_observation_never_becomes_grace_credit`,
+  `first_seen_lookups_use_cache_pages_and_batches_not_one_round_trip_per_declaration`,
+  and `tools/verify_ingress_macos.py --operation files --managed-services --first-seen`.
 
 ## Bounds and supported closure
 
@@ -102,6 +117,13 @@ Larger assessments fail explicitly; output is not truncated into success.
 Executable Files jobs reserve a 2 MiB record for the payload and immutable input.
 Other jobs retain the 128 KiB record bound and completion reservation.
 Journal framing, metadata capacity, completion reserve, and result retention remain in force.
+Each successful Files result retains at most 8192 first-seen keys inside that same 2 MiB record.
+The memory index retains at most 8192 keys and uses the most recent observation for capacity order.
+It reconstructs facts from retained results, not from directory scans or the legacy namespace cache.
+Job-result retirement can forget facts; after cache loss, dependent policy starts grace again.
+Workers read this memory index in pages of at most 512 keys and retain one bounded local cache.
+Complete scans register actual observation keys in batches of at most 512, not one request per declaration.
+Cache and observation allocations reserve 4 MiB inside the existing 32 MiB Files preview budget.
 
 The path supports an existing directory, Cargo target marker selection, bounded ancestor project selection,
 and the legacy parser's versions, defaults, store validation, and policy normalization.
@@ -144,7 +166,7 @@ Unmatched sibling subtrees are not measured for display. Unmeasured ancestors do
 Configured root aliases remain resolver dependencies; this profile does not narrow their physical reservations.
 Incomplete evidence still protects the whole request; independent partial progress is not yet supported.
 Native activity, bounded index tracking, and native Git recovery supply their separate evidence.
-Unsupported recovery profiles protect the selection. First-seen observation publication, fair discovery quanta,
+Unsupported recovery profiles protect the selection. Fair discovery quanta,
 legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.
 No recovery path reruns an uncertain mutating operation; none is supported by this dispatcher.

@@ -1,6 +1,7 @@
 use super::*;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::FileTypeExt;
 use std::time::{Duration, Instant};
 
 use crate::invocation::{Context, Intent, Namespace};
@@ -480,6 +481,224 @@ fn native_files_rejects_applying_flags_without_poisoning_later_read_jobs() {
     fs::read(fixture.0.join("project/valuable")).unwrap(),
     b"protected survivor"
   );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_incomplete_observation_never_becomes_grace_credit() {
+  let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+    .map(PathBuf::from)
+    .unwrap_or_else(std::env::temp_dir);
+  let path = base.join(format!(
+    "dispatch-incomplete-observation-{}",
+    random_token().unwrap()
+  ));
+  fs::create_dir_all(path.join("home/.config/reap")).unwrap();
+  fs::create_dir_all(path.join("project/unknown")).unwrap();
+  let fixture = Fixture(fs::canonicalize(path).unwrap());
+  let project = fixture.0.join("project");
+  fs::write(
+    project.join(".reap"),
+    br#"{"version":1,"keep":{"reason":"unfinished work"}}"#,
+  )
+  .unwrap();
+  fs::write(project.join("valuable"), b"protected source\n").unwrap();
+  let bad = project.join("unknown/.reap");
+  let name = std::ffi::CString::new(bad.as_os_str().as_bytes()).unwrap();
+  // SAFETY: this terminated path names a new FIFO inside the exclusive fixture.
+  assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({"governed_roots":[project],"reap_file_grace_hours":24}))
+      .unwrap(),
+  )
+  .unwrap();
+  let identity = crate::identity::InstanceIdentity::read(
+    &File::open(&project).unwrap(),
+    &File::open(project.join(".reap")).unwrap(),
+  )
+  .unwrap();
+  let fact = crate::observations::key(
+    &identity,
+    &format!(
+      "{:x}",
+      Sha256::digest(fs::read(project.join(".reap")).unwrap())
+    ),
+  )
+  .unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  for complete in [false, true] {
+    if complete {
+      fs::remove_file(&bad).unwrap();
+      fs::write(&bad, br#"{"version":1,"keep":{"reason":"retained"}}"#).unwrap();
+    }
+    let mut input = fixture.input();
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec!["files".into()];
+    input.request = serde_json::to_string(&intent).unwrap();
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal.admit_execution(key.clone(), input, 1).unwrap();
+    scheduler.enqueue(&mut journal, key.clone()).unwrap();
+    let result = terminal(&mut journal, &mut scheduler, &key);
+    assert_eq!(result.exit_code, u8::from(!complete), "{}", result.detail);
+    assert_eq!(result.effects, 0);
+    assert_eq!(journal.first_seen(&fact).unwrap().is_some(), complete);
+    assert!(journal.launch(&key).unwrap().unwrap().released());
+    assert_eq!(
+      fs::read(project.join("valuable")).unwrap(),
+      b"protected source\n"
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_first_seen_survives_rename_and_restart_but_not_copy_or_policy_change() {
+  let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+    .map(PathBuf::from)
+    .unwrap_or_else(std::env::temp_dir);
+  let path = base.join(format!("dispatch-first-seen-{}", random_token().unwrap()));
+  fs::create_dir_all(path.join("home/.config/reap")).unwrap();
+  fs::create_dir_all(path.join("project/workspace")).unwrap();
+  fs::create_dir_all(path.join("state/reap")).unwrap();
+  let fixture = Fixture(fs::canonicalize(path).unwrap());
+  let project = fixture.0.join("project");
+  let mut workspace = project.join("workspace");
+  let policy = br#"{"version":1,"expires":"2020-01-01T00:00:00Z"}"#;
+  fs::write(workspace.join(".reap"), policy).unwrap();
+  fs::write(workspace.join("valuable"), b"retained source\n").unwrap();
+  // The native path must not read or write the legacy pathname cache.
+  let cache = fixture.0.join("state/reap/reap-files-seen.json");
+  let name = std::ffi::CString::new(cache.as_os_str().as_bytes()).unwrap();
+  // SAFETY: this terminated path names a new FIFO inside the exclusive fixture.
+  assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({
+      "governed_roots":[project],"reap_file_grace_hours":2.0/3600.0,"reap_file_min_age_minutes":0
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let mut first = None;
+  for stage in ["new", "renamed", "copied", "changed", "restarted", "keep"] {
+    match stage {
+      "renamed" => {
+        std::thread::sleep(Duration::from_secs(3));
+        let renamed = project.join("renamed");
+        fs::rename(&workspace, &renamed).unwrap();
+        workspace = renamed;
+      }
+      "copied" => {
+        let copy = project.join("copied");
+        fs::create_dir(&copy).unwrap();
+        fs::copy(workspace.join(".reap"), copy.join(".reap")).unwrap();
+        fs::copy(workspace.join("valuable"), copy.join("valuable")).unwrap();
+        workspace = copy;
+      }
+      "changed" => {
+        fs::write(
+          workspace.join(".reap"),
+          br#"{"version":1,"expires":"2019-01-01T00:00:00Z"}"#,
+        )
+        .unwrap();
+      }
+      "restarted" => {
+        drop(scheduler);
+        drop(journal);
+        journal = Journal::open(&fixture.0.join("journal")).unwrap();
+        scheduler = Scheduler::recover(&mut journal).unwrap();
+      }
+      "keep" => {
+        fs::write(
+          workspace.join(".reap"),
+          br#"{"version":1,"keep":{"reason":"unfinished work"}}"#,
+        )
+        .unwrap();
+      }
+      _ => {}
+    }
+    for path in [
+      &workspace,
+      &workspace.join(".reap"),
+      &workspace.join("valuable"),
+    ] {
+      filetime::set_file_mtime(path, filetime::FileTime::from_unix_time(1_600_000_000, 0)).unwrap();
+    }
+    let declaration = File::open(workspace.join(".reap")).unwrap();
+    let identity =
+      crate::identity::InstanceIdentity::read(&File::open(&workspace).unwrap(), &declaration)
+        .unwrap();
+    drop(declaration);
+    let key = crate::observations::key(
+      &identity,
+      &format!(
+        "{:x}",
+        Sha256::digest(fs::read(workspace.join(".reap")).unwrap())
+      ),
+    )
+    .unwrap();
+    let before = journal.first_seen(&key).unwrap();
+    if stage == "renamed" {
+      assert_eq!(before, first);
+    }
+    if matches!(stage, "new" | "copied" | "changed" | "keep") {
+      assert_eq!(before, None, "{stage}");
+    }
+    if stage == "restarted" {
+      assert!(before.is_some());
+    }
+    let mut input = fixture.input();
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec!["files".into(), workspace.to_str().unwrap().into()];
+    input.request = serde_json::to_string(&intent).unwrap();
+    let epoch = journal.epoch();
+    let job = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal.admit_execution(job.clone(), input, 1).unwrap();
+    scheduler.enqueue(&mut journal, job.clone()).unwrap();
+    let result = terminal(&mut journal, &mut scheduler, &job);
+    assert_eq!(result.exit_code, 0, "{stage}: {}", result.detail);
+    assert_eq!(result.effects, 0);
+    let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+    let report = &detail["reports"][0];
+    assert_eq!(
+      report["coverage_complete"], true,
+      "{stage}: {}",
+      result.detail
+    );
+    if stage == "renamed" {
+      assert_eq!(report["planned_units"], 1, "{}", result.detail);
+    }
+    if matches!(stage, "new" | "copied" | "changed" | "keep") {
+      assert_eq!(report["planned_units"], 0, "{stage}: {}", result.detail);
+    }
+    let after = journal.first_seen(&key).unwrap();
+    assert!(after.is_some(), "{stage}");
+    if stage == "new" {
+      first = after;
+    }
+    if stage == "renamed" {
+      assert_eq!(first, after);
+    }
+    assert!(journal.launch(&job).unwrap().unwrap().released());
+    assert_eq!(
+      fs::read(workspace.join("valuable")).unwrap(),
+      b"retained source\n"
+    );
+    assert!(fs::symlink_metadata(&cache).unwrap().file_type().is_fifo());
+  }
 }
 
 #[cfg(target_os = "macos")]

@@ -163,6 +163,7 @@ impl Job {
       };
       // only a durable `Result` outranks cancellation; this worker result has not been staged
       let mut pages = vec![];
+      let mut observations = vec![];
       let next = if journal.cancel_requested(&self.key) {
         Progress::Result {
           terminal: cancelled(),
@@ -185,9 +186,13 @@ impl Job {
             Ok(Report::FilesPreviewed {
               terminal,
               pages: output,
+              observations: observed,
             }),
           ) if done.exit_code == 0 => {
             pages = output;
+            if terminal.exit_code == 0 {
+              observations = observed;
+            }
             Progress::Result { terminal }
           }
           (_, Ok(Report::Refused { reason })) => Progress::Result {
@@ -201,7 +206,7 @@ impl Job {
           },
         }
       };
-      journal.execution_progress_with_pages(&self.key, next.clone(), pages)?;
+      journal.execution_result(&self.key, next.clone(), pages, &observations)?;
       self.progress = next;
       self.launch = journal.launch(&self.key)?;
       self.owned = None;

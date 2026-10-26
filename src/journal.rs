@@ -102,6 +102,7 @@ pub struct Journal {
   lock: File,
   header: Header,
   index: BTreeMap<Key, Entry>,
+  observations: crate::observations::Cache,
   healthy: bool,
   published: bool,
 }
@@ -150,6 +151,7 @@ impl Journal {
         writer_nonce: String::new(),
       },
       index: BTreeMap::new(),
+      observations: crate::observations::Cache::default(),
       healthy: true,
       published: false,
     };
@@ -416,6 +418,7 @@ impl Journal {
       launch: None,
       execution: executing.then_some(crate::dispatch::Progress::Queued),
       pages: vec![],
+      observations: None,
     };
     self.persist(Document::Job(job.clone()))?;
     self.install(job.clone())?;
@@ -522,6 +525,18 @@ impl Journal {
     next: crate::dispatch::Progress,
     pages: Vec<String>,
   ) -> io::Result<()> {
+    self.execution_result(key, next, pages, &[])
+  }
+
+  /// Publish first-seen facts with the complete result. The caller must prove native worker exit.
+  /// The durable reservation stays occupied until the result transaction completes.
+  pub(crate) fn execution_result(
+    &mut self,
+    key: &Key,
+    next: crate::dispatch::Progress,
+    pages: Vec<String>,
+    observed: &[String],
+  ) -> io::Result<()> {
     let mut job = self
       .job(key)?
       .ok_or_else(|| invalid("execution job is not retained"))?;
@@ -530,7 +545,12 @@ impl Journal {
       .as_ref()
       .ok_or_else(|| invalid("job is not activated"))?;
     if previous == &next {
-      return if pages.is_empty() || pages == job.pages {
+      let observations_match = observed.is_empty()
+        || job
+          .observations
+          .as_ref()
+          .is_some_and(|facts| facts.first_seen.keys().eq(observed.iter()));
+      return if (pages.is_empty() || pages == job.pages) && observations_match {
         Ok(())
       } else {
         Err(invalid("replayed execution result has different pages"))
@@ -541,7 +561,38 @@ impl Journal {
     }
     job.execution = Some(next);
     job.pages = pages;
+    if !observed.is_empty() {
+      if job.view.cancel_requested_at.is_some() {
+        return Err(invalid(
+          "first-seen publication requires an uncancelled worker result",
+        ));
+      }
+      let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_secs();
+      job.observations = Some(self.observations.prepare(observed, now)?);
+    }
     self.update(job)
+  }
+
+  /// Memory-only lookup. The private worker query creates no job, process, or metadata write.
+  pub(crate) fn first_seen(&self, key: &str) -> io::Result<Option<u64>> {
+    if !crate::observations::valid_key(key) {
+      return Err(invalid("invalid first-seen lookup key"));
+    }
+    Ok(self.observations.get(key))
+  }
+
+  /// Read a bounded memory-only page; no target or metadata file access occurs here.
+  pub(crate) fn observation_page(
+    &self,
+    after: Option<&str>,
+  ) -> io::Result<(BTreeMap<String, u64>, Option<String>)> {
+    if after.is_some_and(|key| !crate::observations::valid_key(key)) {
+      return Err(invalid("invalid first-seen page cursor"));
+    }
+    Ok(self.observations.page(after))
   }
 
   /// Read one page only after the exact job has a durable terminal result.
@@ -897,6 +948,9 @@ impl Journal {
       job.input.volumes.clone()
     };
     let digest = Sha256::digest(serde_json::to_vec(&job).map_err(io::Error::other)?).into();
+    if let Some(observations) = &job.observations {
+      self.observations.include(observations);
+    }
     self.index.insert(
       job.view.key.clone(),
       Entry {
@@ -1102,12 +1156,17 @@ impl Journal {
               next.execution,
               Some(crate::dispatch::Progress::Result { .. })
             ));
+        let observations = next.observations == previous.observations
+          || (previous.observations.is_none()
+            && phase
+            && matches!(next.execution, Some(crate::dispatch::Progress::Result { ref terminal }) if terminal.exit_code == 0));
         if next.view.key != previous.view.key
           || next.input != previous.input
           || Some(next.revision) != previous.revision.checked_add(1)
           || previous.view.result.is_some()
           || (!completion && !execution && !phase && !cancellation)
           || !output
+          || !observations
           || next.view.created_at != previous.view.created_at
         {
           return Err(invalid("invalid job transaction"));
@@ -1200,6 +1259,8 @@ struct Job {
   execution: Option<crate::dispatch::Progress>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pages: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  observations: Option<crate::observations::Observations>,
 }
 
 impl Job {
@@ -1219,6 +1280,16 @@ impl Job {
       Some(crate::dispatch::Progress::Result { terminal }) => Some(terminal),
       _ => self.view.result.as_ref(),
     };
+    if let Some(observations) = &self.observations {
+      observations.validate()?;
+      if record_limit(self.execution.is_some(), self.view.invocation.as_ref()) != MAX_RECORD
+        || !terminal.is_some_and(|terminal| terminal.exit_code == 0 && terminal.effects == 0)
+      {
+        return Err(invalid(
+          "first-seen facts require a complete read-only Files result",
+        ));
+      }
+    }
     if let Some(terminal) = terminal {
       crate::result_pages::validate(&terminal.detail, &self.pages)?;
     } else if !self.pages.is_empty() {

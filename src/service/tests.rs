@@ -1436,6 +1436,108 @@ mod native {
     } else {
       None
     };
+    let mut first_seen_rounds = Vec::new();
+    if std::env::var_os("REAP_INSTALLED_INGRESS_FIRST_SEEN").is_some() {
+      assert!(operation == "files" && !scoped && !paged && !cancel);
+      fs::write(root.join("caller-home/.config/reap/config.json"), serde_json::to_vec(&serde_json::json!({
+        "governed_roots":[project],"reap_file_grace_hours":2.0/3600.0,"reap_file_min_age_minutes":0
+      })).unwrap()).unwrap();
+      let mut workspace = project.join("lifetime-workspace");
+      fs::create_dir(&workspace).unwrap();
+      fs::write(
+        workspace.join(".reap"),
+        br#"{"version":1,"expires":"2020-01-01T00:00:00Z"}"#,
+      )
+      .unwrap();
+      fs::write(workspace.join("valuable"), b"installed grace survivor").unwrap();
+      for renamed in [false, true] {
+        if renamed {
+          thread::sleep(Duration::from_secs(3));
+          let next = project.join("renamed-workspace");
+          fs::rename(&workspace, &next).unwrap();
+          workspace = next;
+        }
+        for path in [
+          &workspace,
+          &workspace.join(".reap"),
+          &workspace.join("valuable"),
+        ] {
+          filetime::set_file_mtime(path, filetime::FileTime::from_unix_time(1_600_000_000, 0))
+            .unwrap();
+        }
+        let identity = crate::identity::InstanceIdentity::read(
+          &fs::File::open(&workspace).unwrap(),
+          &fs::File::open(workspace.join(".reap")).unwrap(),
+        )
+        .unwrap();
+        let policy_digest = format!(
+          "{:x}",
+          Sha256::digest(fs::read(workspace.join(".reap")).unwrap())
+        );
+        let response = call(
+          Role::Control,
+          Request::Epoch,
+          Instant::now() + RESPONSE_BUDGET,
+        );
+        let Outcome::Epoch { epoch } = response.outcome else {
+          panic!("first-seen epoch: {response:?}")
+        };
+        let key = Key {
+          generation: epoch.generation,
+          epoch: epoch.current,
+          nonce: crate::journal::random_token().unwrap(),
+        };
+        let mut input = input.clone();
+        input.argv = vec!["files".into(), workspace.to_str().unwrap().into()];
+        let response = call(
+          Role::ContextResolver,
+          Request::Prepare {
+            key: key.clone(),
+            input,
+          },
+          Instant::now() + RESPONSE_BUDGET,
+        );
+        let Outcome::Prepared { receipt } = response.outcome else {
+          panic!("first-seen preparation: {response:?}")
+        };
+        let response = call(
+          Role::Control,
+          Request::Admit {
+            receipt: receipt.clone(),
+          },
+          Instant::now() + RESPONSE_BUDGET,
+        );
+        assert!(
+          matches!(
+            response.outcome,
+            Outcome::Decision {
+              decision: Decision::Present { .. }
+            }
+          ),
+          "{response:?}"
+        );
+        let completed = client.wait(key.clone(), Duration::from_secs(10));
+        assert_eq!(
+          completed.state,
+          crate::client::State::Completed,
+          "{completed:?}"
+        );
+        let terminal = completed.job.as_ref().unwrap().result.as_ref().unwrap();
+        assert_eq!(terminal.exit_code, 0);
+        assert_eq!(terminal.effects, 0);
+        let detail: serde_json::Value = serde_json::from_str(&terminal.detail).unwrap();
+        assert_eq!(
+          detail["reports"][0]["planned_units"],
+          u64::from(renamed),
+          "{detail}"
+        );
+        assert_eq!(
+          fs::read(workspace.join("valuable")).unwrap(),
+          b"installed grace survivor"
+        );
+        first_seen_rounds.push(serde_json::json!({"key":key,"receipt":receipt,"terminal":completed,"identity":identity,"policy_digest":policy_digest}));
+      }
+    }
     fs::write(
       root.join("client-receipt.json"),
       serde_json::to_vec_pretty(&serde_json::json!({
@@ -1448,6 +1550,7 @@ mod native {
         "job_cli":cli_receipts,"unknown_job_cli":unknown_receipt,
         "result_pages_cli":result_pages_cli,
         "missing_page_cli":missing_page_cli,"unknown_page_cli":unknown_page_cli,
+        "first_seen_rounds":first_seen_rounds,
       }))
       .unwrap(),
     )

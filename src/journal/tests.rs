@@ -80,6 +80,126 @@ fn terminal() -> Terminal {
 }
 
 #[test]
+fn first_seen_facts_publish_with_complete_files_results_and_cache_loss_restarts_grace() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let key = key(&journal);
+  let fact = "a".repeat(64);
+  let mut prepared = input();
+  prepared.request = serde_json::to_string(&crate::invocation::Intent {
+    argv: vec!["files".into()],
+    namespace: crate::invocation::Namespace {
+      home: fixture.0.clone(),
+      xdg_state_home: None,
+      config_snapshot: None,
+    },
+    provenance: serde_json::json!({}),
+  })
+  .unwrap();
+  journal.admit_execution(key.clone(), prepared, 1).unwrap();
+  journal
+    .execution_progress(&key, crate::dispatch::Progress::ResolvingFiles)
+    .unwrap();
+  let scope = serde_json::from_value(serde_json::json!({
+    "project":fixture.0,"physical_volumes":["volume-a"],"objects":[{
+      "path":fixture.0,"identity":{"volume_uuid":"11111111-2222-3333-4444-555555555555","file_id":"0000000000000001"},
+      "physical_volumes":["volume-a"],"content":null,"missing":[]
+    }]
+  }))
+  .unwrap();
+  let mut record = journal.job(&key).unwrap().unwrap();
+  let mut launch = Launch::new(
+    1,
+    Resources::Bulk {
+      physical_volumes: vec!["volume-a".into()],
+    },
+  )
+  .unwrap();
+  launch.worker.state = ProcessState::BootEnded {
+    boot: launch.boot.clone().unwrap(),
+  };
+  record.launch = Some(launch);
+  record.execution = Some(crate::dispatch::Progress::PreviewingFiles { scope });
+  record.revision = 1;
+  record.validate().unwrap();
+  let name = record.name();
+  drop(journal);
+  fs::remove_file(fixture.0.join(name)).unwrap();
+  stage(&fixture.0, &Document::Job(record));
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  assert_eq!(journal.first_seen(&fact).unwrap(), None);
+  let mut terminal = Terminal {
+    exit_code: 1,
+    effects: 0,
+    detail: "{}".into(),
+  };
+  assert!(journal
+    .execution_result(
+      &key,
+      crate::dispatch::Progress::Result {
+        terminal: terminal.clone()
+      },
+      vec![],
+      &[fact.clone()]
+    )
+    .is_err());
+  assert_eq!(journal.first_seen(&fact).unwrap(), None);
+  terminal.exit_code = 0;
+  let before = crate::plan::now_secs() as u64;
+  journal
+    .execution_result(
+      &key,
+      crate::dispatch::Progress::Result {
+        terminal: terminal.clone(),
+      },
+      vec![],
+      &[fact.clone()],
+    )
+    .unwrap();
+  let first = journal.first_seen(&fact).unwrap().unwrap();
+  journal
+    .execution_result(
+      &key,
+      crate::dispatch::Progress::Result {
+        terminal: terminal.clone(),
+      },
+      vec![],
+      &[fact.clone()],
+    )
+    .unwrap();
+  assert_eq!(journal.first_seen(&fact).unwrap(), Some(first));
+  assert!(journal
+    .execution_result(
+      &key,
+      crate::dispatch::Progress::Result {
+        terminal: terminal.clone()
+      },
+      vec![],
+      &["b".repeat(64)]
+    )
+    .is_err());
+  assert!(
+    first >= before && first > 1,
+    "admission time is not first-seen credit"
+  );
+  let mut forged = journal.job(&key).unwrap().unwrap();
+  forged.revision += 1;
+  forged.observations = None;
+  forged.view.result = Some(terminal.clone());
+  forged.view.completed_at = Some(first);
+  assert!(journal.publish(&Document::Job(forged)).is_err());
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  assert_eq!(journal.first_seen(&fact).unwrap(), Some(first));
+  journal.complete(&key, terminal, first).unwrap();
+  journal.compact(first + COMPLETED_AGE + 1, false).unwrap();
+  drop(journal);
+  let journal = Journal::open(&fixture.0).unwrap();
+  assert_eq!(journal.first_seen(&fact).unwrap(), None);
+  assert!(fixture.0.join(HEADER).is_file());
+}
+
+#[test]
 fn result_pages_survive_atomic_phase_recovery_and_retire_with_their_epoch() {
   for completed in [false, true] {
     let fixture = Fixture::new();
@@ -573,6 +693,7 @@ fn pending_durable_admission_is_recovered_without_a_second_identity() {
     launch: None,
     execution: None,
     pages: vec![],
+    observations: None,
     view: View {
       key: key.clone(),
       created_at: 1,

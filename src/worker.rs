@@ -3,6 +3,7 @@
 //! The launcher runs outside control response loops. A scope resolver has no cleanup authority.
 //! Public command dispatch and effectful executors must supply their separate commit guards.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -46,6 +47,11 @@ pub enum Task {
     probe: crate::activity::Probe,
     physical_volumes: Vec<String>,
   },
+  FirstSeen {
+    keys: Vec<String>,
+    after: Option<String>,
+    physical_volumes: Vec<String>,
+  },
 }
 
 impl Task {
@@ -53,6 +59,9 @@ impl Task {
   fn accepts(&self, report: &Report) -> bool {
     if let (Self::Probe { probe, .. }, Report::Probed { evidence }) = (self, report) {
       return probe.accepts(evidence);
+    }
+    if let (Self::FirstSeen { .. }, Report::FirstSeen { .. }) = (self, report) {
+      return true;
     }
     matches!(
       (self, report),
@@ -70,7 +79,10 @@ impl Task {
       Self::Check { scope, .. } | Self::PreviewFiles { scope, .. } => Resources::Bulk {
         physical_volumes: scope.physical_volumes.clone(),
       },
-      Self::Probe {
+      Self::FirstSeen {
+        physical_volumes, ..
+      }
+      | Self::Probe {
         physical_volumes, ..
       } => Resources::Bulk {
         physical_volumes: physical_volumes.clone(),
@@ -82,6 +94,18 @@ impl Task {
   fn validate(&self) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
 
+    if let Self::FirstSeen { keys, after, .. } = self {
+      if keys.len() > crate::observations::BATCH_KEYS
+        || keys.iter().any(|key| !crate::observations::valid_key(key))
+        || after
+          .as_ref()
+          .is_some_and(|key| !crate::observations::valid_key(key))
+        || !keys.is_empty() && after.is_some()
+      {
+        return Err(invalid("invalid first-seen request"));
+      }
+      return self.resources().validate();
+    }
     let directory = match self {
       Self::Resolve { directory } => directory,
       Self::ResolveCheck { input } | Self::ResolveFiles { input } => {
@@ -95,6 +119,7 @@ impl Task {
         probe.validate()?;
         return self.resources().validate();
       }
+      Self::FirstSeen { .. } => unreachable!("first-seen request validated above"),
     };
     if !directory.is_absolute()
       || directory.as_os_str().len() > 4096
@@ -108,7 +133,7 @@ impl Task {
     Ok(())
   }
 
-  fn execute(&self, grant: &Grant, helpers: Option<&mut Helpers<'_>>) -> io::Result<Report> {
+  fn execute(&self, grant: &Grant, mut helpers: Option<&mut Helpers<'_>>) -> io::Result<Report> {
     self.validate()?;
     if matches!(self, Self::Resolve { .. }) {
       if let Some(helpers) = helpers {
@@ -136,10 +161,19 @@ impl Task {
             physical_volumes: scope.physical_volumes.clone(),
           }) =>
       {
-        let mut terminal = crate::dispatch::assess_files(input, scope, helpers)?;
+        let mut terminal = crate::dispatch::assess_files(input, scope, helpers.as_deref_mut())?;
+        if terminal.exit_code == 0 {
+          if let Some(helpers) = helpers {
+            helpers.flush_observations()?;
+          }
+        }
         let (detail, pages) = crate::result_pages::prepare(terminal.detail)?;
         terminal.detail = detail;
-        return Ok(Report::FilesPreviewed { terminal, pages });
+        return Ok(Report::FilesPreviewed {
+          terminal,
+          pages,
+          observations: vec![],
+        });
       }
       Self::Resolve { .. } => {}
       _ => {
@@ -192,6 +226,12 @@ pub enum Report {
     // ordered private frames carry pages before this final report; the receiver restores them
     #[serde(skip)]
     pages: Vec<String>,
+    #[serde(skip)]
+    observations: Vec<String>,
+  },
+  FirstSeen {
+    values: BTreeMap<String, u64>,
+    next: Option<String>,
   },
   Resolved {
     directory: ObjectIdentity,
@@ -241,9 +281,85 @@ pub(crate) struct Helpers<'a> {
   resources: &'a Resources,
   request_id: u64,
   activity_failure: Option<String>,
+  first_seen_cache: Option<Result<BTreeMap<String, u64>, String>>,
+  observed: BTreeSet<String>,
 }
 
 impl Helpers<'_> {
+  /// Read cached durable credit. Only bounded pages and observed-key batches cross the channel.
+  pub(crate) fn first_seen(&mut self, key: String) -> io::Result<Option<u64>> {
+    if !crate::observations::valid_key(&key)
+      || self.observed.len() >= crate::observations::MAX_KEYS && !self.observed.contains(&key)
+    {
+      return Err(invalid("first-seen worker capacity or key is invalid"));
+    }
+    if self.first_seen_cache.is_none() {
+      self.first_seen_cache = Some(self.load_first_seen().map_err(|reason| reason.to_string()));
+    }
+    let values = self
+      .first_seen_cache
+      .as_ref()
+      .expect("loaded first-seen cache");
+    let values = values.as_ref().map_err(|reason| invalid(reason))?;
+    let first = values.get(&key).copied();
+    self.observed.insert(key);
+    Ok(first)
+  }
+
+  fn load_first_seen(&mut self) -> io::Result<BTreeMap<String, u64>> {
+    let mut values = BTreeMap::new();
+    let mut after = None;
+    loop {
+      let (page, next) = self.observation_request(vec![], after.clone())?;
+      if page
+        .keys()
+        .any(|key| after.as_ref().is_some_and(|cursor| key <= cursor))
+        || values.len() + page.len() > crate::observations::MAX_KEYS
+        || next
+          .as_ref()
+          .is_some_and(|cursor| page.keys().next_back() != Some(cursor))
+        || next.is_some() && page.len() != crate::observations::BATCH_KEYS
+      {
+        return Err(invalid("invalid first-seen cache page"));
+      }
+      values.extend(page);
+      if next.is_none() {
+        return Ok(values);
+      }
+      after = next;
+    }
+  }
+
+  /// Register only actual observations, after a complete scan and before its final report.
+  fn flush_observations(&mut self) -> io::Result<()> {
+    let keys: Vec<_> = self.observed.iter().cloned().collect();
+    for keys in keys.chunks(crate::observations::BATCH_KEYS) {
+      let (values, next) = self.observation_request(keys.to_vec(), None)?;
+      if next.is_some() || values.keys().any(|key| keys.binary_search(key).is_err()) {
+        return Err(invalid("invalid first-seen observation reply"));
+      }
+    }
+    Ok(())
+  }
+
+  fn observation_request(
+    &mut self,
+    keys: Vec<String>,
+    after: Option<String>,
+  ) -> io::Result<(BTreeMap<String, u64>, Option<String>)> {
+    let Resources::Bulk { physical_volumes } = self.resources else {
+      return Err(invalid("first-seen lookup requires a bulk grant"));
+    };
+    match self.run(Task::FirstSeen {
+      keys,
+      after,
+      physical_volumes: physical_volumes.clone(),
+    })? {
+      Report::FirstSeen { values, next } => Ok((values, next)),
+      _ => Err(invalid("first-seen lookup returned another operation")),
+    }
+  }
+
   /// The exact physical reservation already bound to this worker's execution grant.
   pub(crate) fn resources(&self) -> &Resources {
     self.resources
@@ -356,6 +472,7 @@ pub struct Owned {
   report: Option<Report>,
   pages: Vec<String>,
   page_bytes: usize,
+  observations: BTreeSet<String>,
   output_allowed: bool,
   probe: Option<crate::activity::Capture>,
   stderr: Option<UnixStream>,
@@ -453,6 +570,7 @@ fn spawn(
     report: None,
     pages: vec![],
     page_bytes: 0,
+    observations: BTreeSet::new(),
     output_allowed,
     probe: probe.map(crate::activity::Capture::new),
     stderr,
@@ -696,8 +814,14 @@ impl Owned {
             self.protocol_failure("worker result precedes its helper reply");
             return Ok(());
           }
-          if let Report::FilesPreviewed { pages, .. } = &mut report {
+          if let Report::FilesPreviewed {
+            pages,
+            observations,
+            ..
+          } = &mut report
+          {
             *pages = std::mem::take(&mut self.pages);
+            *observations = std::mem::take(&mut self.observations).into_iter().collect();
           } else if !self.pages.is_empty() {
             self.protocol_failure("result pages belong to another worker operation");
             return Ok(());
@@ -753,6 +877,36 @@ impl Owned {
         request.request_id,
         Err("helper request is cancelled or changes physical resources".into()),
       );
+    }
+    if let Task::FirstSeen { keys, after, .. } = &request.task {
+      let additional: BTreeSet<_> = keys
+        .iter()
+        .filter(|key| !self.observations.contains(*key))
+        .collect();
+      if !self.output_allowed
+        || self.observations.len() + additional.len() > crate::observations::MAX_KEYS
+      {
+        return self.reply(
+          request.request_id,
+          Err("first-seen query is outside the Files profile or capacity".into()),
+        );
+      }
+      let (values, next) = if keys.is_empty() {
+        journal.observation_page(after.as_deref())?
+      } else {
+        let values = keys
+          .iter()
+          .filter_map(|key| {
+            journal
+              .first_seen(key)
+              .transpose()
+              .map(|first| first.map(|first| (key.clone(), first)))
+          })
+          .collect::<io::Result<BTreeMap<_, _>>>()?;
+        self.observations.extend(keys.iter().cloned());
+        (values, None)
+      };
+      return self.reply(request.request_id, Ok(Report::FirstSeen { values, next }));
     }
     let launch = journal
       .launch(&self.key)?
@@ -903,6 +1057,8 @@ pub fn run(launch: &str, process: &str) -> i32 {
         resources: &grant.resources,
         request_id: 0,
         activity_failure: None,
+        first_seen_cache: None,
+        observed: BTreeSet::new(),
       };
       task.execute(&grant, Some(&mut helpers))
     }
@@ -997,6 +1153,17 @@ fn receive_packet(pipe: &mut UnixStream) -> io::Result<Vec<u8>> {
 
 fn validate_report(report: &Report) -> io::Result<()> {
   match report {
+    Report::FirstSeen { values, next }
+      if values.len() > crate::observations::BATCH_KEYS
+        || values
+          .iter()
+          .any(|(key, time)| !crate::observations::valid_key(key) || *time > i64::MAX as u64)
+        || next
+          .as_ref()
+          .is_some_and(|key| !crate::observations::valid_key(key)) =>
+    {
+      return Err(invalid("invalid first-seen reply"));
+    }
     Report::CheckResolved { scope } | Report::FilesResolved { scope } => scope.validate()?,
     Report::Checked { terminal }
       if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code != 0 =>
@@ -1010,7 +1177,10 @@ fn validate_report(report: &Report) -> io::Result<()> {
     }
     _ => {}
   }
-  if let Report::FilesPreviewed { terminal, pages } = report {
+  if let Report::FilesPreviewed {
+    terminal, pages, ..
+  } = report
+  {
     crate::result_pages::validate(&terminal.detail, pages)?;
   }
   if let Report::Resolved {

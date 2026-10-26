@@ -34,6 +34,7 @@ mod lease;
 pub mod lifetime;
 mod maintenance;
 mod manifest;
+mod observations;
 mod parents;
 mod plan;
 mod preservation;

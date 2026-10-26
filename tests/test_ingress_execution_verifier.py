@@ -51,6 +51,60 @@ def frame(job):
     return b"REJ1" + len(body).to_bytes(4, "big") + hashlib.sha256(body).digest() + body
 
 
+def first_seen_fixture():
+    identity = {name: {"volume_uuid": "11111111-2222-3333-4444-555555555555", "file_id": f"{index:016x}"}
+                for index, name in enumerate(("directory", "declaration"), 1)}
+    digest = "c" * 64
+    key = hashlib.sha256(json.dumps([identity, digest], separators=(",", ":")).encode()).hexdigest()
+    rounds, jobs = [], []
+    for index, name in enumerate(("lifetime-workspace", "renamed-workspace")):
+        public_key = {"generation": "a" * 32, "epoch": 1, "nonce": str(index + 1) * 32}
+        result = {"exit_code": 0, "effects": 0, "detail": json.dumps({"reports": [{
+            "coverage_complete": True, "exit_code": 0, "declarations": 1, "honored": index, "invalid": 1 - index,
+            "planned_units": index, "blocked_units": 0, "completed_units": 0}],
+            "stdout": "new; disposal takes effect in <1m" if index == 0 else "would quarantine"})}
+        payload = {"request": json.dumps({"argv": ["files", "/owned/project/" + name]})}
+        view = {"key": public_key, "created_at": 1 + 3 * index, "completed_at": 3 + 3 * index, "result": result}
+        job = {"document": "Job", "view": view, "input": payload,
+               "execution": {"phase": "result", "terminal": result},
+               "observations": {"at": 2 + 3 * index, "first_seen": {key: 2}},
+               "launch": {"worker": {"state": {"phase": "exited"}}, "helpers": [None, None]}}
+        rounds.append({"key": public_key, "receipt": {"key": public_key, "input": payload},
+                       "terminal": {"protocol": 2, "state": "completed", "key": public_key, "job": view},
+                       "identity": identity, "policy_digest": digest})
+        jobs.append(job)
+    return rounds, jobs
+
+
+class FirstSeen(unittest.TestCase):
+    def test_installed_credit_requires_exact_native_identity_policy_and_both_records(self):
+        rounds, jobs = first_seen_fixture()
+        VERIFIER.validate_first_seen_rounds(rounds, [frame(job) for job in jobs])
+        for change in ("missing", "identity", "policy", "copied_credit", "backdated", "restarted_credit", "effect", "boolean", "live", "boot_ended", "not_grace", "grace_reason", "not_eligible"):
+            evidence, records = copy.deepcopy((rounds, jobs))
+            if change == "missing": records[1].pop("observations")
+            elif change == "identity": evidence[1]["identity"]["directory"]["file_id"] = "0000000000000009"
+            elif change == "policy": evidence[1]["policy_digest"] = "d" * 64
+            elif change == "copied_credit": records[1]["observations"]["first_seen"] = {"e" * 64: 2}
+            elif change == "backdated": records[0]["observations"]["first_seen"] = {next(iter(records[0]["observations"]["first_seen"])): 0}
+            elif change == "restarted_credit": records[1]["observations"]["first_seen"][next(iter(records[1]["observations"]["first_seen"]))] += 1
+            elif change == "effect": records[1]["view"]["result"]["effects"] = 1
+            elif change == "boolean": records[1]["view"]["result"]["effects"] = False
+            elif change == "live": records[1]["launch"]["worker"]["state"]["phase"] = "granted"
+            elif change == "boot_ended": records[1]["launch"]["worker"]["state"]["phase"] = "boot_ended"
+            elif change in ("not_grace", "grace_reason"):
+                detail = json.loads(records[0]["view"]["result"]["detail"])
+                if change == "not_grace": detail["reports"][0]["invalid"] = 0
+                else: detail["stdout"] = "malformed declaration"
+                records[0]["view"]["result"]["detail"] = json.dumps(detail)
+            else:
+                detail = json.loads(records[1]["view"]["result"]["detail"])
+                detail["reports"][0]["planned_units"] = 0
+                records[1]["view"]["result"]["detail"] = json.dumps(detail)
+            with self.assertRaises((AssertionError, KeyError), msg=change):
+                VERIFIER.validate_first_seen_rounds(evidence, [frame(job) for job in records])
+
+
 class Ownership(unittest.TestCase):
     def test_ambiguous_bootstrap_is_recorded_and_reconciled_before_runtime_removal(self):
         target = "user/501/dev.micro.reap.owned.fixture"
