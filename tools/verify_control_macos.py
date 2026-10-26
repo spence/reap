@@ -30,7 +30,7 @@ def main():
                                             "quarantine::tests", "util::tests", "worker::tests",
                                             "journal::tests", "volumes::", "dispatch::tests",
                                             "client::tests", "preservation::tests", "git_index::tests",
-                                            "git_index::recovery::tests"], default="control::tests")
+                                            "git_index::recovery::tests", "files::tests"], default="control::tests")
     parser.add_argument("--fault-library", type=pathlib.Path)
     parser.add_argument("--worker-binary", type=pathlib.Path)
     arguments = parser.parse_args()
@@ -133,6 +133,9 @@ def main():
                                   "shared_tags_survive_linked_retirement_but_private_refs_need_preservation",
                                   "activity_stream_requires_complete_valid_bounded_fields_before_a_negative_guard",
                                   "scratch_retire_moves_to_quarantine_with_owner"],
+            "files::tests": ["discovery_cursor_yields_and_retains_complete_scoped_retention_inputs",
+                             "discovery_cursor_failure_is_sticky_and_partial_inputs_remain_protected",
+                             "discovery_cursor_revalidates_inputs_changed_between_quanta"],
             "util::tests": ["guard_probe_refuses_combined_output_above_the_capture_bound",
                             "streamed_probe_consumes_complete_evidence_above_the_diagnostic_capture_bound"],
             "worker::tests": ["production_resolver_retains_ownership_across_restart_and_never_respawns_a_retry",

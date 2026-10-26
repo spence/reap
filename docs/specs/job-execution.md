@@ -155,6 +155,17 @@ After exact absence, a phase without durable result evidence returns incomplete,
 
 ## Files activation boundary
 
+**C14** — Native discovery uses a resumable cursor with a fixed 64-item quantum.
+One item inspects at most one directory's policy and enumerates at most that same directory.
+The cursor retains ancestor, retention, and subtree work between quanta; partial work is not complete coverage.
+A failed cursor cannot resume as a successful discovery.
+Initial root/ancestor bindings and final revalidation remain separate whole-worker phases.
+The current worker drives these quanta without releasing its reservation.
+Durable continuation, worker-exit handoff, and fair scheduling remain unimplemented.
+Binding: `files::tests::discovery_cursor_yields_and_retains_complete_scoped_retention_inputs` and
+`files::tests::discovery_cursor_failure_is_sticky_and_partial_inputs_remain_protected`, plus
+`files::tests::discovery_cursor_revalidates_inputs_changed_between_quanta`.
+
 The shared engine supplies the current foreground CLI and internal native preview.
 Its report separates planned, blocked, completed, and unknown-residual units, known bytes, and coverage completeness.
 The native preview has zero effects. Unknown residual effects remain explicit in failed legacy applying reports.

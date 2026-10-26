@@ -540,6 +540,7 @@ fn owner_of(scan: &Scan, by: &Path) -> (String, String) {
 // reserve space for inventory, parsed declarations, evaluator clones, and its temporary maps
 const PREVIEW_BUDGET: usize = 32 * 1024 * 1024;
 const STATE_BYTES: usize = 1024 * 1024;
+const DISCOVERY_QUANTUM: usize = 64;
 
 struct Preview {
   anchor: PathBuf,
@@ -732,6 +733,245 @@ struct PreviewDiscovery<'a, 'h, 'p> {
   inspected: BTreeSet<PathBuf>,
   enumerated: BTreeSet<PathBuf>,
   errors: BTreeMap<PathBuf, String>,
+  complete: bool,
+}
+
+/// Resumable read-only work. Pending input never establishes complete coverage.
+/// Each item inspects at most one directory's policy and enumerates at most that same directory.
+struct DiscoveryCursor {
+  work: Vec<DiscoveryWork>,
+  units: BTreeSet<PathBuf>,
+  failure: Option<String>,
+}
+
+/// LIFO continuations preserve ancestor policy, complete retention inputs, and postorder measurement.
+enum DiscoveryWork {
+  Inspect(PathBuf),
+  Retention {
+    parent: PathBuf,
+    selected: PathBuf,
+  },
+  Sibling {
+    parent: PathBuf,
+    selected: PathBuf,
+    rule: usize,
+    index: usize,
+  },
+  Units,
+  Measure(PathBuf),
+  Measured(PathBuf),
+}
+
+impl DiscoveryCursor {
+  fn new(discovery: &mut PreviewDiscovery<'_, '_, '_>, scope: &Path) -> Result<Self, String> {
+    let relative = scope
+      .strip_prefix(discovery.root)
+      .map_err(|e| e.to_string())?;
+    let mut chain = vec![discovery.root.to_path_buf()];
+    for part in relative.components() {
+      let std::path::Component::Normal(name) = part else {
+        return Err("unsafe workspace scope".into());
+      };
+      if chain.len() >= 128 {
+        return Err("workspace ancestry exceeds its evidence bound".into());
+      }
+      chain.push(chain.last().expect("root").join(name));
+    }
+    let bytes = chain
+      .iter()
+      .map(|path| 1024 + path.as_os_str().len() * 8)
+      .sum();
+    if !discovery.preview.charge(bytes) {
+      return Err("discovery ancestry exceeds its memory budget".into());
+    }
+    // stack order: inspect root-to-scope, capture every retention input, then measure units
+    let mut work = vec![DiscoveryWork::Units];
+    for pair in chain.windows(2).rev() {
+      work.push(DiscoveryWork::Retention {
+        parent: pair[0].clone(),
+        selected: pair[1].clone(),
+      });
+    }
+    for path in chain.into_iter().rev() {
+      work.push(DiscoveryWork::Inspect(path));
+    }
+    Ok(Self {
+      work,
+      units: BTreeSet::from([scope.to_path_buf()]),
+      failure: None,
+    })
+  }
+
+  /// Return true only after every input completes. Failure is permanent for this cursor.
+  fn advance(&mut self, discovery: &mut PreviewDiscovery<'_, '_, '_>) -> Result<bool, String> {
+    if let Some(reason) = &self.failure {
+      return Err(reason.clone());
+    }
+    for _ in 0..DISCOVERY_QUANTUM {
+      let Some(work) = self.work.pop() else {
+        discovery.complete = true;
+        return Ok(true);
+      };
+      if let Err(reason) = self.step(discovery, work) {
+        self.failure = Some(reason.clone());
+        return Err(reason);
+      }
+    }
+    discovery.complete = self.work.is_empty();
+    Ok(discovery.complete)
+  }
+
+  /// Advance one item without publishing complete coverage or changing cleanup authority.
+  fn step(
+    &mut self,
+    discovery: &mut PreviewDiscovery<'_, '_, '_>,
+    work: DiscoveryWork,
+  ) -> Result<(), String> {
+    match work {
+      DiscoveryWork::Inspect(path) => discovery.inspect(&path)?,
+      DiscoveryWork::Retention { parent, selected } => {
+        let Some(Ok(decl)) = discovery.decls.get(&parent).cloned() else {
+          return Ok(());
+        };
+        let rules = decl.children.as_deref().unwrap_or_default();
+        if !discovery.honored(&parent) || rules.is_empty() {
+          return Ok(());
+        }
+        discovery.enumerate(&parent)?;
+        let ambiguous = discovery.preview.nodes[&parent]
+          .children
+          .iter()
+          .any(|child| {
+            rules
+              .iter()
+              .filter(|rule| {
+                crate::reapfile::matches(
+                  &rule.pattern,
+                  &child.file_name().expect("child").to_string_lossy(),
+                )
+              })
+              .count()
+              > 1
+          });
+        if ambiguous
+          || decl.expired(discovery.now)
+          || (discovery.honored(&selected) && discovery.decls.contains_key(&selected))
+        {
+          return Ok(());
+        }
+        if let Some(rule) = rules.iter().position(|rule| {
+          crate::reapfile::matches(
+            &rule.pattern,
+            &selected.file_name().expect("selected").to_string_lossy(),
+          )
+        }) {
+          self.work.push(DiscoveryWork::Sibling {
+            parent,
+            selected,
+            rule,
+            index: 0,
+          });
+        }
+      }
+      DiscoveryWork::Sibling {
+        parent,
+        selected,
+        rule,
+        index,
+      } => {
+        let Some(child) = discovery.preview.nodes[&parent]
+          .children
+          .get(index)
+          .cloned()
+        else {
+          return Ok(());
+        };
+        let rule_spec = discovery.decls[&parent]
+          .as_ref()
+          .expect("retained declaration")
+          .children
+          .as_ref()
+          .expect("retained rules")[rule]
+          .clone();
+        // finish this sibling group before the next ancestor's retention work
+        self.work.push(DiscoveryWork::Sibling {
+          parent: parent.clone(),
+          selected: selected.clone(),
+          rule,
+          index: index + 1,
+        });
+        if (child != selected && !rule_spec.needs_siblings())
+          || !crate::reapfile::matches(
+            &rule_spec.pattern,
+            &child.file_name().expect("child").to_string_lossy(),
+          )
+        {
+          return Ok(());
+        }
+        let directory = open_relative(discovery.held, discovery.root, &parent, discovery.device)
+          .map_err(|e| e.to_string())?;
+        let meta = stat_at(&directory, Path::new(child.file_name().expect("child")))
+          .map_err(|e| e.to_string())?;
+        discovery.capture(&child, meta)?;
+        if meta.st_mode & libc::S_IFMT == libc::S_IFDIR {
+          discovery.inspect(&child)?;
+          if discovery.honored(&child) && discovery.decls.contains_key(&child) {
+            return Ok(());
+          }
+        }
+        self.units.insert(child);
+      }
+      DiscoveryWork::Units => {
+        // ancestor units sort first; completed subtrees avoid duplicate measurement
+        if let Some(path) = self.units.pop_first() {
+          self.work.push(DiscoveryWork::Units);
+          self.work.push(DiscoveryWork::Measure(path));
+        }
+      }
+      DiscoveryWork::Measure(path) => {
+        let meta = if path == discovery.root {
+          descriptor_stat(discovery.held)
+        } else {
+          let parent = open_relative(
+            discovery.held,
+            discovery.root,
+            path.parent().expect("parent"),
+            discovery.device,
+          )
+          .map_err(|e| e.to_string())?;
+          stat_at(&parent, Path::new(path.file_name().expect("name")))
+        }
+        .map_err(|e| e.to_string())?;
+        discovery.capture(&path, meta)?;
+        if discovery.preview.nodes[&path].measured {
+          return Ok(());
+        }
+        if meta.st_mode & libc::S_IFMT != libc::S_IFDIR {
+          return Err("special file has incomplete coverage".into());
+        }
+        discovery.enumerate(&path)?;
+        // postorder completion follows every child; failure leaves the directory unmeasured
+        self.work.push(DiscoveryWork::Measured(path.clone()));
+        // each queued path is covered by its existing per-name inventory charge
+        self.work.extend(
+          discovery.preview.nodes[&path]
+            .children
+            .iter()
+            .cloned()
+            .map(DiscoveryWork::Measure),
+        );
+      }
+      DiscoveryWork::Measured(path) => {
+        discovery
+          .preview
+          .nodes
+          .get_mut(&path)
+          .expect("measured directory")
+          .measured = true;
+      }
+    }
+    Ok(())
+  }
 }
 
 impl PreviewDiscovery<'_, '_, '_> {
@@ -907,134 +1147,10 @@ impl PreviewDiscovery<'_, '_, '_> {
     })
   }
 
-  /// Capture a complete unit for statistics. Symlinks remain leaves; unsupported inputs fail.
-  fn measure(&mut self, path: &Path) -> Result<(), String> {
-    let mut stack = vec![path.to_path_buf()];
-    let mut measured = vec![];
-    while let Some(path) = stack.pop() {
-      let meta = if path == self.root {
-        descriptor_stat(self.held)
-      } else {
-        let parent = open_relative(
-          self.held,
-          self.root,
-          path.parent().expect("parent"),
-          self.device,
-        )
-        .map_err(|e| e.to_string())?;
-        stat_at(&parent, Path::new(path.file_name().expect("name")))
-      }
-      .map_err(|e| e.to_string())?;
-      self.capture(&path, meta)?;
-      if self.preview.nodes[&path].measured {
-        continue;
-      }
-      if meta.st_mode & libc::S_IFMT != libc::S_IFDIR {
-        return Err("special file has incomplete coverage".into());
-      }
-      self.enumerate(&path)?;
-      let directory =
-        open_relative(self.held, self.root, &path, self.device).map_err(|e| e.to_string())?;
-      for child in self.preview.nodes[&path].children.clone() {
-        let meta = stat_at(&directory, Path::new(child.file_name().expect("child")))
-          .map_err(|e| e.to_string())?;
-        self.capture(&child, meta)?;
-        stack.push(child);
-      }
-      measured.push(path);
-    }
-    for path in measured {
-      self
-        .preview
-        .nodes
-        .get_mut(&path)
-        .expect("measured directory")
-        .measured = true;
-    }
-    Ok(())
-  }
-
-  /// Build the closure from ancestor policy, selected descendants, and required retention units.
+  /// Drive complete discovery. The caller retains its reservation across these quanta.
   fn discover(&mut self, scope: &Path) -> Result<(), String> {
-    let relative = scope.strip_prefix(self.root).map_err(|e| e.to_string())?;
-    let mut chain = vec![self.root.to_path_buf()];
-    for part in relative.components() {
-      let std::path::Component::Normal(name) = part else {
-        return Err("unsafe workspace scope".into());
-      };
-      if chain.len() >= 128 {
-        return Err("workspace ancestry exceeds its evidence bound".into());
-      }
-      chain.push(chain.last().expect("root").join(name));
-    }
-    for path in &chain {
-      self.inspect(path)?;
-    }
-    let mut measurements = BTreeSet::from([scope.to_path_buf()]);
-    for pair in chain.windows(2) {
-      let (parent, selected) = (&pair[0], &pair[1]);
-      let Some(Ok(decl)) = self.decls.get(parent).cloned() else {
-        continue;
-      };
-      if !self.honored(parent) || decl.children.as_ref().is_none_or(|rules| rules.is_empty()) {
-        continue;
-      }
-      self.enumerate(parent)?;
-      let children = self.preview.nodes[parent].children.clone();
-      let rules = decl.children.as_deref().unwrap_or_default();
-      let ambiguous = children.iter().any(|child| {
-        rules
-          .iter()
-          .filter(|rule| {
-            crate::reapfile::matches(
-              &rule.pattern,
-              &child.file_name().expect("child").to_string_lossy(),
-            )
-          })
-          .count()
-          > 1
-      });
-      if ambiguous
-        || decl.expired(self.now)
-        || (self.honored(selected) && self.decls.contains_key(selected))
-      {
-        continue;
-      }
-      let Some(rule) = rules.iter().find(|rule| {
-        crate::reapfile::matches(
-          &rule.pattern,
-          &selected.file_name().expect("selected").to_string_lossy(),
-        )
-      }) else {
-        continue;
-      };
-      for child in children {
-        if (child != *selected && !rule.needs_siblings())
-          || !crate::reapfile::matches(
-            &rule.pattern,
-            &child.file_name().expect("child").to_string_lossy(),
-          )
-        {
-          continue;
-        }
-        let directory =
-          open_relative(self.held, self.root, parent, self.device).map_err(|e| e.to_string())?;
-        let meta = stat_at(&directory, Path::new(child.file_name().expect("child")))
-          .map_err(|e| e.to_string())?;
-        self.capture(&child, meta)?;
-        if meta.st_mode & libc::S_IFMT == libc::S_IFDIR {
-          self.inspect(&child)?;
-          if self.honored(&child) && self.decls.contains_key(&child) {
-            continue;
-          }
-        }
-        measurements.insert(child);
-      }
-    }
-    // ancestors sort before their descendants; each complete unit is measured once
-    for path in measurements {
-      self.measure(&path)?;
-    }
+    let mut cursor = DiscoveryCursor::new(self, scope)?;
+    while !cursor.advance(self)? {}
     Ok(())
   }
 }
@@ -1047,6 +1163,22 @@ fn scan_bounded(
   resources: Option<crate::launch::Resources>,
   helpers: Option<&mut crate::worker::Helpers<'_>>,
 ) -> Result<Scan, String> {
+  let mut discovery = start_discovery(root, boundary, now, grace, resources, helpers)?;
+  if let Err(error) = discovery.discover(boundary.scope) {
+    discovery.errors.insert(root.to_path_buf(), error);
+  }
+  finish_discovery(discovery, boundary.scope)
+}
+
+/// Establish held-root and ancestor bindings before any cursor work.
+fn start_discovery<'a, 'h, 'p>(
+  root: &'a Path,
+  boundary: PreviewBoundary<'a>,
+  now: i64,
+  grace: i64,
+  resources: Option<crate::launch::Resources>,
+  helpers: Option<&'h mut crate::worker::Helpers<'p>>,
+) -> Result<PreviewDiscovery<'a, 'h, 'p>, String> {
   let PreviewBoundary {
     directory: held,
     device,
@@ -1087,7 +1219,7 @@ fn scan_bounded(
   preview.ancestor_veto = ancestor_evidence.0.clone();
   preview.ancestor_git = ancestor_evidence.1;
   preview.ancestors = ancestor_evidence.2.clone();
-  let mut discovery = PreviewDiscovery {
+  Ok(PreviewDiscovery {
     root,
     held,
     device,
@@ -1100,9 +1232,20 @@ fn scan_bounded(
     inspected: BTreeSet::new(),
     enumerated: BTreeSet::new(),
     errors: BTreeMap::new(),
-  };
-  if let Err(error) = discovery.discover(scope) {
-    discovery.errors.insert(root.to_path_buf(), error);
+    complete: false,
+  })
+}
+
+/// Incomplete or abandoned cursors protect the whole selection, including parsed policies.
+fn finish_discovery(
+  mut discovery: PreviewDiscovery<'_, '_, '_>,
+  scope: &Path,
+) -> Result<Scan, String> {
+  if !discovery.complete {
+    discovery
+      .errors
+      .entry(discovery.root.to_path_buf())
+      .or_insert_with(|| "discovery cursor did not complete".into());
   }
   let PreviewDiscovery {
     mut preview,
@@ -2000,6 +2143,231 @@ mod tests {
     fn drop(&mut self) {
       let _ = fs::remove_dir_all(&self.0);
     }
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn discovery_cursor_yields_and_retains_complete_scoped_retention_inputs() {
+    let path = std::env::temp_dir().join(format!(
+      "reap-cursor-retention-{}",
+      crate::journal::random_token().unwrap()
+    ));
+    fs::create_dir_all(path.join("root/unmatched/deep")).unwrap();
+    let fixture = Fixture(fs::canonicalize(path).unwrap());
+    let root = fixture.0.join("root");
+    fs::write(
+      root.join("unmatched/deep/valuable"),
+      b"not a retention unit",
+    )
+    .unwrap();
+    fs::write(
+      root.join(FILE_NAME),
+      br#"{"version":1,"keep":{"reason":"series"},"children":[{"pattern":"run-*","keep_newest":1,"max_count":1}]}"#,
+    )
+    .unwrap();
+    for index in 0..300 {
+      let unit = root.join(format!("run-{index:03}"));
+      fs::create_dir_all(unit.join("nested")).unwrap();
+      fs::write(unit.join("nested/payload"), b"kept-data").unwrap();
+      let time = FileTime::from_unix_time(1000 + index, 0);
+      set_file_mtime(unit.join("nested/payload"), time).unwrap();
+      set_file_mtime(unit.join("nested"), time).unwrap();
+      set_file_mtime(&unit, time).unwrap();
+    }
+    fs::write(
+      root.join("run-299/.reap"),
+      br#"{"version":1,"keep":{"reason":"protected child"}}"#,
+    )
+    .unwrap();
+    let scope = root.join("run-000");
+    let held = File::open(&root).unwrap();
+    let device = held.metadata().unwrap().dev();
+    let devices = [device, fs::metadata("/").unwrap().dev()];
+    let boundary = PreviewBoundary {
+      directory: &held,
+      device,
+      ancestor_devices: &devices,
+      scope: &scope,
+    };
+    let mut discovery = start_discovery(&root, boundary, 10000, 0, None, None).unwrap();
+    let mut cursor = DiscoveryCursor::new(&mut discovery, &scope).unwrap();
+    assert!(!cursor.advance(&mut discovery).unwrap());
+    assert!(!discovery.complete);
+    assert!(discovery.inspected.len() <= DISCOVERY_QUANTUM);
+    assert!(discovery.enumerated.len() <= DISCOVERY_QUANTUM);
+    let mut batches = 1;
+    loop {
+      let inspected = discovery.inspected.len();
+      let enumerated = discovery.enumerated.len();
+      let complete = cursor.advance(&mut discovery).unwrap();
+      assert!(discovery.inspected.len() - inspected <= DISCOVERY_QUANTUM);
+      assert!(discovery.enumerated.len() - enumerated <= DISCOVERY_QUANTUM);
+      batches += 1;
+      assert!(batches < 100);
+      if complete {
+        break;
+      }
+    }
+    assert!(batches > 2);
+    let scan = finish_discovery(discovery, &scope).unwrap();
+    assert!(!scan.incomplete);
+    assert_eq!(scan.view.known_bytes(&root.join("run-298")), Some(9));
+    assert_eq!(scan.view.known_bytes(&root.join("run-299")), None);
+    assert_eq!(scan.view.known_bytes(&root), None);
+    assert!(!scan
+      .view
+      .preview
+      .as_ref()
+      .unwrap()
+      .nodes
+      .contains_key(&root.join("unmatched/deep")));
+    let selected = evaluate_scoped(&scan.view, 10000, &scope);
+    assert_eq!(
+      selected
+        .removals
+        .iter()
+        .map(|r| &r.path)
+        .collect::<Vec<_>>(),
+      vec![&scope]
+    );
+    let mut report = Report::default();
+    assert!(finish_preview(&scan, Some(boundary), &mut report).is_none());
+    assert!(report.coverage_complete);
+    assert_eq!(
+      fs::read(scope.join("nested/payload")).unwrap(),
+      b"kept-data"
+    );
+    assert_eq!(
+      fs::read(root.join("unmatched/deep/valuable")).unwrap(),
+      b"not a retention unit"
+    );
+
+    let mut abandoned = start_discovery(&root, boundary, 10000, 0, None, None).unwrap();
+    let mut cursor = DiscoveryCursor::new(&mut abandoned, &scope).unwrap();
+    assert!(!cursor.advance(&mut abandoned).unwrap());
+    let partial = finish_discovery(abandoned, &scope).unwrap();
+    assert!(partial.incomplete);
+    assert!(partial.coverage_errors.contains_key(&root));
+    assert!(finish_preview(&partial, Some(boundary), &mut report).is_some());
+    assert!(!report.coverage_complete);
+  }
+
+  #[test]
+  fn discovery_cursor_failure_is_sticky_and_partial_inputs_remain_protected() {
+    let path = std::env::temp_dir().join(format!(
+      "reap-cursor-failure-{}",
+      crate::journal::random_token().unwrap()
+    ));
+    fs::create_dir_all(path.join("root")).unwrap();
+    let fixture = Fixture(fs::canonicalize(path).unwrap());
+    let root = fixture.0.join("root");
+    for index in 0..200 {
+      let unit = root.join(format!("unit-{index:03}"));
+      fs::create_dir(&unit).unwrap();
+      fs::write(unit.join("payload"), b"survives").unwrap();
+    }
+    let held = File::open(&root).unwrap();
+    let device = held.metadata().unwrap().dev();
+    let devices = [device, fs::metadata("/").unwrap().dev()];
+    let boundary = PreviewBoundary {
+      directory: &held,
+      device,
+      ancestor_devices: &devices,
+      scope: &root,
+    };
+    let mut discovery = start_discovery(&root, boundary, 10000, 0, None, None).unwrap();
+    let mut cursor = DiscoveryCursor::new(&mut discovery, &root).unwrap();
+    assert!(!cursor.advance(&mut discovery).unwrap());
+    let bad = cursor
+      .work
+      .iter()
+      .find_map(|work| match work {
+        DiscoveryWork::Measure(path) if path != &root => Some(path.clone()),
+        _ => None,
+      })
+      .unwrap();
+    fs::remove_dir_all(&bad).unwrap();
+    let name = CString::new(bad.as_os_str().as_bytes()).unwrap();
+    // SAFETY: this owned fixture name is terminated; no process opens the FIFO.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let reason = loop {
+      match cursor.advance(&mut discovery) {
+        Err(reason) => break reason,
+        Ok(false) => {}
+        Ok(true) => panic!("special file established complete coverage"),
+      }
+    };
+    assert!(reason.contains("special file"), "{reason}");
+    assert!(!discovery.complete);
+    fs::remove_file(&bad).unwrap();
+    fs::create_dir(&bad).unwrap();
+    fs::write(bad.join("payload"), b"survives").unwrap();
+    let pending = cursor.work.len();
+    assert_eq!(cursor.advance(&mut discovery).unwrap_err(), reason);
+    assert_eq!(cursor.work.len(), pending);
+    let partial = finish_discovery(discovery, &root).unwrap();
+    let mut report = Report {
+      planned_units: 1,
+      planned_bytes: 8,
+      ..Report::default()
+    };
+    assert!(partial.incomplete);
+    assert!(finish_preview(&partial, Some(boundary), &mut report).is_some());
+    assert!(!report.coverage_complete);
+    assert_eq!(report.planned_units, 0);
+    assert_eq!(report.blocked_units, 1);
+    assert_eq!(fs::read(bad.join("payload")).unwrap(), b"survives");
+  }
+
+  #[test]
+  fn discovery_cursor_revalidates_inputs_changed_between_quanta() {
+    let path = std::env::temp_dir().join(format!(
+      "reap-cursor-change-{}",
+      crate::journal::random_token().unwrap()
+    ));
+    fs::create_dir_all(path.join("root")).unwrap();
+    let fixture = Fixture(fs::canonicalize(path).unwrap());
+    let root = fixture.0.join("root");
+    for index in 0..200 {
+      let unit = root.join(format!("unit-{index:03}"));
+      fs::create_dir(&unit).unwrap();
+      fs::write(unit.join("payload"), b"original").unwrap();
+    }
+    let held = File::open(&root).unwrap();
+    let device = held.metadata().unwrap().dev();
+    let devices = [device, fs::metadata("/").unwrap().dev()];
+    let boundary = PreviewBoundary {
+      directory: &held,
+      device,
+      ancestor_devices: &devices,
+      scope: &root,
+    };
+    let mut discovery = start_discovery(&root, boundary, 10000, 0, None, None).unwrap();
+    let mut cursor = DiscoveryCursor::new(&mut discovery, &root).unwrap();
+    assert!(!cursor.advance(&mut discovery).unwrap());
+    let changed = discovery
+      .preview
+      .nodes
+      .iter()
+      .find(|(_, node)| node.observed.st_mode & libc::S_IFMT == libc::S_IFREG)
+      .map(|(path, _)| path.clone())
+      .unwrap();
+    fs::write(&changed, b"valuable update after the first quantum").unwrap();
+    while !cursor.advance(&mut discovery).unwrap() {}
+    let scan = finish_discovery(discovery, &root).unwrap();
+    assert!(!scan.incomplete);
+    let mut report = Report {
+      planned_units: 1,
+      ..Report::default()
+    };
+    let reason = finish_preview(&scan, Some(boundary), &mut report).unwrap();
+    assert!(reason.contains("preview input changed"), "{reason}");
+    assert!(!report.coverage_complete);
+    assert_eq!(report.planned_units, 0);
+    assert_eq!(
+      fs::read(changed).unwrap(),
+      b"valuable update after the first quantum"
+    );
   }
 
   struct TinyOutput(usize);
