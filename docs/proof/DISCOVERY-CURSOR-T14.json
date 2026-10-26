@@ -1,0 +1,226 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "source_revision": "e52d8bfab2a6a97f52d422f3582f61124edf4d64",
+  "source_files": {
+    "src/files.rs": "ef043cc4d6a17a4fbdf271dfe0f4ff53ccfb17c570b841eb964f74084c7fac3a",
+    "docs/specs/job-execution.md": "b07b697e5ec7c672f534ff96672b41d4fd5bc0004632723c733993744fe65a14",
+    "tools/verify_control_macos.py": "b1288d0a12b2b5aea9bc45cd68113e593aa4ad7e7d29b37d286240a01eb60c25",
+    "AGENTS.md": "e870a29d8f7ba4d1cc0d13c03db75113d9f49cf2755daffbb64dfcc6cfc5caa2"
+  },
+  "scope": "Bounded in-process discovery continuation used by the existing native Files preview. No durable or cross-worker handoff, fair scheduling, or public Files activation.",
+  "quantum": {
+    "work_items": 64,
+    "policy_directories_per_item": 1,
+    "enumerations_per_item": 1,
+    "same_directory": true,
+    "whole_worker_phases": [
+      "initial root and ancestor bindings",
+      "final revalidation"
+    ],
+    "allocation_budget_bytes": 33554432,
+    "worker_reservation_released_between_quanta": false
+  },
+  "source_gates": {
+    "exit": 0,
+    "regular_unit": 304,
+    "fault_only_ignored": 5,
+    "lifecycle": 57,
+    "declaration": 23,
+    "source_manifest": "review-source-v2.json",
+    "test_threads": 1
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "7329c419d6735b8fc8b9eaaf323cac77ee367cb22805a0832e5df346a35f5d02",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "declaration-tests": {
+      "sha256": "03621d7b4aedee7827a48f200c9c1ef5f7d56505a1d409186c57d271b9afb394",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "reap-release": {
+      "sha256": "ccdb52335c570de4668bfab75980dc1bc815788fb0bb08f1cc4ea5961dd7b740",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    }
+  },
+  "installed": {
+    "catalyst": {
+      "sha256": "ccdb52335c570de4668bfab75980dc1bc815788fb0bb08f1cc4ea5961dd7b740",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "version": "reap 0.1.0",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206"
+      },
+      "external_fixture_enabled": false
+    },
+    "catalyst-mini": {
+      "sha256": "ccdb52335c570de4668bfab75980dc1bc815788fb0bb08f1cc4ea5961dd7b740",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "version": "reap 0.1.0",
+      "guides": {
+        "/Users/spencer/.codex/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206",
+        "/Users/spencer/.claude/skills/reap/SKILL.md": "e0b832b646de73da45c7a87a82f44b378a42ce082324b7eb1d0167ebaeec4206"
+      },
+      "external_fixture_enabled": false
+    }
+  },
+  "runtime_gates": {
+    "catalyst": {
+      "local-files": {
+        "passed": 7,
+        "verification_exit": 0
+      },
+      "local-dispatch": {
+        "passed": 26,
+        "verification_exit": 0
+      },
+      "local-installed-dispatch": {
+        "passed": 25,
+        "verification_exit": 0
+      },
+      "declaration": {
+        "passed": 23
+      },
+      "preservation": {
+        "passed": 15
+      },
+      "public-check": {
+        "passed": 8
+      },
+      "managed-files": {
+        "verification_exit": 0,
+        "effects": 0,
+        "services_preserved": true
+      }
+    },
+    "catalyst-mini": {
+      "mini-files": {
+        "passed": 7,
+        "verification_exit": 0
+      },
+      "mini-dispatch": {
+        "passed": 26,
+        "verification_exit": 0
+      },
+      "mini-installed-dispatch": {
+        "passed": 25,
+        "verification_exit": 0
+      },
+      "declaration": {
+        "passed": 23
+      },
+      "preservation": {
+        "passed": 15
+      },
+      "public-check": {
+        "passed": 8
+      },
+      "managed-files": {
+        "verification_exit": 0,
+        "effects": 0,
+        "services_preserved": true
+      }
+    }
+  },
+  "review": {
+    "verdict": "ACCEPT source only for exact v2 manifest; runtime acceptance separate",
+    "peer": "peer-18e1ffe4cb856b28-343202",
+    "conversation": "conversation-18e1ffe4cd0102f0-343206",
+    "request": "cmsg-18e20030ccc2f248-344555",
+    "closed": true,
+    "initial_blockers": "Per-item bound wording and stack-order documentation; corrected before final review."
+  },
+  "installation": {
+    "candidate_and_three_retained_roles_fixed_agentless": true,
+    "current_operator_guides_preserved": true,
+    "helper_and_app_leaf_sha1_match": true,
+    "designated_requirements_preserved": true,
+    "quick_tests_internal_only": true,
+    "external_fixture_enabled": false,
+    "no_mini_build": true,
+    "unchanged_installer_checks": {
+      "prior_proof": "docs/proof/REF-PRESERVATION-T14.json",
+      "installer_cases": 19,
+      "service_installer_cases": 23,
+      "unchanged_paths": [
+        "install.sh",
+        "tools/install_services_macos.py",
+        "tests/install_signing.py",
+        "tests/test_service_installation.py"
+      ],
+      "fresh_rerun": false,
+      "input_sha256": {
+        "install.sh": "d9950e62cdff65121083a2dfbeb34024742c45dc0c4bf39443aeca40993a10b0",
+        "tools/install_services_macos.py": "e04ee0ffd92a6ca852147887392ff861b50508961366547ac447adbcd3c048fc",
+        "tests/install_signing.py": "479edb527fff372ee43106e3870586388f9af79d50271a4d02af413602ff0ae4",
+        "tests/test_service_installation.py": "a70388fa37d2efd2a74d8c996952c02c641e0addf59b890122b426fce227413b"
+      }
+    }
+  },
+  "open_boundaries": [
+    "The cursor and complete inventory remain in the same worker process; continuation is not durable. The worker drives all quanta before exit and retains its physical reservations.",
+    "Worker-exit handoff, FIFO lane fairness, shared/coalesced maintenance discovery, and independent partial progress remain open.",
+    "Public Files and effectful commands retain their foreground paths. The unified applying executor, old-reader fences, portable lifetime activation, safe lease/store conversion and native archive provider integrations remain open.",
+    "No live provider capture, source pruning, conversion, or new applying route is activated.",
+    "The five unchanged native control/launch fault cases were not rerun. Their prior FIRST-SEEN-T14 proof remains separate.",
+    "External-volume and Linux-native acceptance are not established by this internal Mac proof. The full combined goal and T14 remain active."
+  ],
+  "raw_evidence_sha256": {
+    "target/control-t13/fair-discovery/freeze.log": "1a925ab2bfbd3d620dec24c10cebeef0d0f17fee697bd49249035c44f394f9f7",
+    "target/control-t13/fair-discovery/full-rust-v2-exit.json": "7c72ce658de53880efc566169c75685f944d335b1dda8688ade7b272ab5cb5b1",
+    "target/control-t13/fair-discovery/full-rust-v2.log": "f018b1c24072e666df05a5ec43a3c34e0d2249edaf224d8f07782a55dc45d7e0",
+    "target/control-t13/fair-discovery/full-rust.log": "16a2ee51ba063bf7346bdc80c11c3b508055a893fa61aa3354526138c8e3984c",
+    "target/control-t13/fair-discovery/help-parity.json": "b1c5fff8c9b205d1f1147b29e3d52f71e45d1d21ea77c1483cbdc39d0842e0d5",
+    "target/control-t13/fair-discovery/local-artifact-identity.json": "90491a07d9c3c37bef73ff403dac064c44a435a88f18417f8bd926b6306f59ba",
+    "target/control-t13/fair-discovery/local-before-install.json": "fbdcf3fa96db74572bde6080fab4c74be47595f9f73306cd6aaecec8c9d95826",
+    "target/control-t13/fair-discovery/local-declaration.log": "8d1bb14b6afd046c7a684ce9ca8e7c4631339c2c4c8d79040bb85987d283f98c",
+    "target/control-t13/fair-discovery/local-dispatch/native.log": "0c5033dca3560a10f90cc18d95bf23d69d60a36979b9fb12314185a41d7ba5a9",
+    "target/control-t13/fair-discovery/local-dispatch/receipt.json": "7698cc11c7725374a8b8fd3e4482cf1908caec39597855185ce098978b879e48",
+    "target/control-t13/fair-discovery/local-files/native.log": "3331f2bded7cce2f7f5d04fcf181856bea2b4e24658736f80ca9a682bf0a3518",
+    "target/control-t13/fair-discovery/local-files/receipt.json": "593937ca106545aadab3d606555349bfd1b4d7b1f4f9d1bb2d62fe15ef7dbafd",
+    "target/control-t13/fair-discovery/local-gates.json": "b11483db9af868e415cfbc370f5b6e5790b9f3e011ce4daeeaa67b583707622e",
+    "target/control-t13/fair-discovery/local-install.log": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+    "target/control-t13/fair-discovery/local-installed-dispatch/native.log": "98ab9b6f06015f9a7ca05d8687db0bf9341fc4ef76d8ab31dfa81492def2d03a",
+    "target/control-t13/fair-discovery/local-installed-dispatch/receipt.json": "be7ec1f95f44da79ed0fd963f7e10065687fc097b9b76e43819fe52c99f1f525",
+    "target/control-t13/fair-discovery/local-installed-identity.json": "2681e51219eb50cfc14000479651dcb86b04bb56f79276d75ef102ddc25a9962",
+    "target/control-t13/fair-discovery/local-managed-files/receipt.json": "19524fe1d17ef2a867c8d6047a6ce925313878d357fdc7c9e31d3f29f6393827",
+    "target/control-t13/fair-discovery/local-managed-files.log": "db89c117e52adb5cd2aac268255be4a0d0a85551d129ebbccdb197f912c5607c",
+    "target/control-t13/fair-discovery/local-preservation.log": "ca03871525ecb6d60e0c86e36b551035c4fe85b095d730a51c7b721de1a02a3a",
+    "target/control-t13/fair-discovery/local-public-check.log": "4a148ed7cd39b3f7a140b5a39a428119fb748a96e994d58a24b432ca5f91cee9",
+    "target/control-t13/fair-discovery/mini-evidence/mini-artifact-identity.json": "90491a07d9c3c37bef73ff403dac064c44a435a88f18417f8bd926b6306f59ba",
+    "target/control-t13/fair-discovery/mini-evidence/mini-before-install.json": "fbdcf3fa96db74572bde6080fab4c74be47595f9f73306cd6aaecec8c9d95826",
+    "target/control-t13/fair-discovery/mini-evidence/mini-declaration.log": "2b4c38bd480c240915144a424f4e61bdc05e12725ffc1c23dacd4982bd0829ff",
+    "target/control-t13/fair-discovery/mini-evidence/mini-dispatch/native.log": "18ad1d5882ab4e7ca19c6d35837eda5031aeb9b446132d91f01fd85bc3bd0b58",
+    "target/control-t13/fair-discovery/mini-evidence/mini-dispatch/receipt.json": "3a555eaf1cb0cf037d1f9863911ec472ee512668239d3b0b4eeb542067bc92ec",
+    "target/control-t13/fair-discovery/mini-evidence/mini-dispatch.log": "85555c514023135607ab266ff87ff12327f77b8c9916054a6aad18842f10bfc9",
+    "target/control-t13/fair-discovery/mini-evidence/mini-files/native.log": "55ad8a7ff05d6575de9cca05a165bc5d0732f535067d76541fe840f3a294fdc3",
+    "target/control-t13/fair-discovery/mini-evidence/mini-files/receipt.json": "fbc906ac84e05e0ddf863fb5871f7da7a155c630b3e2a5dc84fac86230ff5d1c",
+    "target/control-t13/fair-discovery/mini-evidence/mini-files.log": "8098c71bdd2dc0b453bf76cde0e99afc682fc323931bee04addbe279d2f5a030",
+    "target/control-t13/fair-discovery/mini-evidence/mini-gates.json": "98826dce018bf25954e384e5a9b9acc113de38b4c2cebdb31942b25a8e1e2a22",
+    "target/control-t13/fair-discovery/mini-evidence/mini-install.log": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+    "target/control-t13/fair-discovery/mini-evidence/mini-installed-dispatch/native.log": "8a27f1c22c825a53a676bfc035996adf2a84e6a7c9c38326507cc354a43f23da",
+    "target/control-t13/fair-discovery/mini-evidence/mini-installed-dispatch/receipt.json": "e6ba5bbe34ddc8e0676376468b750a1fe7d754053ece4db85df181870aea932b",
+    "target/control-t13/fair-discovery/mini-evidence/mini-installed-dispatch.log": "04635ee48c0fcd5b260e5c912b21ae9aaed1bb176e5573110d0054b347d2df2b",
+    "target/control-t13/fair-discovery/mini-evidence/mini-installed-identity.json": "2681e51219eb50cfc14000479651dcb86b04bb56f79276d75ef102ddc25a9962",
+    "target/control-t13/fair-discovery/mini-evidence/mini-managed-files/receipt.json": "59d5764b9bb0a2e0546f980fea1209912e7af42fbc51d8ffeed4ab6d098abc58",
+    "target/control-t13/fair-discovery/mini-evidence/mini-managed-files.log": "5881e56da3a4ccc9b66591769a5d0e4a2ced29e91f7ba8d284075cf010f1c2d8",
+    "target/control-t13/fair-discovery/mini-evidence/mini-preservation.log": "7727ed53aae4a004b9dc8198f6fb8946a69ff0e5f4a7fd148ce8d3c31e1c9006",
+    "target/control-t13/fair-discovery/mini-evidence/mini-public-check.log": "cd628ecd31b569a9eb56661e9b7a5534119381c8acc03c432b234eb29e951b1b",
+    "target/control-t13/fair-discovery/review-peer-closed-status.json": "345f4177b483caa07bfd9c02a5e706b80a3ed569c170affe6989265761626b5b",
+    "target/control-t13/fair-discovery/review-source-v2.json": "a272d8512fbd91e187eb3ed9be7fc4a3cd4e8a79855c0884616f9a2214d49078",
+    "target/control-t13/fair-discovery/review-wait-v1-next.json": "79ad4bfbcfe005efa5dfa01c28a1b3f6d4c226efb755be04fce9a06f390e5dbe",
+    "target/control-t13/fair-discovery/review-wait-v2.json": "6146d735df35a9bb7ce1d40f9c2f83840623d93a3072aa6fb823de26df3b8099",
+    "target/control-t13/fair-discovery/suite-v2-source.json": "a272d8512fbd91e187eb3ed9be7fc4a3cd4e8a79855c0884616f9a2214d49078"
+  }
+}
