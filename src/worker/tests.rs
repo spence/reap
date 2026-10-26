@@ -680,6 +680,21 @@ fn bounded_activity_reads_preserve_buffered_readiness_without_publishing_before_
   assert!(!owned.eof);
   assert!(!owned.finished);
   assert_eq!(journal.launch(&key).unwrap(), before);
+  let mut peer = std::thread::scope(|scope| {
+    let producer = scope.spawn(move || {
+      std::thread::sleep(Duration::from_millis(30));
+      peer.write_all(record).unwrap();
+      peer
+    });
+    let ready = wait_for_activity([&owned], Duration::from_secs(1)).unwrap();
+    let peer = producer.join().unwrap();
+    assert!(ready, "new evidence must wake the idle channel wait");
+    peer
+  });
+  assert!(owned.poll(&mut journal).unwrap().is_none());
+  assert!(!owned.eof);
+  assert!(!owned.finished);
+  assert_eq!(journal.launch(&key).unwrap(), before);
   peer
     .write_all(format!("p2\0\nf5\0tREG\0n{}\0\n", valuable.display()).as_bytes())
     .unwrap();

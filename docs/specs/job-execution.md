@@ -25,7 +25,10 @@ The public `files` route is not activated by that internal adapter.
   Native descriptor resolution supplies the complete supported physical resource set.
   One resolver and one bulk slot per physical domain apply across namespace and path aliases.
   A stalled target retains its slot without process replacement or filesystem work in ping/status handlers.
-  Ready owned channels do not incur the idle-poll delay. Read budgets and queued-request service remain bounded.
+  Owned channels wake the idle wait, including data that arrives after a read batch.
+  Read budgets remain bounded. The idle wait has a 20 ms limit; queued writer requests run between ticks.
+  A request that arrives during this wait can wait until the next tick.
+  Memory-only control responses remain independent of that wait.
   Binding: `native_stalled_bulk_keeps_its_slot_without_blocking_ping_or_status`,
   `bounded_activity_reads_preserve_buffered_readiness_without_publishing_before_eof`, and the worker-grant contract.
 - **C3** — Each bulk phase revalidates native caller, namespace, configuration, target, and physical-resource evidence.

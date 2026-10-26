@@ -580,15 +580,22 @@ fn write_state(
       }
     }
     let work = if !failed && scheduler.pending() {
-      let idle = if scheduler.needs_poll() {
-        std::time::Duration::ZERO
-      } else {
-        std::time::Duration::from_millis(20)
-      };
-      match receiver.recv_timeout(idle) {
+      match receiver.try_recv() {
         Ok(work) => work,
-        Err(mpsc::RecvTimeoutError::Timeout) => continue,
-        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        Err(mpsc::TryRecvError::Disconnected) => break,
+        Err(mpsc::TryRecvError::Empty) => {
+          let idle = std::time::Duration::from_millis(20);
+          let started = Instant::now();
+          if scheduler.wait_for_activity(idle).is_ok() {
+            continue;
+          }
+          // a failed readiness query cannot create a busy loop or extend the idle quantum
+          match receiver.recv_timeout(idle.saturating_sub(started.elapsed())) {
+            Ok(work) => work,
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+          }
+        }
       }
     } else {
       match receiver.recv() {

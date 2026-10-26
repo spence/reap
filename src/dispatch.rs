@@ -8,6 +8,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -174,12 +175,13 @@ impl Scheduler {
     !self.jobs.is_empty()
   }
 
-  /// Poll ready owned channels before any idle wait, with the same bounded per-job read budget.
-  pub(crate) fn needs_poll(&self) -> bool {
-    self
-      .jobs
-      .iter()
-      .any(|job| job.owned.as_ref().is_some_and(Owned::needs_poll))
+  /// Wait once for all owned channels; the next tick retains its bounded per-job read budget.
+  pub(crate) fn wait_for_activity(&self, timeout: Duration) -> io::Result<()> {
+    worker::wait_for_activity(
+      self.jobs.iter().filter_map(|job| job.owned.as_ref()),
+      timeout,
+    )
+    .map(|_| ())
   }
 
   /// Poll each owned child once; only the writer performs durable metadata I/O.

@@ -659,20 +659,20 @@ fn spawn(
 }
 
 impl Owned {
-  /// Report readable data, EOF, or a channel error without waiting.
-  /// This scheduling hint cannot publish evidence or release a native reservation.
+  #[cfg(test)]
   pub(crate) fn needs_poll(&self) -> bool {
+    wait_for_activity([self], Duration::ZERO).unwrap_or(false)
+  }
+
+  /// Add only held, unfinished channels. This cannot publish evidence or release a reservation.
+  fn poll_channels(&self, channels: &mut Vec<libc::pollfd>) {
     if self.finished {
-      return false;
+      return;
     }
-    if self
-      .helper
-      .as_ref()
-      .is_some_and(|helper| helper.done.is_none() && helper.owned.needs_poll())
-    {
-      return true;
+    if let Some(helper) = self.helper.as_ref().filter(|helper| helper.done.is_none()) {
+      helper.owned.poll_channels(channels);
     }
-    let mut channels = [
+    channels.extend([
       libc::pollfd {
         fd: if self.eof { -1 } else { self.pipe.as_raw_fd() },
         events: libc::POLLIN,
@@ -687,10 +687,7 @@ impl Owned {
         events: libc::POLLIN,
         revents: 0,
       },
-    ];
-    // SAFETY: both descriptors belong to these held channels; the initialized array stays valid.
-    // a failed readiness query keeps the idle delay; ordinary readers retain all refusal checks
-    unsafe { libc::poll(channels.as_mut_ptr(), channels.len() as _, 0) > 0 }
+    ]);
   }
 
   #[cfg(test)]
@@ -1111,6 +1108,26 @@ impl Owned {
       return Ok(false);
     }
     journal.observe_exit(&self.key, &self.launch.token, &self.process)
+  }
+}
+
+/// Wait once for all owned worker/helper channels, including data that arrives after entry.
+/// Timeout and readiness do not consume bytes or establish completion. An error needs an idle fallback.
+pub(crate) fn wait_for_activity<'a>(
+  workers: impl IntoIterator<Item = &'a Owned>,
+  timeout: Duration,
+) -> io::Result<bool> {
+  let mut channels = Vec::new();
+  for owned in workers {
+    owned.poll_channels(&mut channels);
+  }
+  let timeout = timeout.as_millis().min(i32::MAX as u128) as i32;
+  // SAFETY: every descriptor belongs to a held worker; the array remains valid for the call.
+  let ready = unsafe { libc::poll(channels.as_mut_ptr(), channels.len() as _, timeout) };
+  if ready < 0 {
+    Err(io::Error::last_os_error())
+  } else {
+    Ok(ready > 0)
   }
 }
 
