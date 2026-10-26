@@ -8,12 +8,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const FILE_NAME: &str = ".reap";
 
 /// One parsed `.reap` file (C5–C7, C12, C13).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Decl {
   pub version: u32,
@@ -36,7 +36,7 @@ pub struct Decl {
   pub purpose: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Keep {
   pub reason: String,
@@ -44,7 +44,7 @@ pub struct Keep {
   pub review_after: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
   pub pattern: String,

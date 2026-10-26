@@ -540,7 +540,9 @@ fn owner_of(scan: &Scan, by: &Path) -> (String, String) {
 // reserve space for inventory, parsed declarations, evaluator clones, and its temporary maps
 const PREVIEW_BUDGET: usize = 32 * 1024 * 1024;
 const STATE_BYTES: usize = 1024 * 1024;
-const DISCOVERY_QUANTUM: usize = 64;
+pub(crate) const DISCOVERY_QUANTUM: usize = 64;
+
+mod checkpoint;
 
 struct Preview {
   anchor: PathBuf,
@@ -675,6 +677,7 @@ impl Preview {
 /// No cache or target writes occur. Unsafe or incomplete discovery protects the entire root.
 /// Index tracking and Git recovery use bounded native snapshots without Git processes.
 /// Ancestor devices must come from the caller's freshly verified native physical closure.
+#[cfg(test)]
 pub(crate) fn preview(
   root: &Path,
   scope: &Path,
@@ -715,6 +718,7 @@ pub(crate) fn preview(
       scope,
     }),
     helpers,
+    None,
   )
 }
 
@@ -745,21 +749,36 @@ struct DiscoveryCursor {
 }
 
 /// LIFO continuations preserve ancestor policy, complete retention inputs, and postorder measurement.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(tag = "work", rename_all = "snake_case", deny_unknown_fields)]
 enum DiscoveryWork {
-  Inspect(PathBuf),
+  Inspect {
+    #[serde(with = "crate::checkpoint::path")]
+    path: PathBuf,
+  },
   Retention {
+    #[serde(with = "crate::checkpoint::path")]
     parent: PathBuf,
+    #[serde(with = "crate::checkpoint::path")]
     selected: PathBuf,
   },
   Sibling {
+    #[serde(with = "crate::checkpoint::path")]
     parent: PathBuf,
+    #[serde(with = "crate::checkpoint::path")]
     selected: PathBuf,
     rule: usize,
     index: usize,
   },
   Units,
-  Measure(PathBuf),
-  Measured(PathBuf),
+  Measure {
+    #[serde(with = "crate::checkpoint::path")]
+    path: PathBuf,
+  },
+  Measured {
+    #[serde(with = "crate::checkpoint::path")]
+    path: PathBuf,
+  },
 }
 
 impl DiscoveryCursor {
@@ -793,7 +812,7 @@ impl DiscoveryCursor {
       });
     }
     for path in chain.into_iter().rev() {
-      work.push(DiscoveryWork::Inspect(path));
+      work.push(DiscoveryWork::Inspect { path });
     }
     Ok(Self {
       work,
@@ -804,13 +823,26 @@ impl DiscoveryCursor {
 
   /// Return true only after every input completes. Failure is permanent for this cursor.
   fn advance(&mut self, discovery: &mut PreviewDiscovery<'_, '_, '_>) -> Result<bool, String> {
+    self
+      .advance_count(discovery, DISCOVERY_QUANTUM)
+      .map(|(complete, _)| complete)
+  }
+
+  fn advance_count(
+    &mut self,
+    discovery: &mut PreviewDiscovery<'_, '_, '_>,
+    limit: usize,
+  ) -> Result<(bool, usize), String> {
     if let Some(reason) = &self.failure {
       return Err(reason.clone());
     }
-    for _ in 0..DISCOVERY_QUANTUM {
+    if limit > DISCOVERY_QUANTUM {
+      return Err("discovery quantum exceeds its fixed bound".into());
+    }
+    for index in 0..limit {
       let Some(work) = self.work.pop() else {
         discovery.complete = true;
-        return Ok(true);
+        return Ok((true, index));
       };
       if let Err(reason) = self.step(discovery, work) {
         self.failure = Some(reason.clone());
@@ -818,7 +850,7 @@ impl DiscoveryCursor {
       }
     }
     discovery.complete = self.work.is_empty();
-    Ok(discovery.complete)
+    Ok((discovery.complete, limit))
   }
 
   /// Advance one item without publishing complete coverage or changing cleanup authority.
@@ -828,7 +860,7 @@ impl DiscoveryCursor {
     work: DiscoveryWork,
   ) -> Result<(), String> {
     match work {
-      DiscoveryWork::Inspect(path) => discovery.inspect(&path)?,
+      DiscoveryWork::Inspect { path } => discovery.inspect(&path)?,
       DiscoveryWork::Retention { parent, selected } => {
         let Some(Ok(decl)) = discovery.decls.get(&parent).cloned() else {
           return Ok(());
@@ -925,10 +957,10 @@ impl DiscoveryCursor {
         // ancestor units sort first; completed subtrees avoid duplicate measurement
         if let Some(path) = self.units.pop_first() {
           self.work.push(DiscoveryWork::Units);
-          self.work.push(DiscoveryWork::Measure(path));
+          self.work.push(DiscoveryWork::Measure { path });
         }
       }
-      DiscoveryWork::Measure(path) => {
+      DiscoveryWork::Measure { path } => {
         let meta = if path == discovery.root {
           descriptor_stat(discovery.held)
         } else {
@@ -951,17 +983,19 @@ impl DiscoveryCursor {
         }
         discovery.enumerate(&path)?;
         // postorder completion follows every child; failure leaves the directory unmeasured
-        self.work.push(DiscoveryWork::Measured(path.clone()));
+        self
+          .work
+          .push(DiscoveryWork::Measured { path: path.clone() });
         // each queued path is covered by its existing per-name inventory charge
         self.work.extend(
           discovery.preview.nodes[&path]
             .children
             .iter()
             .cloned()
-            .map(DiscoveryWork::Measure),
+            .map(|path| DiscoveryWork::Measure { path }),
         );
       }
-      DiscoveryWork::Measured(path) => {
+      DiscoveryWork::Measured { path } => {
         discovery
           .preview
           .nodes
@@ -972,6 +1006,123 @@ impl DiscoveryCursor {
     }
     Ok(())
   }
+}
+
+/// One in-flight root. Its working data can move only through a verified checkpoint.
+pub(crate) struct PreviewState<'a, 'h, 'p> {
+  root: &'a Path,
+  boundary: PreviewBoundary<'a>,
+  discovery: PreviewDiscovery<'a, 'h, 'p>,
+  cursor: DiscoveryCursor,
+}
+
+impl<'a, 'h, 'p> PreviewState<'a, 'h, 'p> {
+  pub(crate) fn new(
+    root: &'a Path,
+    scope: &'a Path,
+    directory: &'a File,
+    cfg: &Config,
+    ancestor_devices: &'a [u64],
+    helpers: &'h mut crate::worker::Helpers<'p>,
+    reader: Option<&mut crate::checkpoint::Reader>,
+  ) -> Result<Self, String> {
+    let boundary = PreviewBoundary {
+      directory,
+      device: directory.metadata().map_err(|e| e.to_string())?.dev(),
+      ancestor_devices,
+      scope,
+    };
+    if ancestor_devices.len() > 128 || !ancestor_devices.contains(&boundary.device) {
+      return Err("preview ancestor devices are incomplete".into());
+    }
+    let resources = Some(helpers.resources().clone());
+    let grace = (cfg.reap_file_grace_hours * 3600.0) as i64;
+    let (mut discovery, cursor) = if let Some(reader) = reader {
+      let (mut discovery, cursor, observed) =
+        checkpoint::read(root, boundary, grace, resources, Some(helpers), reader)?;
+      discovery
+        .helpers
+        .as_deref_mut()
+        .expect("owned helper channel")
+        .restore_observed(observed)
+        .map_err(|e| e.to_string())?;
+      (discovery, cursor)
+    } else {
+      let mut discovery = start_discovery(
+        root,
+        boundary,
+        now_secs() as i64,
+        grace,
+        resources,
+        Some(helpers),
+      )?;
+      let cursor = DiscoveryCursor::new(&mut discovery, scope)?;
+      (discovery, cursor)
+    };
+    discovery.complete = false;
+    Ok(Self {
+      root,
+      boundary,
+      discovery,
+      cursor,
+    })
+  }
+
+  pub(crate) fn advance(&mut self, remaining: &mut usize) -> Result<bool, String> {
+    let (complete, used) = self.cursor.advance_count(&mut self.discovery, *remaining)?;
+    *remaining -= used;
+    Ok(complete)
+  }
+
+  pub(crate) fn checkpoint(&self, writer: &mut crate::checkpoint::Writer) -> Result<(), String> {
+    let observed = self
+      .discovery
+      .helpers
+      .as_deref()
+      .expect("owned helper channel")
+      .observed();
+    checkpoint::write(
+      &self.discovery,
+      &self.cursor,
+      self.boundary.scope,
+      observed,
+      writer,
+    )
+  }
+
+  pub(crate) fn finish(
+    mut self,
+    cfg: &Config,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+  ) -> Result<Report, String> {
+    let helpers = self.discovery.helpers.take();
+    let scan = finish_discovery(self.discovery, self.boundary.scope)?;
+    let path = self.root.to_str().ok_or("preview root is not UTF-8")?;
+    Ok(execute_inner(
+      Some(path.into()),
+      false,
+      cfg,
+      stdout,
+      stderr,
+      Some(self.boundary),
+      helpers,
+      Some(scan),
+    ))
+  }
+}
+
+pub(crate) fn checkpoint_observations(
+  writer: &mut crate::checkpoint::Writer,
+  keys: impl Iterator<Item = String>,
+) -> Result<(), String> {
+  checkpoint::write_observed(writer, keys)
+}
+
+pub(crate) fn restore_checkpoint_observations(
+  reader: &mut crate::checkpoint::Reader,
+) -> Result<BTreeSet<String>, String> {
+  checkpoint::read_observed(reader)
 }
 
 impl PreviewDiscovery<'_, '_, '_> {
@@ -1528,7 +1679,8 @@ fn open_relative(held: &File, root: &Path, path: &Path, device: u64) -> io::Resu
   Ok(directory)
 }
 
-fn open_physical(path: &Path) -> io::Result<File> {
+/// Open a directory through physical components without symlink traversal.
+pub(crate) fn open_physical(path: &Path) -> io::Result<File> {
   if !path.is_absolute() {
     return Err(io::Error::other("preview root is not absolute"));
   }
@@ -1729,7 +1881,7 @@ pub(crate) fn execute(
   stdout: &mut dyn Write,
   stderr: &mut dyn Write,
 ) -> Report {
-  execute_inner(path, apply, cfg, stdout, stderr, None, None)
+  execute_inner(path, apply, cfg, stdout, stderr, None, None, None)
 }
 
 fn execute_inner(
@@ -1740,6 +1892,7 @@ fn execute_inner(
   stderr: &mut dyn Write,
   boundary: Option<PreviewBoundary<'_>>,
   mut helpers: Option<&mut crate::worker::Helpers<'_>>,
+  mut prepared: Option<Scan>,
 ) -> Report {
   let roots: Vec<PathBuf> = match path {
     Some(p) => vec![PathBuf::from(p)],
@@ -1777,18 +1930,29 @@ fn execute_inner(
       report.coverage_complete = false;
       continue;
     }
-    let scan = match boundary {
-      Some(boundary) => scan_bounded(
-        &root,
-        boundary,
-        now as i64,
-        grace,
-        helpers
-          .as_deref()
-          .map(|helpers| helpers.resources().clone()),
-        helpers.as_deref_mut(),
-      ),
-      None => scan(&root, now as i64, grace),
+    let scan = if let Some(scan) = prepared.take() {
+      if boundary.is_none()
+        || scan.governed_root() != root
+        || Some(scan.root.as_path()) != boundary.map(|b| b.scope)
+      {
+        Err("prepared preview differs from its exact selection".into())
+      } else {
+        Ok(scan)
+      }
+    } else {
+      match boundary {
+        Some(boundary) => scan_bounded(
+          &root,
+          boundary,
+          now as i64,
+          grace,
+          helpers
+            .as_deref()
+            .map(|helpers| helpers.resources().clone()),
+          helpers.as_deref_mut(),
+        ),
+        None => scan(&root, now as i64, grace),
+      }
     };
     let mut scan = match scan {
       Ok(s) => s,
@@ -2154,6 +2318,11 @@ mod tests {
     ));
     fs::create_dir_all(path.join("root/unmatched/deep")).unwrap();
     let fixture = Fixture(fs::canonicalize(path).unwrap());
+    fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o700)).unwrap();
+    let working = crate::checkpoint::Directory::create(&fixture.0, "working").unwrap();
+    let resources = crate::launch::Resources::Bulk {
+      physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+    };
     let root = fixture.0.join("root");
     fs::write(
       root.join("unmatched/deep/valuable"),
@@ -2197,6 +2366,20 @@ mod tests {
     assert!(discovery.enumerated.len() <= DISCOVERY_QUANTUM);
     let mut batches = 1;
     loop {
+      let output = working.output(&format!("batch-{batches}")).unwrap();
+      let binding = "a".repeat(64);
+      let mut writer =
+        crate::checkpoint::Writer::new(output.clone(), &resources, &binding).unwrap();
+      checkpoint::write(&discovery, &cursor, &scope, std::iter::empty(), &mut writer).unwrap();
+      let reference = output.seal(writer.finish().unwrap(), &binding).unwrap();
+      let mut reader = reference.reader(Some(&resources), &binding, true).unwrap();
+      let (restored, next, observed) =
+        checkpoint::read(&root, boundary, 0, None, None, &mut reader).unwrap();
+      assert!(observed.is_empty());
+      discovery = restored;
+      cursor = next;
+      drop(reader);
+      output.discard().unwrap();
       let inspected = discovery.inspected.len();
       let enumerated = discovery.enumerated.len();
       let complete = cursor.advance(&mut discovery).unwrap();
@@ -2282,7 +2465,7 @@ mod tests {
       .work
       .iter()
       .find_map(|work| match work {
-        DiscoveryWork::Measure(path) if path != &root => Some(path.clone()),
+        DiscoveryWork::Measure { path } if path != &root => Some(path.clone()),
         _ => None,
       })
       .unwrap();

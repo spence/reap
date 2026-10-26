@@ -638,9 +638,15 @@ fn paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profil
     "other_profile",
     "other_result",
     "trailing",
+    "checkpoint_complete",
+    "checkpoint_pages",
+    "checkpoint_observations",
   ] {
     let mut stream = Vec::new();
     for (index, fragment) in fragments.iter().enumerate() {
+      if case.starts_with("checkpoint_") && case != "checkpoint_pages" {
+        continue;
+      }
       if case == "missing" && index == fragments.len() - 1 {
         continue;
       }
@@ -661,7 +667,18 @@ fn paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profil
         stream.extend(fragment);
       }
     }
-    if case == "other_result" {
+    if case.starts_with("checkpoint_") {
+      stream.extend(frame(
+        serde_json::to_vec(&Report::FilesCheckpointed {
+          manifest: crate::checkpoint::Manifest {
+            bytes: 100,
+            rows: 1,
+            sha256: "0".repeat(64),
+          },
+        })
+        .unwrap(),
+      ));
+    } else if case == "other_result" {
       stream.extend(frame(
         serde_json::to_vec(&Report::Refused {
           reason: "another operation".into(),
@@ -683,6 +700,10 @@ fn paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profil
     owned.pipe = pipe;
     owned.bytes.clear();
     owned.pages.clear();
+    owned.observations.clear();
+    if case == "checkpoint_observations" {
+      owned.observations.insert("b".repeat(64));
+    }
     owned.page_bytes = 0;
     owned.output_allowed = case != "other_profile";
     owned.report = None;
@@ -717,6 +738,7 @@ fn paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profil
         assert_eq!(actual, terminal);
         assert_eq!(actual_pages.concat(), body);
       }
+      Ok(Report::FilesCheckpointed { .. }) if case == "checkpoint_complete" => {}
       Err(_) if case != "complete" => {}
       other => panic!("unexpected paged framing result for {case}: {other:?}"),
     }

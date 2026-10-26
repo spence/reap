@@ -15,6 +15,7 @@
 
 pub mod activity;
 pub mod archive;
+mod checkpoint;
 pub mod client;
 mod config;
 pub mod control;

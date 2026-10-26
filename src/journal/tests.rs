@@ -199,6 +199,111 @@ fn first_seen_facts_publish_with_complete_files_results_and_cache_loss_restarts_
   assert!(fixture.0.join(HEADER).is_file());
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn unpublished_working_output_is_not_adopted_repeated_or_forgotten_by_compaction() {
+  use std::os::unix::fs::PermissionsExt;
+  let fixture = Fixture::new();
+  fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o700)).unwrap();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let key = key(&journal);
+  let mut prepared = input();
+  prepared.request = serde_json::to_string(&crate::invocation::Intent {
+    argv: vec!["files".into()],
+    namespace: crate::invocation::Namespace {
+      home: fixture.0.clone(),
+      xdg_state_home: None,
+      config_snapshot: None,
+    },
+    provenance: serde_json::json!({}),
+  })
+  .unwrap();
+  journal.admit_execution(key.clone(), prepared, 1).unwrap();
+  fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o555)).unwrap();
+  for _ in 0..MAX_PENDING_PER_VOLUME + 1 {
+    assert!(journal.files_directory(&key).is_err());
+    assert!(journal.working_names.is_empty());
+  }
+  fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o755)).unwrap();
+  let directory = journal.files_directory(&key).unwrap();
+  let output = directory.output("c-0000000000000001").unwrap();
+  let path = directory.path().join("c-0000000000000001");
+  fs::write(&path, b"unpublished sentinel").unwrap();
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  for _ in 0..3 {
+    assert!(journal.files_work(&key).is_err());
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    assert_eq!(fs::read(&path).unwrap(), b"unpublished sentinel");
+  }
+  journal
+    .execution_progress(&key, crate::dispatch::Progress::ResolvingFiles)
+    .unwrap();
+  let result = Terminal {
+    exit_code: 1,
+    effects: 0,
+    detail: "incomplete working ownership".into(),
+  };
+  journal
+    .execution_progress(
+      &key,
+      crate::dispatch::Progress::Result {
+        terminal: result.clone(),
+      },
+    )
+    .unwrap();
+  assert!(journal.cleanup_files(&key, true).is_err());
+  journal.complete(&key, result, 2).unwrap();
+  let retained = journal.lookup(&key).unwrap();
+  journal.compact(10000000, true).unwrap();
+  assert_eq!(journal.lookup(&key).unwrap(), retained);
+  assert!(journal.index[&key].working);
+  assert!(journal.index[&key].charged < MAX_RECORD);
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  assert_eq!(journal.lookup(&key).unwrap(), retained);
+  assert_eq!(fs::read(&path).unwrap(), b"unpublished sentinel");
+  output.discard().unwrap();
+  journal.cleanup_files(&key, true).unwrap();
+  assert!(!directory.path().exists());
+  assert!(!journal.index[&key].working);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn recovery_bounds_unknown_working_directories_without_adopting_or_deleting_them() {
+  use std::os::unix::fs::PermissionsExt;
+  let fixture = Fixture::new();
+  fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o700)).unwrap();
+  let journal = Journal::open(&fixture.0).unwrap();
+  for index in 0..MAX_PENDING_PER_VOLUME {
+    let directory =
+      crate::checkpoint::Directory::create(&fixture.0, &format!("work-{index:064x}")).unwrap();
+    fs::write(directory.path().join("valuable"), b"unknown ownership").unwrap();
+  }
+  drop(journal);
+  let journal = Journal::open(&fixture.0).unwrap();
+  assert_eq!(journal.working_names.len(), MAX_PENDING_PER_VOLUME);
+  let extra = crate::checkpoint::Directory::create(
+    &fixture.0,
+    &format!("work-{:064x}", MAX_PENDING_PER_VOLUME),
+  )
+  .unwrap();
+  fs::write(extra.path().join("valuable"), b"extra sentinel").unwrap();
+  drop(journal);
+  assert!(Journal::open(&fixture.0).is_err());
+  assert_eq!(
+    fs::read(extra.path().join("valuable")).unwrap(),
+    b"extra sentinel"
+  );
+  for index in 0..MAX_PENDING_PER_VOLUME {
+    assert_eq!(
+      fs::read(fixture.0.join(format!("work-{index:064x}/valuable"))).unwrap(),
+      b"unknown ownership"
+    );
+  }
+}
+
 #[test]
 fn result_pages_survive_atomic_phase_recovery_and_retire_with_their_epoch() {
   for completed in [false, true] {
@@ -694,6 +799,7 @@ fn pending_durable_admission_is_recovered_without_a_second_identity() {
     execution: None,
     pages: vec![],
     observations: None,
+    working: None,
     view: View {
       key: key.clone(),
       created_at: 1,

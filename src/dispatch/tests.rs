@@ -359,6 +359,473 @@ fn native_files_pipeline_retains_operation_results_and_sources_without_cache_wri
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_completion() {
+  let fixture = Fixture::new();
+  let large = fixture.0.join("project");
+  let small = fixture.0.join("small");
+  fs::create_dir(&small).unwrap();
+  fs::write(small.join("valuable"), b"small survivor").unwrap();
+  for index in 0..128 {
+    let child = large.join(format!("work-{index:03}"));
+    fs::create_dir(&child).unwrap();
+    fs::write(child.join("valuable"), b"unfinished work").unwrap();
+    fs::write(
+      child.join(".reap"),
+      br#"{"version":1,"keep":{"reason":"unfinished"}}"#,
+    )
+    .unwrap();
+  }
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(
+      &serde_json::json!({"governed_roots":[large,small],"reap_file_grace_hours":24}),
+    )
+    .unwrap(),
+  )
+  .unwrap();
+  let before = fixture.survivors();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut admit_files = |path: &Path| {
+    let mut input = fixture.input();
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec!["files".into(), path.to_str().unwrap().into()];
+    input.request = serde_json::to_string(&intent).unwrap();
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal.admit_execution(key.clone(), input, 1).unwrap();
+    key
+  };
+  let large_key = admit_files(&large);
+  let small_key = admit_files(&small);
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let mut late = None;
+  let mut yielded = 0;
+  let mut last_sequence = 1;
+  let mut small_finished_first = false;
+  let deadline = Instant::now() + Duration::from_secs(10);
+  loop {
+    scheduler.tick(&mut journal, 2).unwrap();
+    if let Some(launch) = journal.launch(&large_key).unwrap() {
+      assert!(launch.sequence >= last_sequence);
+      last_sequence = launch.sequence;
+    }
+    let large_done = matches!(journal.lookup(&large_key).unwrap(), Decision::Present { job } if job.result.is_some());
+    if !large_done {
+      assert!(journal.observation_page(None).unwrap().0.is_empty());
+      if matches!(journal.lookup(&small_key).unwrap(), Decision::Present { job } if job.result.is_some())
+      {
+        small_finished_first = true;
+      }
+    }
+    if scheduler
+      .jobs
+      .iter()
+      .any(|job| job.key == large_key && matches!(job.progress, Progress::FilesYielded { .. }))
+    {
+      yielded += 1;
+      assert!(journal.launch(&large_key).unwrap().unwrap().released());
+      if late.is_none() {
+        let (key, _) = fixture.admit(&mut journal);
+        scheduler.enqueue(&mut journal, key.clone()).unwrap();
+        late = Some(key);
+      }
+    }
+    if large_done {
+      break;
+    }
+    assert!(Instant::now() < deadline, "handoff did not complete");
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  let Decision::Present { job } = journal.lookup(&large_key).unwrap() else {
+    panic!("retained result required")
+  };
+  assert_eq!(
+    job.result.as_ref().unwrap().exit_code,
+    0,
+    "{:?}",
+    job.result
+  );
+  assert!(yielded > 0);
+  assert!(last_sequence > 2);
+  assert!(small_finished_first);
+  let late = late.unwrap();
+  assert!(
+    matches!(journal.lookup(&late).unwrap(), Decision::Present { job } if job.result.is_some())
+  );
+  for key in [&large_key, &small_key, &late] {
+    let Decision::Present { job } = journal.lookup(key).unwrap() else {
+      panic!("retained result required")
+    };
+    let result = job.result.unwrap();
+    assert_eq!(result.exit_code, 0, "{}", result.detail);
+    assert_eq!(result.effects, 0);
+    assert!(journal.launch(key).unwrap().unwrap().released());
+  }
+  assert_eq!(journal.observation_page(None).unwrap().0.len(), 128);
+  assert!(fs::read_dir(fixture.0.join("journal"))
+    .unwrap()
+    .all(|entry| !entry
+      .unwrap()
+      .file_name()
+      .to_string_lossy()
+      .starts_with("work-")));
+  assert_eq!(fixture.survivors(), before);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_fifo_waiter_precedes_later_jobs_when_an_owned_predecessor_releases_mid_tick() {
+  let fixture = Fixture::new();
+  let before = fixture.survivors();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let mut keys = Vec::new();
+  for _ in 0..3 {
+    let (key, input) = fixture.admit(&mut journal);
+    journal
+      .execution_progress(&key, Progress::Resolving)
+      .unwrap();
+    let Start::Spawned(mut resolver) =
+      worker::start(&mut journal, &key, 1, Task::ResolveCheck { input }).unwrap()
+    else {
+      panic!("owned resolver required")
+    };
+    resolver.deliver(&mut journal).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let scope = loop {
+      if let Some(done) = resolver.poll(&mut journal).unwrap() {
+        let Report::CheckResolved { scope } = done.report.unwrap() else {
+          panic!("complete scope required")
+        };
+        break scope;
+      }
+      assert!(Instant::now() < deadline);
+      std::thread::sleep(Duration::from_millis(5));
+    };
+    journal
+      .execution_progress(&key, Progress::Resolved { scope })
+      .unwrap();
+    assert!(resolver.release(&mut journal).unwrap());
+    keys.push(key);
+  }
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  for key in &keys {
+    let index = scheduler
+      .jobs
+      .iter()
+      .position(|job| &job.key == key)
+      .unwrap();
+    let job = scheduler.jobs.remove(index).unwrap();
+    scheduler.jobs.push_back(job);
+  }
+  assert!(scheduler.jobs.iter().map(|job| &job.key).eq(keys.iter()));
+  let predecessor = scheduler.jobs.get_mut(1).unwrap();
+  assert!(matches!(
+    predecessor.advance(&mut journal, 2, true).unwrap(),
+    Step::Pending
+  ));
+  let bulk = predecessor.owned.as_mut().unwrap();
+  let deadline = Instant::now() + Duration::from_secs(10);
+  let result = loop {
+    if let Some(done) = bulk.poll(&mut journal).unwrap() {
+      let Report::Checked { terminal } = done.report.unwrap() else {
+        panic!("complete result required")
+      };
+      break terminal;
+    }
+    assert!(Instant::now() < deadline);
+    std::thread::sleep(Duration::from_millis(5));
+  };
+  journal
+    .execution_progress(
+      &keys[1],
+      Progress::Result {
+        terminal: result.clone(),
+      },
+    )
+    .unwrap();
+  predecessor.progress = Progress::Result { terminal: result };
+  predecessor.owned = None;
+  predecessor.launch = journal.launch(&keys[1]).unwrap();
+  assert!(!predecessor.launch.as_ref().unwrap().released());
+  scheduler.tick(&mut journal, 3).unwrap();
+  let first = journal.launch(&keys[0]).unwrap().unwrap();
+  let last = journal.launch(&keys[2]).unwrap().unwrap();
+  assert_eq!(first.sequence, 2);
+  assert!(matches!(first.resources, Resources::Bulk { .. }));
+  assert!(!first.released());
+  assert_eq!(last.sequence, 1);
+  assert!(last.released());
+  for key in &keys {
+    assert_eq!(terminal(&mut journal, &mut scheduler, key).exit_code, 0);
+  }
+  assert_eq!(fixture.survivors(), before);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_checkpoint_restart_corruption_cancellation_and_replaced_data_fail_closed() {
+  use std::os::unix::fs::PermissionsExt;
+  for case in [
+    "resume",
+    "published",
+    "unpublished",
+    "corrupt",
+    "changed",
+    "cancel",
+    "replaced",
+  ] {
+    let fixture = Fixture::new();
+    let project = fixture.0.join("project");
+    for index in 0..96 {
+      let child = project.join(format!("work-{index:03}"));
+      fs::create_dir(&child).unwrap();
+      fs::write(child.join("valuable"), b"retained work").unwrap();
+      fs::write(
+        child.join(".reap"),
+        br#"{"version":1,"keep":{"reason":"unfinished"}}"#,
+      )
+      .unwrap();
+    }
+    fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+    fs::write(
+      fixture.0.join("home/.config/reap/config.json"),
+      serde_json::to_vec(
+        &serde_json::json!({"governed_roots":[project],"reap_file_grace_hours":24}),
+      )
+      .unwrap(),
+    )
+    .unwrap();
+    let mut input = fixture.input();
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec!["files".into()];
+    input.request = serde_json::to_string(&intent).unwrap();
+    let root = fixture.0.join("journal");
+    let mut journal = Journal::open(&root).unwrap();
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal
+      .admit_execution(key.clone(), input.clone(), 1)
+      .unwrap();
+    let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+      scheduler.tick(&mut journal, 2).unwrap();
+      if matches!(case, "published" | "unpublished") {
+        if let Some(job) = scheduler
+          .jobs
+          .iter_mut()
+          .find(|job| job.key == key && matches!(job.progress, Progress::PreviewingFiles { .. }))
+        {
+          if let Some(bulk) = &mut job.owned {
+            let done = loop {
+              if let Some(done) = bulk.poll(&mut journal).unwrap() {
+                break done;
+              }
+              assert!(Instant::now() < deadline);
+              std::thread::sleep(Duration::from_millis(5));
+            };
+            assert_eq!(done.exit_code, 0);
+            let Report::FilesCheckpointed { manifest } = done.report.unwrap() else {
+              panic!("complete checkpoint required")
+            };
+            if case == "published" {
+              let Progress::PreviewingFiles { scope } = &job.progress else {
+                unreachable!()
+              };
+              journal
+                .checkpoint_result(&key, scope.clone(), manifest)
+                .unwrap();
+              assert!(journal.cleanup_files(&key, false).is_err());
+            }
+            break;
+          }
+        }
+      }
+      if scheduler
+        .jobs
+        .iter()
+        .any(|job| job.key == key && matches!(job.progress, Progress::FilesYielded { .. }))
+      {
+        break;
+      }
+      assert!(Instant::now() < deadline, "missing durable yield: {case}");
+      std::thread::sleep(Duration::from_millis(5));
+    }
+    let first = journal.launch(&key).unwrap().unwrap();
+    assert_eq!(
+      first.released(),
+      !matches!(case, "published" | "unpublished")
+    );
+    assert!(journal.observation_page(None).unwrap().0.is_empty());
+    let directory = fs::read_dir(&root)
+      .unwrap()
+      .map(|entry| entry.unwrap().path())
+      .find(|path| {
+        path
+          .file_name()
+          .unwrap()
+          .to_string_lossy()
+          .starts_with("work-")
+      })
+      .unwrap();
+    let files: Vec<_> = fs::read_dir(&directory)
+      .unwrap()
+      .map(|entry| entry.unwrap().path())
+      .collect();
+    assert_eq!(files.len(), 1);
+    let checkpoint = &files[0];
+    let mut before = fixture.survivors();
+    match case {
+      "corrupt" => {
+        fs::set_permissions(checkpoint, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(checkpoint, b"incomplete checkpoint").unwrap();
+        fs::set_permissions(checkpoint, fs::Permissions::from_mode(0o400)).unwrap();
+      }
+      "changed" => {
+        let path = project.join(".reap");
+        let bytes = br#"{"version":1,"keep":{"reason":"new root policy"}}"#;
+        fs::write(&path, bytes).unwrap();
+        before.insert(path, bytes.to_vec());
+      }
+      "cancel" => {
+        let epoch = journal.epoch();
+        let blocker = Key {
+          generation: epoch.generation,
+          epoch: epoch.current,
+          nonce: random_token().unwrap(),
+        };
+        journal.admit(blocker.clone(), fixture.input(), 2).unwrap();
+        let blocked = journal
+          .reserve_launch(&blocker, 1, first.resources.clone())
+          .unwrap()
+          .unwrap();
+        let mut child = std::process::Command::new("/bin/sleep")
+          .arg("1")
+          .spawn()
+          .unwrap();
+        let identity = crate::launch::ProcessIdentity::read(child.id())
+          .unwrap()
+          .unwrap();
+        journal
+          .grant_process(&blocker, &blocked.token, &blocked.worker.token, identity)
+          .unwrap();
+        let ready = journal.execution(&key).unwrap().unwrap();
+        let Progress::FilesYielded { scope, .. } = &ready.1 else {
+          panic!("ready checkpoint required")
+        };
+        let reserved = journal.files_work(&key).unwrap();
+        assert!(journal
+          .execution_progress(
+            &key,
+            Progress::PreviewingFiles {
+              scope: scope.clone()
+            }
+          )
+          .is_err());
+        for _ in 0..2 {
+          assert!(matches!(
+            worker::start(
+              &mut journal,
+              &key,
+              first.sequence + 1,
+              Task::PreviewFiles {
+                input: input.clone(),
+                scope: scope.clone(),
+                work: None
+              }
+            )
+            .unwrap(),
+            Start::Busy
+          ));
+          assert_eq!(journal.execution(&key).unwrap().unwrap(), ready);
+          assert_eq!(journal.files_work(&key).unwrap(), reserved);
+        }
+        assert!(child.wait().unwrap().success());
+        assert!(journal
+          .observe_exit(&blocker, &blocked.token, &blocked.worker.token)
+          .unwrap());
+        journal
+          .complete(
+            &blocker,
+            Terminal {
+              exit_code: 1,
+              effects: 0,
+              detail: "fixture reservation released".into(),
+            },
+            3,
+          )
+          .unwrap();
+        journal.request_cancel(&key, 3).unwrap();
+      }
+      "replaced" => {
+        fs::rename(checkpoint, fixture.0.join("retained-original-checkpoint")).unwrap();
+        fs::write(checkpoint, b"foreign replacement").unwrap();
+        fs::set_permissions(checkpoint, fs::Permissions::from_mode(0o400)).unwrap();
+      }
+      _ => {}
+    }
+    drop(scheduler);
+    drop(journal);
+    journal = Journal::open(&root).unwrap();
+    scheduler = Scheduler::recover(&mut journal).unwrap();
+    let result = terminal(&mut journal, &mut scheduler, &key);
+    assert_eq!(result.effects, 0);
+    if matches!(case, "resume" | "published") {
+      assert_eq!(result.exit_code, 0, "{}", result.detail);
+      assert!(journal.launch(&key).unwrap().unwrap().sequence > first.sequence);
+      assert_eq!(journal.observation_page(None).unwrap().0.len(), 96);
+    } else {
+      assert_ne!(result.exit_code, 0, "{case}");
+      assert!(
+        journal.observation_page(None).unwrap().0.is_empty(),
+        "{case}"
+      );
+      if case == "cancel" {
+        assert_eq!(result, cancelled());
+        assert_eq!(journal.launch(&key).unwrap().unwrap(), first);
+      } else if case == "unpublished" {
+        assert_eq!(
+          journal.launch(&key).unwrap().unwrap().sequence,
+          first.sequence
+        );
+      }
+    }
+    assert!(journal.launch(&key).unwrap().unwrap().released());
+    let retained = journal.lookup(&key).unwrap();
+    assert_eq!(
+      journal.admit_execution(key.clone(), input, 20).unwrap(),
+      retained
+    );
+    let (other, _) = fixture.admit(&mut journal);
+    scheduler.enqueue(&mut journal, other.clone()).unwrap();
+    assert_eq!(terminal(&mut journal, &mut scheduler, &other).exit_code, 0);
+    assert_eq!(fixture.survivors(), before, "{case}");
+    if case == "replaced" {
+      assert_eq!(fs::read(checkpoint).unwrap(), b"foreign replacement");
+      journal.compact(10000000, true).unwrap();
+      assert_eq!(journal.lookup(&key).unwrap(), retained);
+      drop(scheduler);
+      drop(journal);
+      let mut reopened = Journal::open(&root).unwrap();
+      assert_eq!(reopened.lookup(&key).unwrap(), retained);
+      assert_eq!(fs::read(checkpoint).unwrap(), b"foreign replacement");
+    } else {
+      assert!(!directory.exists(), "{case}");
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn native_files_scoped_pipeline_honors_outer_policy_and_skips_unrelated_subtrees() {
   let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
     .map(PathBuf::from)
@@ -1193,16 +1660,33 @@ fn native_files_changed_configuration_and_namespace_refuse_before_assessment() {
   let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
   intent.argv = vec!["files".into()];
   input.request = serde_json::to_string(&intent).unwrap();
-  let scope = resolve_files(&input).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal
+    .admit_execution(key.clone(), input.clone(), 1)
+    .unwrap();
+  let directory = journal.files_directory(&key).unwrap();
+  let scope = resolve_files(&input, &directory).unwrap();
+  let work = journal.files_work(&key).unwrap();
+  let resources = Resources::Bulk {
+    physical_volumes: scope.physical_volumes.clone(),
+  };
+  let (mut pipe, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+  let mut helpers = crate::worker::Helpers::fixture(&mut pipe, &resources);
   fs::write(&configuration, b"{\"governed_roots\":[]}").unwrap();
-  assert!(assess_files(&input, &scope, None).is_err());
+  assert!(assess_files(&input, &scope, &work, &key, &mut helpers).is_err());
   fs::write(&configuration, bytes).unwrap();
   let mut changed = input.clone();
   let mut intent: Intent = serde_json::from_str(&changed.request).unwrap();
   intent.namespace.home = fixture.0.join("other-home");
   fs::create_dir(&intent.namespace.home).unwrap();
   changed.request = serde_json::to_string(&intent).unwrap();
-  assert!(assess_files(&changed, &scope, None).is_err());
+  assert!(assess_files(&changed, &scope, &work, &key, &mut helpers).is_err());
   assert_eq!(
     fs::read(fixture.0.join("project/valuable")).unwrap(),
     b"protected survivor"
@@ -1297,7 +1781,8 @@ fn oversized_combined_task_fails_only_its_job_without_creating_a_bulk_process() 
   assert!(
     serde_json::to_vec(&Task::PreviewFiles {
       input: input.clone(),
-      scope: scope.clone()
+      scope: scope.clone(),
+      work: None,
     })
     .unwrap()
     .len()
@@ -1917,7 +2402,10 @@ fn durable_resolver_and_bulk_results_recover_across_each_publication_boundary() 
         &key,
         1,
         if files {
-          Task::ResolveFiles { input }
+          Task::ResolveFiles {
+            input,
+            directory: None,
+          }
         } else {
           Task::ResolveCheck { input }
         },

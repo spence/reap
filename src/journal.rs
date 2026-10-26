@@ -50,6 +50,87 @@ pub struct Prepared {
   pub volumes: Vec<String>,
 }
 
+/// Durable working-file ownership. It is not lifetime or target-disposal authority.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilesWork {
+  pub(crate) directory: crate::checkpoint::Directory,
+  pub(crate) input: Option<crate::checkpoint::Reference>,
+  pub(crate) output: Option<crate::checkpoint::Output>,
+  pub(crate) retired: Option<crate::checkpoint::Output>,
+}
+
+impl FilesWork {
+  fn validate(&self) -> io::Result<()> {
+    self.directory.validate()?;
+    let mut outputs = Vec::new();
+    if let Some(input) = &self.input {
+      input.validate()?;
+      outputs.push(&input.output);
+    }
+    outputs.extend(self.output.iter());
+    outputs.extend(self.retired.iter());
+    if outputs.len() > 2 {
+      return Err(invalid("checkpoint working set exceeds two files"));
+    }
+    for (index, output) in outputs.iter().enumerate() {
+      output.validate()?;
+      if output.directory() != &self.directory || outputs[..index].contains(output) {
+        return Err(invalid("checkpoint working ownership differs or overlaps"));
+      }
+    }
+    Ok(())
+  }
+
+  pub(crate) fn validate_for(&self, key: &Key) -> io::Result<()> {
+    self.validate()?;
+    if self
+      .directory
+      .path()
+      .file_name()
+      .and_then(|name| name.to_str())
+      != Some(working_name(key).as_str())
+    {
+      return Err(invalid("checkpoint belongs to another job"));
+    }
+    Ok(())
+  }
+
+  fn successor(
+    &self,
+    next: Option<&Self>,
+    phase: Option<&crate::dispatch::Progress>,
+    released: bool,
+  ) -> bool {
+    let Some(next) = next else {
+      return released && matches!(phase, Some(crate::dispatch::Progress::Result { .. }));
+    };
+    if self.directory != next.directory {
+      return false;
+    }
+    if self == next {
+      return true;
+    }
+    if released && self.input == next.input {
+      if self.output == next.output && self.retired.is_some() && next.retired.is_none() {
+        return true;
+      }
+      if self.retired.is_none()
+        && next.retired.is_none()
+        && self.output.is_none()
+        && next.output.is_some()
+      {
+        return true;
+      }
+    }
+    matches!(phase, Some(crate::dispatch::Progress::FilesYielded { checkpoint, .. })
+      if next.input.as_ref() == Some(checkpoint)
+        && self.output.as_ref() == Some(&checkpoint.output)
+        && next.output.is_none()
+        && next.retired == self.input.as_ref().map(|input| input.output.clone()))
+  }
+}
+
 /// Bounded terminal summary; bulk output and permanent evidence have separate retained stores.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -102,6 +183,7 @@ pub struct Journal {
   lock: File,
   header: Header,
   index: BTreeMap<Key, Entry>,
+  working_names: BTreeSet<String>,
   observations: crate::observations::Cache,
   healthy: bool,
   published: bool,
@@ -151,6 +233,7 @@ impl Journal {
         writer_nonce: String::new(),
       },
       index: BTreeMap::new(),
+      working_names: BTreeSet::new(),
       observations: crate::observations::Cache::default(),
       healthy: true,
       published: false,
@@ -190,6 +273,21 @@ impl Journal {
       let name = name
         .to_str()
         .ok_or_else(|| invalid("non-UTF-8 journal entry"))?;
+      if working_entry(name) {
+        let metadata = fs::symlink_metadata(entry.path())?;
+        // SAFETY: geteuid has no pointer arguments.
+        if !metadata.is_dir()
+          || metadata.uid() != unsafe { libc::geteuid() }
+          || metadata.mode() & 0o777 != 0o700
+        {
+          return Err(invalid("unsafe checkpoint working directory"));
+        }
+        journal.working_names.insert(name.into());
+        if journal.working_names.len() > MAX_PENDING_PER_VOLUME {
+          return Err(invalid("checkpoint working directories exceed capacity"));
+        }
+        continue;
+      }
       let Some(Document::Job(job)) = journal.read(name)? else {
         return Err(invalid("unexpected journal entry"));
       };
@@ -198,10 +296,22 @@ impl Journal {
         || job.view.key.generation != journal.header.generation
         || job.view.key.epoch > journal.header.epoch
         || journal.index.len() >= MAX_JOBS
+        || job
+          .working
+          .as_ref()
+          .is_some_and(|work| work.directory.path() != root.join(working_name(&job.view.key)))
       {
         return Err(invalid("journal identity or capacity mismatch"));
       }
       journal.install(job)?;
+    }
+    for (key, entry) in &journal.index {
+      if entry.working {
+        journal.working_names.insert(working_name(key));
+      }
+    }
+    if journal.working_names.len() > MAX_PENDING_PER_VOLUME {
+      return Err(invalid("checkpoint working ownership exceeds capacity"));
     }
     let mut occupied = BTreeSet::new();
     for launch in journal
@@ -239,6 +349,16 @@ impl Journal {
       journal.header = claimed;
     }
     journal.reconcile_prior_boot()?;
+    let completed: Vec<_> = journal
+      .index
+      .iter()
+      .filter(|(_, entry)| entry.working && entry.view.result.is_some())
+      .map(|(key, _)| key.clone())
+      .collect();
+    for key in completed {
+      // failed cleanup retains ownership; recovery does not invent disposal permission
+      let _ = journal.cleanup_files(&key, true);
+    }
     Ok(journal)
   }
 
@@ -419,6 +539,7 @@ impl Journal {
       execution: executing.then_some(crate::dispatch::Progress::Queued),
       pages: vec![],
       observations: None,
+      working: None,
     };
     self.persist(Document::Job(job.clone()))?;
     self.install(job.clone())?;
@@ -470,6 +591,19 @@ impl Journal {
       return Err(invalid("cancelled job cannot create a launch intent"));
     }
     let launch = Launch::new(sequence, resources)?;
+    if let Some(crate::dispatch::Progress::FilesYielded { scope, .. }) = &job.execution {
+      if job
+        .working
+        .as_ref()
+        .is_none_or(|work| work.output.is_none())
+      {
+        return Err(invalid("checkpoint continuation lacks its reserved output"));
+      }
+      // ready state and its new launch intent change together; occupied capacity changes neither
+      job.execution = Some(crate::dispatch::Progress::PreviewingFiles {
+        scope: scope.clone(),
+      });
+    }
     job.launch = Some(launch.clone());
     self.update(job)?;
     Ok(Some(launch))
@@ -489,6 +623,205 @@ impl Journal {
       .filter(|(_, entry)| entry.executing && entry.view.result.is_none())
       .map(|(key, _)| key.clone())
       .collect()
+  }
+
+  /// Allocate only this retained Files job's private working directory, before resolution.
+  pub(crate) fn files_directory(&mut self, key: &Key) -> io::Result<crate::checkpoint::Directory> {
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("checkpoint job is not retained"))?;
+    if job.view.result.is_some()
+      || job.execution.is_none()
+      || job
+        .view
+        .invocation
+        .as_ref()
+        .is_none_or(|v| v.operation != "files" || v.mode != "read")
+    {
+      return Err(invalid(
+        "working storage requires an active read-only Files job",
+      ));
+    }
+    if let Some(work) = &job.working {
+      return Ok(work.directory.clone());
+    }
+    if self.working_names.len() >= MAX_PENDING_PER_VOLUME {
+      return Err(invalid(
+        "capacity-incomplete: private working storage is occupied",
+      ));
+    }
+    let name = working_name(key);
+    // a failed create can retain an empty directory; reserve its capacity before filesystem I/O
+    self.working_names.insert(name.clone());
+    let path = self.root.join(&name);
+    let directory = match crate::checkpoint::Directory::create(&self.root, &name) {
+      Ok(directory) => directory,
+      Err(error) => {
+        if fs::symlink_metadata(&path).is_err_and(|e| e.kind() == io::ErrorKind::NotFound) {
+          self.working_names.remove(&name);
+        }
+        return Err(io::Error::new(
+          error.kind(),
+          format!("checkpoint directory {}: {error}", path.display()),
+        ));
+      }
+    };
+    job.working = Some(FilesWork {
+      directory: directory.clone(),
+      input: None,
+      output: None,
+      retired: None,
+    });
+    self.update(job)?;
+    Ok(directory)
+  }
+
+  /// Reserve a fresh output before launch. An occupied volume reuses this exact empty allocation.
+  pub(crate) fn files_work(&mut self, key: &Key) -> io::Result<FilesWork> {
+    self.files_directory(key)?;
+    self.cleanup_files(key, false)?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("checkpoint job is not retained"))?;
+    let sequence = job
+      .launch
+      .as_ref()
+      .map_or(Some(1), |launch| launch.sequence.checked_add(1))
+      .ok_or_else(|| invalid("checkpoint launch sequence overflow"))?;
+    let work = job
+      .working
+      .as_mut()
+      .ok_or_else(|| invalid("checkpoint directory is missing"))?;
+    if work.output.is_none() {
+      // a crash before ownership publication must not create another orphan on retry
+      let name = format!("c-{sequence:016x}");
+      work.output = Some(work.directory.output(&name).map_err(|error| {
+        io::Error::new(
+          error.kind(),
+          format!(
+            "checkpoint output {}: {error}",
+            work.directory.path().join(&name).display()
+          ),
+        )
+      })?);
+      self.update(job)?;
+    }
+    self
+      .job(key)?
+      .and_then(|job| job.working)
+      .ok_or_else(|| invalid("checkpoint reservation is missing"))
+  }
+
+  pub(crate) fn checkpoint_binding(
+    &self,
+    key: &Key,
+    scope: &crate::dispatch::Scope,
+  ) -> io::Result<String> {
+    let job = self
+      .job(key)?
+      .ok_or_else(|| invalid("checkpoint job is not retained"))?;
+    Ok(format!(
+      "{:x}",
+      Sha256::digest(serde_json::to_vec(&(key, &job.input, scope)).map_err(io::Error::other)?)
+    ))
+  }
+
+  /// Seal complete output and retain its predecessor until native release permits disposal.
+  pub(crate) fn checkpoint_result(
+    &mut self,
+    key: &Key,
+    scope: crate::dispatch::Scope,
+    manifest: crate::checkpoint::Manifest,
+  ) -> io::Result<crate::checkpoint::Reference> {
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("checkpoint job is not retained"))?;
+    let work = job
+      .working
+      .as_mut()
+      .ok_or_else(|| invalid("checkpoint job has no working allocation"))?;
+    let output = work
+      .output
+      .as_ref()
+      .ok_or_else(|| invalid("checkpoint output is not reserved"))?;
+    let reference = output.seal(manifest, &self.checkpoint_binding(key, &scope)?)?;
+    work.retired = work.input.take().map(|input| input.output);
+    work.input = Some(reference.clone());
+    work.output = None;
+    job.execution = Some(crate::dispatch::Progress::FilesYielded {
+      scope,
+      checkpoint: reference.clone(),
+    });
+    self.update(job)?;
+    Ok(reference)
+  }
+
+  /// Discard only exact owned working files after all recorded predecessor processes exit.
+  /// A failed cleanup leaves its durable ownership record intact for recovery.
+  pub(crate) fn cleanup_files(&mut self, key: &Key, all: bool) -> io::Result<()> {
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("checkpoint job is not retained"))?;
+    let Some(work) = &job.working else {
+      return Ok(());
+    };
+    if job.launch.as_ref().is_some_and(|launch| !launch.released()) {
+      return Err(invalid(
+        "checkpoint working files retain an unresolved consumer",
+      ));
+    }
+    if all
+      && !matches!(
+        job.execution,
+        Some(crate::dispatch::Progress::Result { .. })
+      )
+    {
+      return Err(invalid(
+        "active discovery still requires its checkpoint input",
+      ));
+    }
+    if all && work.directory.missing()? {
+      job.working = None;
+      self.update(job)?;
+      self.working_names.remove(&working_name(key));
+      return Ok(());
+    }
+    let mut removed = false;
+    if let Some(retired) = &work.retired {
+      retired.discard()?;
+      removed = true;
+    }
+    if all {
+      for output in work
+        .input
+        .iter()
+        .map(|input| &input.output)
+        .chain(work.output.iter())
+      {
+        output.discard()?;
+      }
+      removed = true;
+    }
+    if removed {
+      if all {
+        work.directory.discard_empty()?;
+        job.working = None;
+      } else {
+        job
+          .working
+          .as_mut()
+          .expect("retained working allocation")
+          .retired = None;
+      }
+      self.update(job)?;
+      if all {
+        self.working_names.remove(&working_name(key));
+      }
+    }
+    Ok(())
   }
 
   /// Read live prepared input, phase evidence, and its exact launch without new admission.
@@ -884,6 +1217,7 @@ impl Journal {
         .index
         .values()
         .filter(|entry| entry.view.key.epoch == epoch && entry.view.result.is_some())
+        .filter(|entry| !entry.working)
         .map(|entry| entry.view.key.clone())
         .collect();
       if keys.is_empty() {
@@ -924,7 +1258,7 @@ impl Journal {
     let mut metadata = 3 * 4096 + RECOVERY_RESERVE;
     let mut completed = 0;
     for entry in self.index.values() {
-      if entry.view.result.is_none() {
+      if entry.view.result.is_none() || entry.working {
         let reserved = record_limit(entry.executing, entry.view.invocation.as_ref());
         metadata += entry.charged.max(reserved);
         completed += entry.charged.max(reserved);
@@ -962,6 +1296,7 @@ impl Journal {
         inode: metadata.ino(),
         launch: job.launch,
         executing: job.execution.is_some(),
+        working: job.working.is_some(),
       },
     );
     self.healthy = true;
@@ -989,6 +1324,10 @@ impl Journal {
       || digest != entry.digest
       || metadata.dev() != entry.device
       || metadata.ino() != entry.inode
+      || job
+        .working
+        .as_ref()
+        .is_some_and(|work| work.directory.path() != self.root.join(working_name(key)))
     {
       return Err(invalid("indexed job was replaced"));
     }
@@ -1136,8 +1475,15 @@ impl Journal {
           && next.view == cancelled
           && next.launch == previous.launch
           && next.execution == previous.execution;
+        let resumption = matches!((&previous.execution, &next.execution),
+          (Some(crate::dispatch::Progress::FilesYielded { scope: old, .. }),
+           Some(crate::dispatch::Progress::PreviewingFiles { scope: new })) if old == new)
+          && matches!((&previous.launch, &next.launch), (Some(old), Some(new))
+            if old.released() && Some(new.sequence) == old.sequence.checked_add(1)
+              && matches!(new.worker.state, ProcessState::Intent)
+              && new.helpers.iter().all(Option::is_none));
         let execution = next.view == previous.view
-          && next.execution == previous.execution
+          && (next.execution == previous.execution || resumption)
           && match (&previous.launch, &next.launch) {
             (None, Some(launch)) => {
               launch.sequence == 1
@@ -1150,6 +1496,18 @@ impl Journal {
         let phase = next.view == previous.view
           && next.launch == previous.launch
           && matches!((&previous.execution, &next.execution), (Some(previous), Some(next)) if previous.successor(next));
+        let released = previous.launch.as_ref().is_none_or(Launch::released);
+        let working_valid = match &previous.working {
+          Some(work) => work.successor(next.working.as_ref(), next.execution.as_ref(), released),
+          None => next.working.as_ref().is_none_or(|work| {
+            released && work.input.is_none() && work.output.is_none() && work.retired.is_none()
+          }),
+        };
+        let working = next.working != previous.working
+          && working_valid
+          && next.view == previous.view
+          && next.launch == previous.launch
+          && next.execution == previous.execution;
         let output = next.pages == previous.pages
           || (phase
             && matches!(
@@ -1163,8 +1521,9 @@ impl Journal {
         if next.view.key != previous.view.key
           || next.input != previous.input
           || Some(next.revision) != previous.revision.checked_add(1)
-          || previous.view.result.is_some()
-          || (!completion && !execution && !phase && !cancellation)
+          || (previous.view.result.is_some() && !(working && next.working.is_none()))
+          || (!completion && !execution && !phase && !cancellation && !working)
+          || !working_valid
           || !output
           || !observations
           || next.view.created_at != previous.view.created_at
@@ -1261,6 +1620,8 @@ struct Job {
   pages: Vec<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   observations: Option<crate::observations::Observations>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  working: Option<FilesWork>,
 }
 
 impl Job {
@@ -1271,6 +1632,26 @@ impl Job {
   fn validate(&self) -> io::Result<()> {
     validate_key(&self.view.key)?;
     validate_input(&self.input)?;
+    if let Some(work) = &self.working {
+      work.validate()?;
+      if self.execution.is_none()
+        || self
+          .view
+          .invocation
+          .as_ref()
+          .is_none_or(|v| v.operation != "files" || v.mode != "read")
+        || work
+          .directory
+          .path()
+          .file_name()
+          .and_then(|name| name.to_str())
+          != Some(working_name(&self.view.key).as_str())
+      {
+        return Err(invalid(
+          "working storage differs from its exact executable job",
+        ));
+      }
+    }
     if !self.pages.is_empty()
       && record_limit(self.execution.is_some(), self.view.invocation.as_ref()) != MAX_RECORD
     {
@@ -1316,6 +1697,7 @@ impl Job {
         Progress::ResolvingFiles
           | Progress::FilesResolved { .. }
           | Progress::PreviewingFiles { .. }
+          | Progress::FilesYielded { .. }
       ) && !files)
         || (matches!(
           progress,
@@ -1331,6 +1713,19 @@ impl Job {
         | Progress::Checking { scope }
         | Progress::FilesResolved { scope }
         | Progress::PreviewingFiles { scope } => scope.validate()?,
+        Progress::FilesYielded { scope, checkpoint } => {
+          scope.validate()?;
+          checkpoint.validate()?;
+          if self
+            .working
+            .as_ref()
+            .is_none_or(|work| work.input.as_ref() != Some(checkpoint))
+          {
+            return Err(invalid(
+              "checkpoint phase lacks its exact durable working input",
+            ));
+          }
+        }
         Progress::Result { terminal }
           if terminal.detail.len() > 4096 || terminal.exit_code == 75 || terminal.effects != 0 =>
         {
@@ -1364,6 +1759,12 @@ impl Job {
                 })
           })
         }
+        Progress::FilesYielded { scope, .. } => self.launch.as_ref().is_some_and(|launch| {
+          launch.resources
+            == (Resources::Bulk {
+              physical_volumes: scope.physical_volumes.clone(),
+            })
+        }),
         Progress::Result { terminal } => {
           terminal.exit_code != 0
             || self
@@ -1422,6 +1823,23 @@ struct Entry {
   inode: u64,
   launch: Option<Launch>,
   executing: bool,
+  working: bool,
+}
+
+fn working_name(key: &Key) -> String {
+  format!(
+    "work-{:x}",
+    Sha256::digest(serde_json::to_vec(key).expect("validated key serializes"))
+  )
+}
+
+fn working_entry(name: &str) -> bool {
+  name.strip_prefix("work-").is_some_and(|digest| {
+    digest.len() == 64
+      && digest
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+  })
 }
 
 // only executable Files jobs can produce a paged result; other jobs retain their smaller reserve

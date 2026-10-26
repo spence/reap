@@ -19,6 +19,7 @@ use crate::worker::{self, Owned, Report, Start, Task};
 
 mod files_job;
 
+pub(crate) use files_job::FilesBatch;
 pub(crate) use files_job::{assess as assess_files, resolve as resolve_files};
 
 const MAX_PENDING: usize = 16;
@@ -32,11 +33,25 @@ pub enum Progress {
   Queued,
   Resolving,
   ResolvingFiles,
-  Resolved { scope: Scope },
-  FilesResolved { scope: Scope },
-  Checking { scope: Scope },
-  PreviewingFiles { scope: Scope },
-  Result { terminal: Terminal },
+  Resolved {
+    scope: Scope,
+  },
+  FilesResolved {
+    scope: Scope,
+  },
+  Checking {
+    scope: Scope,
+  },
+  PreviewingFiles {
+    scope: Scope,
+  },
+  FilesYielded {
+    scope: Scope,
+    checkpoint: crate::checkpoint::Reference,
+  },
+  Result {
+    terminal: Terminal,
+  },
 }
 
 impl Progress {
@@ -51,6 +66,9 @@ impl Progress {
       (Self::FilesResolved { scope: previous }, Self::PreviewingFiles { scope: next }) => {
         previous == next
       }
+      (Self::PreviewingFiles { scope: previous }, Self::FilesYielded { scope: next, .. }) => {
+        previous == next
+      }
       (
         Self::Resolving
         | Self::ResolvingFiles
@@ -60,6 +78,7 @@ impl Progress {
         | Self::PreviewingFiles { .. },
         Self::Result { .. },
       ) => true,
+      (Self::FilesYielded { .. }, Self::Result { .. }) => true,
       _ => false,
     }
   }
@@ -98,6 +117,12 @@ struct Job {
   owned: Option<Owned>,
 }
 
+enum Step {
+  Pending,
+  Yielded,
+  Complete,
+}
+
 impl Scheduler {
   /// Load only retained execution records once. No directory scan occurs during a scheduler tick.
   pub(crate) fn recover(journal: &mut Journal) -> io::Result<Self> {
@@ -105,6 +130,19 @@ impl Scheduler {
       jobs: VecDeque::new(),
     };
     for key in journal.execution_keys() {
+      scheduler.enqueue(journal, key)?;
+    }
+    // a durable yield remains behind waiting jobs after writer recovery
+    let mut yielded = VecDeque::new();
+    scheduler.jobs.retain_mut(|job| {
+      if matches!(job.progress, Progress::FilesYielded { .. }) {
+        yielded.push_back(job.key.clone());
+        false
+      } else {
+        true
+      }
+    });
+    for key in yielded {
       scheduler.enqueue(journal, key)?;
     }
     Ok(scheduler)
@@ -139,12 +177,26 @@ impl Scheduler {
   /// Poll each owned child once; only the writer performs durable metadata I/O.
   pub(crate) fn tick(&mut self, journal: &mut Journal, now: u64) -> io::Result<()> {
     let count = self.jobs.len();
+    let mut waiting = VecDeque::new();
+    let mut yielded = VecDeque::new();
     for _ in 0..count {
       let mut job = self.jobs.pop_front().expect("bounded queue");
-      if !job.advance(journal, now)? {
+      match job.advance(journal, now, false)? {
+        Step::Pending => waiting.push_back(job),
+        Step::Yielded => yielded.push_back(job),
+        Step::Complete => {}
+      }
+    }
+    // release every completed predecessor before FIFO waiters can reserve the freed resources
+    for mut job in waiting {
+      if job.owned.is_some()
+        || job.launch.as_ref().is_some_and(|launch| !launch.released())
+        || !matches!(job.advance(journal, now, true)?, Step::Complete)
+      {
         self.jobs.push_back(job);
       }
     }
+    self.jobs.append(&mut yielded);
     Ok(())
   }
 }
@@ -156,10 +208,15 @@ impl Job {
     Ok(())
   }
 
-  fn advance(&mut self, journal: &mut Journal, now: u64) -> io::Result<bool> {
+  fn advance(&mut self, journal: &mut Journal, now: u64, dispatch: bool) -> io::Result<Step> {
+    let mut yielded = false;
+    let unresolved = self
+      .launch
+      .as_ref()
+      .is_some_and(|launch| !launch.released());
     if let Some(owned) = self.owned.as_mut() {
       let Some(done) = owned.poll(journal)? else {
-        return Ok(false);
+        return Ok(Step::Pending);
       };
       // only a durable `Result` outranks cancellation; this worker result has not been staged
       let mut pages = vec![];
@@ -195,6 +252,22 @@ impl Job {
             }
             Progress::Result { terminal }
           }
+          (Progress::PreviewingFiles { scope }, Ok(Report::FilesCheckpointed { manifest }))
+            if done.exit_code == 0 =>
+          {
+            match journal.checkpoint_result(&self.key, scope.clone(), manifest) {
+              Ok(checkpoint) => {
+                yielded = true;
+                Progress::FilesYielded {
+                  scope: scope.clone(),
+                  checkpoint,
+                }
+              }
+              Err(error) => Progress::Result {
+                terminal: refused(&format!("incomplete checkpoint: {error}")),
+              },
+            }
+          }
           (_, Ok(Report::Refused { reason })) => Progress::Result {
             terminal: refused(&reason),
           },
@@ -206,7 +279,9 @@ impl Job {
           },
         }
       };
-      journal.execution_result(&self.key, next.clone(), pages, &observations)?;
+      if !yielded {
+        journal.execution_result(&self.key, next.clone(), pages, &observations)?;
+      }
       self.progress = next;
       self.launch = journal.launch(&self.key)?;
       self.owned = None;
@@ -216,13 +291,17 @@ impl Job {
       // a recovered child can survive this writer. only exact native absence releases its slot.
       for helper in launch.helpers.iter().flatten() {
         if !journal.observe_exit(&self.key, &launch.token, &helper.token)? {
-          return Ok(false);
+          return Ok(Step::Pending);
         }
       }
       if !journal.observe_exit(&self.key, &launch.token, &launch.worker.token)? {
-        return Ok(false);
+        return Ok(Step::Pending);
       }
       self.launch = journal.launch(&self.key)?;
+    }
+    if yielded || (unresolved && matches!(self.progress, Progress::FilesYielded { .. })) {
+      let _ = journal.cleanup_files(&self.key, false);
+      return Ok(Step::Yielded);
     }
     if journal.cancel_requested(&self.key) && !matches!(self.progress, Progress::Result { .. }) {
       self.persist(
@@ -232,15 +311,21 @@ impl Job {
         },
       )?;
     }
+    if !dispatch && !matches!(self.progress, Progress::Result { .. }) {
+      return Ok(Step::Pending);
+    }
     let task = match self.progress.clone() {
       Progress::Result { terminal } => {
+        // terminal evidence does not depend on successful disposal of private working data
+        let _ = journal.cleanup_files(&self.key, true);
         journal.complete(&self.key, terminal, now)?;
-        return Ok(true);
+        return Ok(Step::Complete);
       }
       Progress::Queued if self.files => {
         self.persist(journal, Progress::ResolvingFiles)?;
         Task::ResolveFiles {
           input: self.input.clone(),
+          directory: None,
         }
       }
       Progress::Queued => {
@@ -254,6 +339,7 @@ impl Job {
       },
       Progress::ResolvingFiles if self.launch.is_none() => Task::ResolveFiles {
         input: self.input.clone(),
+        directory: None,
       },
       Progress::FilesResolved { scope } => {
         self.persist(
@@ -265,8 +351,14 @@ impl Job {
         Task::PreviewFiles {
           input: self.input.clone(),
           scope,
+          work: None,
         }
       }
+      Progress::FilesYielded { scope, .. } => Task::PreviewFiles {
+        input: self.input.clone(),
+        scope,
+        work: None,
+      },
       Progress::PreviewingFiles { scope }
         if self
           .launch
@@ -276,6 +368,7 @@ impl Job {
         Task::PreviewFiles {
           input: self.input.clone(),
           scope,
+          work: None,
         }
       }
       Progress::Resolved { scope } => {
@@ -314,12 +407,18 @@ impl Job {
             ),
           },
         )?;
-        return Ok(false);
+        return Ok(Step::Pending);
       }
     };
     let sequence = self.launch.as_ref().map_or(1, |launch| launch.sequence + 1);
     match worker::start(journal, &self.key, sequence, task)? {
       Start::Spawned(mut owned) => {
+        if let Progress::FilesYielded { scope, .. } = &self.progress {
+          // the journal reserved this continuation and its active phase in one transaction
+          self.progress = Progress::PreviewingFiles {
+            scope: scope.clone(),
+          };
+        }
         // even a failed grant delivery retains this owned child and its durable intent.
         let _delivery = owned.deliver(journal);
         self.launch = journal.launch(&self.key)?;
@@ -334,7 +433,7 @@ impl Job {
         },
       )?,
     }
-    Ok(false)
+    Ok(Step::Pending)
   }
 }
 

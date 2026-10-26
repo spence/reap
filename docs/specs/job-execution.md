@@ -124,6 +124,12 @@ Job-result retirement can forget facts; after cache loss, dependent policy start
 Workers read this memory index in pages of at most 512 keys and retain one bounded local cache.
 Complete scans register actual observation keys in batches of at most 512, not one request per declaration.
 Cache and observation allocations reserve 4 MiB inside the existing 32 MiB Files preview budget.
+Read-only continuations use separate private working files, not oversized metadata records or IPC frames.
+At most sixteen jobs retain working storage, including completed jobs with unresolved disposal.
+Each job allocates at most two files, each bounded to 64 MiB, 262144 rows, and 512 KiB per frame.
+Restore allocations also have a separate 64 MiB temporary bound.
+Unknown working files are retained. Repeated allocation cannot create fresh names after an unrecorded allocation.
+Working ownership reserves metadata capacity and prevents job compaction until safe disposal completes.
 
 The path supports an existing directory, Cargo target marker selection, bounded ancestor project selection,
 and the legacy parser's versions, defaults, store validation, and policy normalization.
@@ -146,6 +152,9 @@ The phase path is `queued → resolving → resolved → checking → result →
 `resolved` retains the complete scope. `checking` retains that scope through bulk execution.
 `result` retains the exact terminal summary before reservation release and terminal publication.
 Internal files execution uses `resolving_files → files_resolved → previewing_files → result` after the queued phase.
+An unfinished preview can publish `files_yielded`, then resume `previewing_files` through a new launch.
+The active continuation phase and its new launch intent publish in one transaction.
+Occupied capacity retains the yielded phase; it cannot become a lost active result.
 Its retained invocation summary must name `files`; check and files phase records cannot substitute for each other.
 Worker launch sequences, native identity, boot identity, grants, and helper slots retain their existing contract.
 
@@ -160,11 +169,26 @@ One item inspects at most one directory's policy and enumerates at most that sam
 The cursor retains ancestor, retention, and subtree work between quanta; partial work is not complete coverage.
 A failed cursor cannot resume as a successful discovery.
 Initial root/ancestor bindings and final revalidation remain separate whole-worker phases.
-The current worker drives these quanta without releasing its reservation.
-Durable continuation, worker-exit handoff, and fair scheduling remain unimplemented.
+An unfinished quantum publishes durable continuation data before native exit can release its reservation.
+Yielded jobs move behind waiting jobs, including after writer recovery.
+The scheduler collects all predecessor exits before FIFO ready jobs can reserve the released resources.
 Binding: `files::tests::discovery_cursor_yields_and_retains_complete_scoped_retention_inputs` and
 `files::tests::discovery_cursor_failure_is_sticky_and_partial_inputs_remain_protected`, plus
 `files::tests::discovery_cursor_revalidates_inputs_changed_between_quanta`.
+
+**C15** — A read-only handoff publishes a complete, job-bound checkpoint before durable exit observation releases the predecessor's reservation.
+Incomplete output, changed working-file identity, failed synchronization, cancellation, and uncertain exit do not grant the next continuation.
+The next worker receives the same immutable invocation and physical scope, with a new durable launch sequence.
+It verifies the complete checkpoint before target reads. A failed checkpoint produces an incomplete result, not fresh work.
+Working files remain separate from job metadata. They contain no cleanup authority and are private to the host user.
+Superseded working data is removed only after its successor is durable and no predecessor can use it.
+Bindings: `native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_completion`,
+`native_fifo_waiter_precedes_later_jobs_when_an_owned_predecessor_releases_mid_tick`,
+`native_files_checkpoint_restart_corruption_cancellation_and_replaced_data_fail_closed`,
+`complete_checkpoints_require_exact_grants_binding_frames_and_eof`,
+`corrupt_lengths_digests_and_record_counts_never_publish_partial_input`,
+`unpublished_working_output_is_not_adopted_repeated_or_forgotten_by_compaction`,
+and `recovery_bounds_unknown_working_directories_without_adopting_or_deleting_them`.
 
 The shared engine supplies the current foreground CLI and internal native preview.
 Its report separates planned, blocked, completed, and unknown-residual units, known bytes, and coverage completeness.
@@ -177,7 +201,9 @@ Unmatched sibling subtrees are not measured for display. Unmeasured ancestors do
 Configured root aliases remain resolver dependencies; this profile does not narrow their physical reservations.
 Incomplete evidence still protects the whole request; independent partial progress is not yet supported.
 Native activity, bounded index tracking, and native Git recovery supply their separate evidence.
-Unsupported recovery profiles protect the selection. Fair discovery quanta,
+Unsupported recovery profiles protect the selection.
+Complete snapshots currently rewrite retained state and rebuild Git caches between workers.
+Efficient continuation, shared maintenance discovery, independent partial progress,
 legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.
 No recovery path reruns an uncertain mutating operation; none is supported by this dispatcher.

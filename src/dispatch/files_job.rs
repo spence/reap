@@ -10,10 +10,35 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 
+use sha2::Digest;
+
 use super::{invalid, Inspector, Scope};
 use crate::config::Config;
 use crate::invocation::{Intent, Namespace};
-use crate::journal::{Prepared, Terminal};
+use crate::journal::{FilesWork, Key, Prepared, Terminal};
+
+pub(crate) enum FilesBatch {
+  Yielded(crate::checkpoint::Manifest),
+  Complete(Terminal),
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "job_row", rename_all = "snake_case", deny_unknown_fields)]
+enum JobRow {
+  Header {
+    index: usize,
+    reports: Vec<crate::files::Report>,
+    stdout: Diagnostic,
+    stderr: Diagnostic,
+  },
+  Completed {
+    report: crate::files::Report,
+    stdout: Diagnostic,
+    stderr: Diagnostic,
+  },
+  Pending,
+  BetweenRoots,
+}
 
 struct Context<'a> {
   inspector: Inspector<'a>,
@@ -66,8 +91,11 @@ impl Context<'_> {
 }
 
 /// Establish the native namespace, configured roots, and complete supported physical closure.
-pub(crate) fn resolve(input: &Prepared) -> io::Result<Scope> {
-  let context = inspect(input, None)?;
+pub(crate) fn resolve(
+  input: &Prepared,
+  directory: &crate::checkpoint::Directory,
+) -> io::Result<Scope> {
+  let context = inspect(input, None, directory)?;
   context.inspector.revalidate()?;
   context.scope()
 }
@@ -76,12 +104,79 @@ pub(crate) fn resolve(input: &Prepared) -> io::Result<Scope> {
 pub(crate) fn assess(
   input: &Prepared,
   expected: &Scope,
-  mut helpers: Option<&mut crate::worker::Helpers<'_>>,
-) -> io::Result<Terminal> {
+  work: &FilesWork,
+  key: &Key,
+  helpers: &mut crate::worker::Helpers<'_>,
+) -> io::Result<FilesBatch> {
   expected.validate()?;
-  let mut context = inspect(input, Some(&expected.physical_volumes))?;
-  if context.scope()? != *expected {
-    return Err(invalid("declaration scope changed after resolution"));
+  let binding = format!(
+    "{:x}",
+    sha2::Sha256::digest(serde_json::to_vec(&(key, input, expected))?)
+  );
+  // complete file integrity precedes caller configuration and target access
+  let mut reader = work
+    .input
+    .as_ref()
+    .map(|reference| reference.reader(Some(helpers.resources()), &binding, true))
+    .transpose()?;
+  let (mut index, mut reports, mut stdout, mut stderr) = if let Some(reader) = &mut reader {
+    match reader.row::<JobRow>()? {
+      Some(JobRow::Header {
+        index,
+        reports,
+        stdout,
+        stderr,
+      }) if index == reports.len() && stdout.bytes.len() <= 512 && stderr.bytes.len() <= 512 => {
+        (index, reports, stdout, stderr)
+      }
+      _ => {
+        return Err(invalid(
+          "checkpoint job header is incomplete or inconsistent",
+        ))
+      }
+    }
+  } else {
+    (0, vec![], Diagnostic::default(), Diagnostic::default())
+  };
+  let mut resume = false;
+  if let Some(reader) = &mut reader {
+    loop {
+      match reader.row::<JobRow>()? {
+        Some(JobRow::Completed {
+          report,
+          stdout: next_stdout,
+          stderr: next_stderr,
+        }) if reports.len() < 128
+          && next_stdout.bytes.len() <= 512
+          && next_stderr.bytes.len() <= 512 =>
+        {
+          reports.push(report);
+          index += 1;
+          stdout = next_stdout;
+          stderr = next_stderr;
+        }
+        Some(JobRow::Pending) => {
+          resume = true;
+          break;
+        }
+        Some(JobRow::BetweenRoots) => {
+          let keys =
+            crate::files::restore_checkpoint_observations(reader).map_err(io::Error::other)?;
+          helpers.restore_observed(keys)?;
+          break;
+        }
+        _ => return Err(invalid("checkpoint job phase is incomplete")),
+      }
+    }
+  }
+  let mut context = inspect(input, Some(&expected.physical_volumes), &work.directory)?;
+  if context.scope()? != *expected
+    || index > context.selections.len()
+    || (resume && index == context.selections.len())
+  {
+    return Err(invalid(
+      "declaration scope or checkpoint position changed after resolution",
+    ));
   }
   std::env::set_var("HOME", &context.namespace.home);
   match &context.namespace.xdg_state_home {
@@ -92,24 +187,54 @@ pub(crate) fn assess(
   if unsafe { libc::fchdir(context.caller.as_raw_fd()) } != 0 {
     return Err(io::Error::last_os_error());
   }
-  let mut reports = Vec::new();
   let ancestor_devices = context.ancestor_devices()?;
-  let mut stdout = Diagnostic::default();
-  let mut stderr = Diagnostic::default();
-  for selection in &context.selections {
+  let output = work
+    .output
+    .clone()
+    .ok_or_else(|| invalid("checkpoint output is not reserved"))?;
+  let mut writer = crate::checkpoint::Writer::new(output, helpers.resources(), &binding)?;
+  writer.row(&JobRow::Header {
+    index,
+    reports: reports.clone(),
+    stdout: stdout.clone(),
+    stderr: stderr.clone(),
+  })?;
+  let mut remaining = crate::files::DISCOVERY_QUANTUM;
+  while index < context.selections.len() {
+    let selection = &context.selections[index];
     let directory = context.inspector.directory(&selection.governed_root)?;
-    let report = crate::files::preview(
+    let mut state = crate::files::PreviewState::new(
       &selection.governed_root,
       &selection.path,
       &directory,
-      directory.metadata()?.dev(),
       &context.configuration,
-      &mut stdout,
-      &mut stderr,
       &ancestor_devices,
-      helpers.as_deref_mut(),
-    );
+      helpers,
+      if resume { reader.as_mut() } else { None },
+    )
+    .map_err(io::Error::other)?;
+    resume = false;
+    if !state.advance(&mut remaining).map_err(io::Error::other)? {
+      writer.row(&JobRow::Pending)?;
+      state.checkpoint(&mut writer).map_err(io::Error::other)?;
+      return Ok(FilesBatch::Yielded(writer.finish()?));
+    }
+    let report = state
+      .finish(&context.configuration, &mut stdout, &mut stderr)
+      .map_err(io::Error::other)?;
+    writer.row(&JobRow::Completed {
+      report: report.clone(),
+      stdout: stdout.clone(),
+      stderr: stderr.clone(),
+    })?;
     reports.push(report);
+    index += 1;
+    if remaining == 0 && index < context.selections.len() {
+      writer.row(&JobRow::BetweenRoots)?;
+      crate::files::checkpoint_observations(&mut writer, helpers.observed())
+        .map_err(io::Error::other)?;
+      return Ok(FilesBatch::Yielded(writer.finish()?));
+    }
   }
   context.inspector.revalidate()?;
   crate::invocation::fresh(input)?;
@@ -129,14 +254,18 @@ pub(crate) fn assess(
       "capacity-incomplete: complete declaration report exceeds its bound",
     ));
   }
-  Ok(Terminal {
+  Ok(FilesBatch::Complete(Terminal {
     exit_code: u8::from(!complete),
     effects: 0,
     detail,
-  })
+  }))
 }
 
-fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Context<'a>> {
+fn inspect<'a>(
+  input: &Prepared,
+  allowed: Option<&'a [String]>,
+  working: &crate::checkpoint::Directory,
+) -> io::Result<Context<'a>> {
   let mut inspector = Inspector {
     allowed,
     objects: Vec::new(),
@@ -147,6 +276,15 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   if crate::invocation::summary(&intent).is_none_or(|summary| summary.operation != "files") {
     return Err(invalid(
       "unsupported declaration operation or applying flag",
+    ));
+  }
+  let held_working = working.open()?;
+  let observed_working = inspector.directory(working.path())?;
+  if crate::identity::ObjectIdentity::read(&held_working)?
+    != crate::identity::ObjectIdentity::read(&observed_working)?
+  {
+    return Err(invalid(
+      "checkpoint working directory changed during resolution",
     ));
   }
   inspector.directory(&intent.namespace.home)?;
@@ -213,6 +351,14 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   } else {
     configured.clone()
   };
+  if roots
+    .iter()
+    .any(|root| root.starts_with(working.path()) || working.path().starts_with(root))
+  {
+    return Err(invalid(
+      "declaration selection overlaps private execution state",
+    ));
+  }
   let requested_roots = roots.len();
   let mut present = Vec::new();
   for root in roots {
@@ -263,7 +409,8 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
 }
 
 /// Capture diagnostics only. Complete safety inputs and structured counts never use this buffer.
-#[derive(Default)]
+#[derive(Clone, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 struct Diagnostic {
   bytes: Vec<u8>,
   truncated: bool,

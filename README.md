@@ -1125,6 +1125,9 @@ applying operations are not activated.
 Internal declaration preview also has native resolver and worker phases with structured counters.
 It can assess one workspace with governing ancestor policy and required sibling retention measurements.
 It does not recursively scan unrelated sibling subtrees for display sizing.
+Its private worker path can retain a bounded checkpoint and yield after a 64-item discovery quantum.
+Native exit and durable checkpoint publication precede reservation release; waiting jobs precede the next quantum.
+Complete snapshot copies still add work between quanta. This does not establish efficient large-scan performance.
 The owned launcher supports two direct helpers with separate durable grants inside the worker's reservation.
 Workers can request helpers over their private channel; the coordinator creates and supervises them.
 Internal declaration preview batches activity targets into one supervised native scan per selected root.

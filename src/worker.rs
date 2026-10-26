@@ -34,6 +34,8 @@ pub enum Task {
   },
   ResolveFiles {
     input: crate::journal::Prepared,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    directory: Option<crate::checkpoint::Directory>,
   },
   Check {
     input: crate::journal::Prepared,
@@ -42,6 +44,8 @@ pub enum Task {
   PreviewFiles {
     input: crate::journal::Prepared,
     scope: crate::dispatch::Scope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    work: Option<crate::journal::FilesWork>,
   },
   Probe {
     probe: crate::activity::Probe,
@@ -70,6 +74,7 @@ impl Task {
         | (Self::ResolveFiles { .. }, Report::FilesResolved { .. })
         | (Self::Check { .. }, Report::Checked { .. })
         | (Self::PreviewFiles { .. }, Report::FilesPreviewed { .. })
+        | (Self::PreviewFiles { .. }, Report::FilesCheckpointed { .. })
     )
   }
 
@@ -108,10 +113,10 @@ impl Task {
     }
     let directory = match self {
       Self::Resolve { directory } => directory,
-      Self::ResolveCheck { input } | Self::ResolveFiles { input } => {
+      Self::ResolveCheck { input } | Self::ResolveFiles { input, .. } => {
         return crate::journal::validate_input(input)
       }
-      Self::Check { input, scope } | Self::PreviewFiles { input, scope } => {
+      Self::Check { input, scope } | Self::PreviewFiles { input, scope, .. } => {
         crate::journal::validate_input(input)?;
         return scope.validate();
       }
@@ -133,7 +138,7 @@ impl Task {
     Ok(())
   }
 
-  fn execute(&self, grant: &Grant, mut helpers: Option<&mut Helpers<'_>>) -> io::Result<Report> {
+  fn execute(&self, grant: &Grant, helpers: Option<&mut Helpers<'_>>) -> io::Result<Report> {
     self.validate()?;
     if matches!(self, Self::Resolve { .. }) {
       if let Some(helpers) = helpers {
@@ -144,8 +149,12 @@ impl Task {
       Self::ResolveCheck { input } if grant.resources == Resources::Resolver => {
         return crate::dispatch::resolve(input).map(|scope| Report::CheckResolved { scope });
       }
-      Self::ResolveFiles { input } if grant.resources == Resources::Resolver => {
-        return crate::dispatch::resolve_files(input).map(|scope| Report::FilesResolved { scope });
+      Self::ResolveFiles {
+        input,
+        directory: Some(directory),
+      } if grant.resources == Resources::Resolver => {
+        return crate::dispatch::resolve_files(input, directory)
+          .map(|scope| Report::FilesResolved { scope });
       }
       Self::Check { input, scope }
         if grant.resources
@@ -155,17 +164,30 @@ impl Task {
       {
         return crate::dispatch::assess(input, scope).map(|terminal| Report::Checked { terminal });
       }
-      Self::PreviewFiles { input, scope }
-        if grant.resources
-          == (Resources::Bulk {
-            physical_volumes: scope.physical_volumes.clone(),
-          }) =>
+      Self::PreviewFiles {
+        input,
+        scope,
+        work: Some(work),
+      } if grant.resources
+        == (Resources::Bulk {
+          physical_volumes: scope.physical_volumes.clone(),
+        }) =>
       {
-        let mut terminal = crate::dispatch::assess_files(input, scope, helpers.as_deref_mut())?;
+        work.validate_for(&grant.key)?;
+        let Some(helpers) = helpers else {
+          return Err(invalid(
+            "checkpoint preview requires its owned private channel",
+          ));
+        };
+        let mut terminal =
+          match crate::dispatch::assess_files(input, scope, work, &grant.key, helpers)? {
+            crate::dispatch::FilesBatch::Yielded(manifest) => {
+              return Ok(Report::FilesCheckpointed { manifest })
+            }
+            crate::dispatch::FilesBatch::Complete(terminal) => terminal,
+          };
         if terminal.exit_code == 0 {
-          if let Some(helpers) = helpers {
-            helpers.flush_observations()?;
-          }
+          helpers.flush_observations()?;
         }
         let (detail, pages) = crate::result_pages::prepare(terminal.detail)?;
         terminal.detail = detail;
@@ -229,6 +251,9 @@ pub enum Report {
     #[serde(skip)]
     observations: Vec<String>,
   },
+  FilesCheckpointed {
+    manifest: crate::checkpoint::Manifest,
+  },
   FirstSeen {
     values: BTreeMap<String, u64>,
     next: Option<String>,
@@ -286,6 +311,33 @@ pub(crate) struct Helpers<'a> {
 }
 
 impl Helpers<'_> {
+  #[cfg(test)]
+  pub(crate) fn fixture<'a>(pipe: &'a mut UnixStream, resources: &'a Resources) -> Helpers<'a> {
+    Helpers {
+      pipe,
+      resources,
+      request_id: 0,
+      activity_failure: None,
+      first_seen_cache: None,
+      observed: BTreeSet::new(),
+    }
+  }
+  pub(crate) fn observed(&self) -> impl Iterator<Item = String> + '_ {
+    self.observed.iter().cloned()
+  }
+
+  pub(crate) fn restore_observed(&mut self, keys: BTreeSet<String>) -> io::Result<()> {
+    if keys.len() > crate::observations::MAX_KEYS
+      || keys.iter().any(|key| !crate::observations::valid_key(key))
+    {
+      return Err(invalid("invalid checkpoint grace observations"));
+    }
+    self.observed.extend(keys);
+    if self.observed.len() > crate::observations::MAX_KEYS {
+      return Err(invalid("checkpoint grace observations exceed capacity"));
+    }
+    Ok(())
+  }
   /// Read cached durable credit. Only bounded pages and observed-key batches cross the channel.
   pub(crate) fn first_seen(&mut self, key: String) -> io::Result<Option<u64>> {
     if !crate::observations::valid_key(&key)
@@ -492,10 +544,38 @@ pub struct Completion {
 
 /// Persist a new reservation before spawn. Retried or recovered intents never spawn again.
 /// Call only in the single owned launcher, outside response loops. Spawn can block in the OS.
-pub fn start(journal: &mut Journal, key: &Key, sequence: u64, task: Task) -> io::Result<Start> {
+pub fn start(journal: &mut Journal, key: &Key, sequence: u64, mut task: Task) -> io::Result<Start> {
   if matches!(task, Task::Probe { .. }) {
     return Ok(Start::Rejected(
       "native probes require a granted helper".into(),
+    ));
+  }
+  if let Err(error) = task.validate().and_then(|()| {
+    if serde_json::to_vec(&task)?.len() > MAX_PACKET {
+      Err(invalid("worker task exceeds its bound"))
+    } else {
+      Ok(())
+    }
+  }) {
+    return Ok(Start::Rejected(
+      error.to_string().chars().take(2048).collect(),
+    ));
+  }
+  if let Some(previous) = journal.launch(key)? {
+    if previous.sequence == sequence || !previous.released() {
+      return Ok(Start::Retained(previous));
+    }
+  }
+  let preparation = match &mut task {
+    Task::ResolveFiles { directory, .. } => journal
+      .files_directory(key)
+      .map(|owned| *directory = Some(owned)),
+    Task::PreviewFiles { work, .. } => journal.files_work(key).map(|owned| *work = Some(owned)),
+    _ => Ok(()),
+  };
+  if let Err(reason) = preparation {
+    return Ok(Start::Rejected(
+      reason.to_string().chars().take(2048).collect(),
     ));
   }
   let bytes = match task.validate().and_then(|()| {
@@ -512,11 +592,6 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, task: Task) -> io:
       ))
     }
   };
-  if let Some(previous) = journal.launch(key)? {
-    if previous.sequence == sequence || !previous.released() {
-      return Ok(Start::Retained(previous));
-    }
-  }
   let resources = task.resources();
   let Some(launch) = journal.reserve_launch(key, sequence, resources)? else {
     return Ok(Start::Busy);
@@ -824,6 +899,10 @@ impl Owned {
             *observations = std::mem::take(&mut self.observations).into_iter().collect();
           } else if !self.pages.is_empty() {
             self.protocol_failure("result pages belong to another worker operation");
+            return Ok(());
+          }
+          if matches!(report, Report::FilesCheckpointed { .. }) && !self.observations.is_empty() {
+            self.protocol_failure("checkpoint result contains terminal grace observations");
             return Ok(());
           }
           if let Err(reason) = validate_report(&report) {
@@ -1165,6 +1244,7 @@ fn validate_report(report: &Report) -> io::Result<()> {
       return Err(invalid("invalid first-seen reply"));
     }
     Report::CheckResolved { scope } | Report::FilesResolved { scope } => scope.validate()?,
+    Report::FilesCheckpointed { manifest } => manifest.validate()?,
     Report::Checked { terminal }
       if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code != 0 =>
     {

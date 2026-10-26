@@ -43,6 +43,25 @@ struct Source {
   binding_only: bool,
 }
 
+/// Retained native source bindings contain no Git configuration or credential bytes.
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SavedSource {
+  #[serde(with = "crate::checkpoint::path")]
+  pub(crate) root: PathBuf,
+  #[serde(with = "crate::checkpoint::path")]
+  path: PathBuf,
+  identity: Option<ObjectIdentity>,
+  metadata: Option<crate::checkpoint::Stamp>,
+  binding_only: bool,
+}
+
+impl SavedSource {
+  pub(crate) fn allocation(&self) -> usize {
+    1024 + (self.root.as_os_str().len() + self.path.as_os_str().len()) * 4
+  }
+}
+
 struct Settings {
   kind: hash::Kind,
   bare: bool,
@@ -50,6 +69,143 @@ struct Settings {
 }
 
 impl Tracking {
+  /// Checkpoint only discovery bindings. Recovery verdicts must be fresh in the final worker.
+  pub(crate) fn checkpoint_roots(&self) -> io::Result<Vec<(PathBuf, Option<String>)>> {
+    if !self.recovery.is_empty() {
+      return Err(invalid(
+        "Git recovery cannot become discovery checkpoint authority",
+      ));
+    }
+    Ok(
+      self
+        .repositories
+        .iter()
+        .map(|(path, repository)| (path.clone(), repository.as_ref().err().cloned()))
+        .collect(),
+    )
+  }
+
+  pub(crate) fn checkpoint_sources(&self) -> impl Iterator<Item = SavedSource> + '_ {
+    self.repositories.iter().flat_map(|(root, repository)| {
+      repository
+        .as_ref()
+        .ok()
+        .into_iter()
+        .flat_map(move |repository| {
+          repository.sources.iter().map(move |source| SavedSource {
+            root: root.clone(),
+            path: source.path.clone(),
+            identity: source.identity.clone(),
+            metadata: source
+              .metadata
+              .as_ref()
+              .map(crate::checkpoint::Stamp::metadata),
+            binding_only: source.binding_only,
+          })
+        })
+    })
+  }
+
+  pub(crate) fn checkpoint_absent(&self) -> impl Iterator<Item = &PathBuf> {
+    self.absent_markers.iter()
+  }
+
+  /// Revalidate original bindings before rebuilding any cache. A checkpoint grants no source trust.
+  pub(crate) fn restore(
+    resources: Option<Resources>,
+    roots: Vec<(PathBuf, Option<String>)>,
+    saved: Vec<SavedSource>,
+    absent: Vec<PathBuf>,
+    budget: &Cell<usize>,
+  ) -> io::Result<Self> {
+    let mut result = Self::new(resources);
+    for marker in absent {
+      charge(budget, 128 + marker.as_os_str().len() * 2)?;
+      if !result.absent_markers.insert(marker) {
+        return Err(invalid("duplicate checkpoint Git absence"));
+      }
+    }
+    let mut sources = BTreeMap::<PathBuf, Vec<Source>>::new();
+    for source in saved {
+      let resources = result
+        .resources
+        .as_ref()
+        .ok_or_else(|| invalid("checkpoint Git source lacks a grant"))?;
+      let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(&source.path);
+      let metadata = match file {
+        Err(error)
+          if error.kind() == io::ErrorKind::NotFound
+            && source.identity.is_none()
+            && source.metadata.is_none() =>
+        {
+          None
+        }
+        Err(error) => return Err(error),
+        Ok(file) => {
+          let current = file.metadata()?;
+          if source
+            .metadata
+            .as_ref()
+            .is_none_or(|old| !old.matches(&current, source.binding_only))
+            || Some(granted(&file, resources)?) != source.identity
+          {
+            return Err(invalid("checkpoint Git source changed"));
+          }
+          Some(current)
+        }
+      };
+      sources.entry(source.root).or_default().push(Source {
+        path: source.path,
+        identity: source.identity,
+        metadata,
+        binding_only: source.binding_only,
+      });
+    }
+    for (root, failure) in roots {
+      if result.repositories.contains_key(&root) {
+        return Err(invalid("duplicate checkpoint Git repository"));
+      }
+      let repository = if let Some(reason) = failure {
+        if sources.contains_key(&root) {
+          return Err(invalid("failed checkpoint repository has trusted sources"));
+        }
+        Err(reason)
+      } else {
+        let resources = result
+          .resources
+          .as_ref()
+          .ok_or_else(|| invalid("checkpoint Git repository lacks a grant"))?;
+        let old = sources
+          .remove(&root)
+          .ok_or_else(|| invalid("checkpoint Git repository has no original bindings"))?;
+        let mut repository = Repository::read(&root, resources, budget)?;
+        let mut keys: BTreeSet<_> = repository
+          .sources
+          .iter()
+          .map(|s| (s.path.clone(), s.binding_only))
+          .collect();
+        for source in old {
+          // cache reconstruction must not replace an original binding that changed during the read
+          source.revalidate(resources)?;
+          if keys.insert((source.path.clone(), source.binding_only)) {
+            charge(budget, 512 + source.path.as_os_str().len() * 2)?;
+            repository.sources.push(source);
+          }
+        }
+        Ok(repository)
+      };
+      result.repositories.insert(root, repository);
+    }
+    if !sources.is_empty() {
+      return Err(invalid("checkpoint sources have no repository"));
+    }
+    result.revalidate()?;
+    Ok(result)
+  }
+
   pub(crate) fn new(resources: Option<Resources>) -> Self {
     Self {
       resources,
@@ -1137,6 +1293,49 @@ mod tests {
       fs::read(fixture.0.join("untracked/.reap")).unwrap(),
       b"retained fixture"
     );
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn checkpoint_restore_retains_original_index_config_and_alias_bindings() {
+    for change in ["none", "index", "config", "alias"] {
+      let fixture = Fixture::new("sha1");
+      for name in ["Cafe\u{301}", "untracked"] {
+        fs::create_dir(fixture.0.join(name)).unwrap();
+        fs::write(fixture.0.join(name).join(".reap"), b"retained fixture").unwrap();
+      }
+      fixture.git(&["add", "--", "Cafe\u{301}/.reap"]);
+      let resources = Resources::Bulk {
+        physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+      };
+      let path = fixture.0.join("untracked/.reap");
+      let mut tracker = Tracking::new(Some(resources.clone()));
+      assert!(!tracker.tracked(&path, &Cell::new(BUDGET)).unwrap());
+      let roots = tracker.checkpoint_roots().unwrap();
+      let sources = tracker.checkpoint_sources().collect();
+      let absent = tracker.checkpoint_absent().cloned().collect();
+      match change {
+        "index" => fixture.git(&["add", "--", "untracked/.reap"]),
+        "config" => fixture.git(&["config", "core.ignoreCase", "false"]),
+        "alias" => {
+          fs::rename(fixture.0.join("Cafe\u{301}"), fixture.0.join("original")).unwrap();
+          std::os::unix::fs::symlink(fixture.0.join("untracked"), fixture.0.join("Cafe\u{301}"))
+            .unwrap();
+        }
+        _ => {}
+      }
+      let restored = Tracking::restore(Some(resources), roots, sources, absent, &Cell::new(BUDGET));
+      if change == "none" {
+        let mut restored = restored.unwrap();
+        assert!(!restored.tracked(&path, &Cell::new(BUDGET)).unwrap());
+        restored.revalidate().unwrap();
+        fs::write(fixture.0.join(".git/config"), b"changed after restore").unwrap();
+        assert!(restored.revalidate().is_err());
+      } else {
+        assert!(restored.is_err(), "{change}");
+      }
+      assert_eq!(fs::read(path).unwrap(), b"retained fixture");
+    }
   }
 
   #[cfg(target_os = "macos")]
