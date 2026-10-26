@@ -174,6 +174,14 @@ impl Scheduler {
     !self.jobs.is_empty()
   }
 
+  /// Poll ready owned channels before any idle wait, with the same bounded per-job read budget.
+  pub(crate) fn needs_poll(&self) -> bool {
+    self
+      .jobs
+      .iter()
+      .any(|job| job.owned.as_ref().is_some_and(Owned::needs_poll))
+  }
+
   /// Poll each owned child once; only the writer performs durable metadata I/O.
   pub(crate) fn tick(&mut self, journal: &mut Journal, now: u64) -> io::Result<()> {
     let count = self.jobs.len();

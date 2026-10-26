@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -659,6 +659,40 @@ fn spawn(
 }
 
 impl Owned {
+  /// Report readable data, EOF, or a channel error without waiting.
+  /// This scheduling hint cannot publish evidence or release a native reservation.
+  pub(crate) fn needs_poll(&self) -> bool {
+    if self.finished {
+      return false;
+    }
+    if self
+      .helper
+      .as_ref()
+      .is_some_and(|helper| helper.done.is_none() && helper.owned.needs_poll())
+    {
+      return true;
+    }
+    let mut channels = [
+      libc::pollfd {
+        fd: if self.eof { -1 } else { self.pipe.as_raw_fd() },
+        events: libc::POLLIN,
+        revents: 0,
+      },
+      libc::pollfd {
+        fd: self
+          .stderr
+          .as_ref()
+          .filter(|_| !self.stderr_eof)
+          .map_or(-1, AsRawFd::as_raw_fd),
+        events: libc::POLLIN,
+        revents: 0,
+      },
+    ];
+    // SAFETY: both descriptors belong to these held channels; the initialized array stays valid.
+    // a failed readiness query keeps the idle delay; ordinary readers retain all refusal checks
+    unsafe { libc::poll(channels.as_mut_ptr(), channels.len() as _, 0) > 0 }
+  }
+
   #[cfg(test)]
   pub(crate) fn pid(&self) -> u32 {
     self.child.id()

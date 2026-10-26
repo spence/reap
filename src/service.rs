@@ -580,7 +580,12 @@ fn write_state(
       }
     }
     let work = if !failed && scheduler.pending() {
-      match receiver.recv_timeout(std::time::Duration::from_millis(20)) {
+      let idle = if scheduler.needs_poll() {
+        std::time::Duration::ZERO
+      } else {
+        std::time::Duration::from_millis(20)
+      };
+      match receiver.recv_timeout(idle) {
         Ok(work) => work,
         Err(mpsc::RecvTimeoutError::Timeout) => continue,
         Err(mpsc::RecvTimeoutError::Disconnected) => break,

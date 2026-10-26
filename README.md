@@ -1130,6 +1130,7 @@ Native exit and durable checkpoint publication precede reservation release; wait
 Complete snapshot copies still add work between quanta. This does not establish efficient large-scan performance.
 The owned launcher supports two direct helpers with separate durable grants inside the worker's reservation.
 Workers can request helpers over their private channel; the coordinator creates and supervises them.
+The writer polls ready channels without its idle delay and still handles queued requests between bounded read batches.
 Internal declaration preview batches activity targets into one supervised native scan per selected root.
 The granted helper becomes the fixed system tool in the same process. Complete parsed output,
 empty stderr, native exit, and durable release precede a successful activity reply.

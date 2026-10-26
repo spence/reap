@@ -402,6 +402,10 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
       assert!(Instant::now() < deadline);
       std::thread::sleep(Duration::from_millis(5));
     }
+    assert!(
+      !helper.needs_poll(),
+      "an empty unclosed stderr pipe is not runnable"
+    );
     assert!(!helper.release(&mut journal).unwrap());
     assert!(!journal.launch(&key).unwrap().unwrap().helpers[0]
       .as_ref()
@@ -409,6 +413,17 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
       .exited());
     if case == "stderr" {
       writer.write_all(b"unavailable native evidence").unwrap();
+      assert!(helper.needs_poll());
+      parent.helper = Some(PendingHelper {
+        request_id: 1,
+        owned: Box::new(helper),
+        done: None,
+      });
+      assert!(
+        parent.needs_poll(),
+        "direct helper readiness must reach the scheduler"
+      );
+      helper = *parent.helper.take().unwrap().owned;
     } else if case == "partial" {
       helper.probe = Some(crate::activity::Capture::Health(
         b"S 00:01 /bin/ps".to_vec(),
@@ -428,6 +443,10 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
         .unwrap();
     }
     drop(writer);
+    assert!(
+      helper.needs_poll(),
+      "EOF must reach the normal completion checks"
+    );
     let done = complete(&mut helper, &mut journal);
     assert_eq!(done.exit_code, 0);
     if case == "complete" {
@@ -573,6 +592,106 @@ fn incomplete_overlong_or_trailing_result_bytes_never_become_complete_evidence()
     fs::read(fixture.0.join("valuable")).unwrap(),
     b"framing survivor"
   );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn bounded_activity_reads_preserve_buffered_readiness_without_publishing_before_eof() {
+  use std::os::fd::AsRawFd;
+  let fixture = Fixture::new();
+  let valuable = fixture.0.join("valuable");
+  fs::write(&valuable, b"stream survivor").unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let key = admit(&mut journal);
+  let mut owned = spawned(
+    start(
+      &mut journal,
+      &key,
+      1,
+      Task::Resolve {
+        directory: fixture.0.clone(),
+      },
+    )
+    .unwrap(),
+  );
+  owned.deliver(&mut journal).unwrap();
+  assert_eq!(complete(&mut owned, &mut journal).exit_code, 0);
+  let before = journal.launch(&key).unwrap();
+
+  let (reader, mut peer) = UnixStream::pair().unwrap();
+  let size = (4 * POLL_BYTES) as libc::c_int;
+  for (socket, option) in [(&reader, libc::SO_RCVBUF), (&peer, libc::SO_SNDBUF)] {
+    // SAFETY: this owned socket and integer option pointer remain valid for the call.
+    assert_eq!(
+      unsafe {
+        libc::setsockopt(
+          socket.as_raw_fd(),
+          libc::SOL_SOCKET,
+          option,
+          (&size as *const libc::c_int).cast(),
+          std::mem::size_of_val(&size) as libc::socklen_t,
+        )
+      },
+      0
+    );
+  }
+  reader.set_nonblocking(true).unwrap();
+  let record = b"p1\0\nf4\0tREG\0n/unrelated/payload\0\n";
+  let burst = record.repeat(2 * POLL_BYTES / record.len() + 1);
+  peer.write_all(&burst).unwrap();
+  owned.pipe = reader;
+  owned.probe = Some(crate::activity::Capture::new(
+    &crate::activity::Probe::Handles {
+      directories: vec![fixture.0.clone()],
+    },
+  ));
+  owned.eof = false;
+  owned.finished = false;
+  owned.report = None;
+  owned.bytes.clear();
+  assert!(owned.poll(&mut journal).unwrap().is_none());
+  let mut byte = 0u8;
+  // SAFETY: this live owned socket and one-byte output buffer are valid; peek consumes no input.
+  assert_eq!(
+    unsafe {
+      libc::recv(
+        owned.pipe.as_raw_fd(),
+        (&mut byte as *mut u8).cast(),
+        1,
+        libc::MSG_PEEK | libc::MSG_DONTWAIT,
+      )
+    },
+    1
+  );
+  assert!(
+    owned.needs_poll(),
+    "buffered evidence must not wait for an idle timer"
+  );
+  for _ in 0..8 {
+    if !owned.needs_poll() {
+      break;
+    }
+    assert!(owned.poll(&mut journal).unwrap().is_none());
+  }
+  assert!(
+    !owned.needs_poll(),
+    "an open but empty pipe must not cause a busy loop"
+  );
+  assert!(!owned.eof);
+  assert!(!owned.finished);
+  assert_eq!(journal.launch(&key).unwrap(), before);
+  peer
+    .write_all(format!("p2\0\nf5\0tREG\0n{}\0\n", valuable.display()).as_bytes())
+    .unwrap();
+  drop(peer);
+  assert!(owned.needs_poll());
+  let done = complete(&mut owned, &mut journal);
+  assert!(matches!(done.report, Ok(Report::Probed {
+    evidence: crate::activity::Evidence::Handles { active }
+  }) if active == vec![true]));
+  assert_eq!(fs::read(valuable).unwrap(), b"stream survivor");
+  assert!(!owned.needs_poll());
+  assert!(owned.release(&mut journal).unwrap());
 }
 
 #[cfg(target_os = "macos")]
