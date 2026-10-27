@@ -1,0 +1,548 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "private_component_verified_full_goal_active",
+  "source_revision": "20e15e424b412d69ddd7914f0f1acc72ad30dee6",
+  "base_revision": "f55f45a18103fff878b3f06d75ae75882d481ede",
+  "branch": "feat/mutation-executor",
+  "source_manifest": {
+    "docs/specs/mutation-execution.md": "bff5b04dd2da86061126825cb8187295e2b3312d9d69aca40d79a4dd3d0e954d",
+    "src/dispatch.rs": "6492431ae689f72fa365bddf6044f71947b20fd8a1cbd8871fe452b63334bacc",
+    "src/dispatch/files_job.rs": "15669595962b37a26d8f9b53524e3c98114c00e72d3bb02df9bef75a130ccd00",
+    "src/dispatch/tests.rs": "03f96720afeb8563af00c708d96d9ff32bd999b648e1343d71d4542a9b808d25",
+    "src/files.rs": "768abcb2bf7cd9f060d2f05269056d26174e540eb822940b77fc20968bfc2e1f",
+    "src/files/applying.rs": "f7cd894206dae826e756c9d1262fb03fa72a554fdad81ffd0f1060b186a8d459",
+    "src/journal/tests/mutation.rs": "e5c3df0108f8828ee6e6b8c457c2ee69de3ef49765a44cabdc34711549d20a66",
+    "src/mutation.rs": "ecf7db7f483b36aff3a4ba541f25ee6835e23836c7e6ad6eaf77ed7258a3c308",
+    "src/mutation/native.rs": "109e91e45ed8a1b57dbe0623b0483393757fa51c3a78a25ead000ed9b776a895",
+    "src/quarantine.rs": "b296b9303732116ef3417d8c14d4f6c543829ed5332a38952dbac42f8889c9a1",
+    "tools/verify_control_macos.py": "c033abd36ecb8b77b46d09f09ebd7e34395861fcff5291284c44c19c6aad6b85",
+    "src/mutation/native/publish.rs": "4487b93f084160fca52a7f9c0314131e00cb4aeb721b8f438cb5c85b36517d66"
+  },
+  "binaries": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/publication-frozen-v2/app",
+      "sha256": "2eb8801276af0639beca70dda7dd2bf32bbdb0bb9e89f894f41bf87bd0831993",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 25584208,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/publication-frozen-v2/unit",
+      "sha256": "85eeeca5022f98410d432fa18428d40167b2b53d0a523696dcfe02323930f48f",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 30313072,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/publication-frozen-v2/fault",
+      "sha256": "37dd247970625b91a0d6afb7700d23f80cfd31c3ec08d2b7b7059daecaf68f29",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults",
+      "bytes": 52384,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/fault.dylib"
+    }
+  },
+  "source_suite": {
+    "exit": 0,
+    "unit_passed": 362,
+    "native_fault_omissions": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23,
+    "log_sha256": "5d9da2754696a1178e4d66924a4338c9549cab6805524b5c19b55d2f4101e490"
+  },
+  "native": {
+    "catalyst": {
+      "worker": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 339 filtered out; finished in 13.19s"
+        ],
+        "receipt_sha256": "632b99b26a872ed8bf488997f608fa903b0937cb75b28d4cdcdc1d5de1d57394",
+        "log_sha256": "ca138926c5750a47ba2d4cded5990228ea26dce5174a8ed58daa817255b75c3c"
+      },
+      "journal": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 322 filtered out; finished in 54.73s"
+        ],
+        "receipt_sha256": "7cf74f4bdf97219a7032a0a2ebaf7ad65c3cc579c637b159a315a03adb40abbb",
+        "log_sha256": "0c67e4407ce5fde63dff62dc712e5b5effae84e652996a2afebde24464a22a8f"
+      },
+      "budgets": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 365 filtered out; finished in 2.17s"
+        ],
+        "receipt_sha256": "b0aee701d700199272bc3b52621c7fcddb6b27810f65249ec67a3b0c4e5e0e4f",
+        "log_sha256": "a2f47db7d5cc0b12f8a2d4e0616e20a374d0c225979b21a6591bd2cb8dbd10aa"
+      },
+      "git": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 354 filtered out; finished in 1.43s"
+        ],
+        "receipt_sha256": "3b1a2846403135a3b7c7876fb1bea4126caffac41d918f51fa22b739588a89d3",
+        "log_sha256": "c63868bb6d0f1fbba840e9a7771fe65c05e23639a2e21ca86d4dbeee3253a8c8"
+      },
+      "dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 327 filtered out; finished in 252.43s"
+        ],
+        "receipt_sha256": "13263d32e15473f1ff0724e02418eb65aebf1fbe21d5661a44b9241e26259cc4",
+        "log_sha256": "f787515c3958453200f3cd1fcfc670b430a9d7695ace95984654bb5e5a50a80b"
+      },
+      "production-dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches",
+          "dispatch::tests::native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+          "dispatch::tests::native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+          "dispatch::tests::native_files_apply_refuses_configuration_revoked_during_final_activity",
+          "dispatch::tests::native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+          "dispatch::tests::native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
+          "dispatch::tests::native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads"
+        ],
+        "results": [
+          "test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 334 filtered out; finished in 147.49s"
+        ],
+        "receipt_sha256": "e612555bd8e8924e37e1da6566ba74cf065cc0cee4c5ce9195493e63e6806064",
+        "log_sha256": "fb1a0e5b401bc2abdb5af4c9ba3ca89377d0303e3ab19d7cafa1bb5d9425ae51"
+      },
+      "control": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 7,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 366 filtered out; finished in 0.06s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 2.81s"
+        ],
+        "receipt_sha256": "2cd52b84d50f16ed3cb3568d4aaf20f8f09ce1d05691bf50c07d862faa129d86",
+        "log_sha256": "1eadf0ae1f7072aa64b18d6fcdec236d30cab383a53bb8ff1777339bee72c22b"
+      },
+      "service": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 48,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 353 filtered out; finished in 23.69s"
+        ],
+        "receipt_sha256": "4be76c6137c3d5266de32ed97a27aa1b739c25af71a411d07b8ccf4b013140a7",
+        "log_sha256": "6653d92975bf5a341f8d899f6f51c31850569c217f0d96716573d8e8ed07eadc"
+      },
+      "launch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 354 filtered out; finished in 1.17s"
+        ],
+        "receipt_sha256": "01c30d7c56bf1bd303d0d1aba66d1a4f9e1ec6a69412b2b017ad2c35d900b09d",
+        "log_sha256": "44f6daaaf52d3c7f89039b803d81ea475fd59f698e2b81ec743eef11b3779727"
+      }
+    },
+    "catalyst-mini": {
+      "worker": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 339 filtered out; finished in 8.49s"
+        ],
+        "receipt_sha256": "ee25c1d0f1a6bf0742f5beea1625a9175b4fcd21be1cecf55a5e00c8d034a374",
+        "log_sha256": "9c74249648f5df7295d308e41cc9d5c8e04da772662f364bb0d4f396d757ca5b"
+      },
+      "journal": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 322 filtered out; finished in 32.21s"
+        ],
+        "receipt_sha256": "0da6d142aa22687b086d87ac8e1bcc3e4d10e8903fac81f0ee10fcecb259aaa5",
+        "log_sha256": "4dc8aca7ada1f078a1f4430dc53704531ceca8e5c49efe3912a2ba1cfc2425e0"
+      },
+      "budgets": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 365 filtered out; finished in 1.53s"
+        ],
+        "receipt_sha256": "99bff0881b85ff1daf110ba6aa5649b8f014a408493a89036694a0d56faae569",
+        "log_sha256": "e505ff141549c8216d166439fd23feeef78fdd6ca4a38b67c4bee5548e959632"
+      },
+      "git": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 354 filtered out; finished in 0.97s"
+        ],
+        "receipt_sha256": "bb19c9cf4caa4b67bd6562bf4447c1ecfbbc0506168fc66fe6608e22d30b823b",
+        "log_sha256": "d1d6a073e6f1f0f112d2736186a00c3727bd6ffc2389a3c14dc069b839fc9f60"
+      },
+      "dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 327 filtered out; finished in 110.33s"
+        ],
+        "receipt_sha256": "e567c58bb75e946444acc1c1e4f69d53033b07c763e35310bbdbd8dc1bc9f4d7",
+        "log_sha256": "125c58a33163a0efbf56b99784e465ccee1f5821a907a612a139a61bbbb15097"
+      },
+      "production-dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches",
+          "dispatch::tests::native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+          "dispatch::tests::native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+          "dispatch::tests::native_files_apply_refuses_configuration_revoked_during_final_activity",
+          "dispatch::tests::native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+          "dispatch::tests::native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
+          "dispatch::tests::native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads"
+        ],
+        "results": [
+          "test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 334 filtered out; finished in 68.44s"
+        ],
+        "receipt_sha256": "92c830f0610c3ee6912b272dd7379e0a4b6231bd8def49a7cbf6049deaada577",
+        "log_sha256": "f302aee86600c789a36c331bbbabb2bf5b254c443f607440211bd65e1062258f"
+      },
+      "control": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 7,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 366 filtered out; finished in 0.02s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 2.62s"
+        ],
+        "receipt_sha256": "e42ff813b68ffbcc9b1b145426ea0798af8d20443d08b0a3208a9a1091ea115a",
+        "log_sha256": "0d9da241466efd662009793eb865bf16c86e0a1e6a36cc57c62c7ce6f75954e8"
+      },
+      "service": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 48,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 353 filtered out; finished in 22.90s"
+        ],
+        "receipt_sha256": "affd4e89ee6156af16a5d8d17a5dfb45485870ae5d36414d322b0cca2f06a821",
+        "log_sha256": "3aff17141c625027d34b93a3938ea6518e9d2f7f5f0232f421c5425bbf02c764"
+      },
+      "launch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 354 filtered out; finished in 1.08s"
+        ],
+        "receipt_sha256": "9f0b6abbd2a6fd92558c1b5dff0a4769f689d79e661d79c7285abde860a7d0dc",
+        "log_sha256": "2e02bc4a858c016b96e8c8fccbf37ce13c922833d588397d57b323bf30b6a62b"
+      }
+    }
+  },
+  "repeated_recovery": {
+    "snapshot": "publication-review-snapshot-v4.json",
+    "source_unchanged": true,
+    "payload_passes": 20,
+    "publication_passes": 20,
+    "unit_sha256": "85eeeca5022f98410d432fa18428d40167b2b53d0a523696dcfe02323930f48f",
+    "logs": [
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-01.log",
+        "sha256": "de5b2b42b7e9260d07740f4f24a4f579e08d6b10679a42957337a54e6b571a95",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-02.log",
+        "sha256": "ea8b1fee369419af228d83498287ea9d592d7439a3e87dc6d654f0c98e7ed171",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-03.log",
+        "sha256": "89cf84a41007870c2823ee1c09690051861a2b9d76dc0acd1def02764fb25382",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-04.log",
+        "sha256": "0a071355e14b51cb4c315bf138e87f04fee38e31013c2c45ead3ed79e4641a3a",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-05.log",
+        "sha256": "0ae8767600ec72f02ce65f46706f1de4d6bca06c220b4080d5940a20eda4a1ef",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-06.log",
+        "sha256": "1a78a4cd5f917b4d5e45f72dc0aba0fbb352a02e5a745c2fddf49f1c258fbb41",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-07.log",
+        "sha256": "54e63d0e5b24d05903b447c2e4cfda1231377b6109fc96b1c5a09f28df55994e",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-08.log",
+        "sha256": "e58e4c3a92c5b69eaf010fa9eda71369524fabd60db2624ed61cdc6bf0f45379",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-09.log",
+        "sha256": "1a64dc637e386ba61733f2353d2fd63550bc87673a63125b54bbdd54752f8583",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-10.log",
+        "sha256": "1ef69bab1f55f6f296fbe661e0496186e75485f5dcffca65a0cdc0db22aab777",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-11.log",
+        "sha256": "52bcab64055ca89713576c730e2155468962efe07468331c8df8443c7c0443bb",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-12.log",
+        "sha256": "a87cded751a5e3c8c00f7ce1e9e40c816ddd6b64047e75a80c23f3519dd7d9b2",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-13.log",
+        "sha256": "48c0809fc7df4805a67cb0eca4b579786b7a632b41eab272ec7a36f42ccca418",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-14.log",
+        "sha256": "7b2a2fbf82f0f143aa4a95ab2c2dabff1d8148d563ccff4b99151d1d42cc5ada",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-15.log",
+        "sha256": "335f6f0ecb12e227db2aa64fff082ec99dba29e1c86845e9b0f0b3f7ad93ecf6",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-16.log",
+        "sha256": "f22cdbbba3fd90e4cf2474a0c7ceae3934526c1c40e10eb0cf0482cf4e4496f9",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-17.log",
+        "sha256": "cfb6f563dcca08d9109709c701b21e523f5a09fa355fecebd8ff2670e090a963",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-18.log",
+        "sha256": "07ee5031d5a5b07d5448aba4ff9d0e7258bb490ae8fb4bb64a3de3e672d796c2",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-19.log",
+        "sha256": "c8472545e6ec1e04fefd9fa7c6bfad7ec67772c5b1c7711a4bce49e42a62dab8",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/payload-20.log",
+        "sha256": "cfe52f553b8baa57d7bb174a4ded9faa67c4d471d482a3aaf0c92921dd938134",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-01.log",
+        "sha256": "f204e6e50ea0ccf0d177d88d481eb717b88ff34cbadeedc5ea9220284748e60e",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-02.log",
+        "sha256": "85c2ebaa9fa461d9aff95634c7834137e9109ab60c3a79129b6bb8381e89ad49",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-03.log",
+        "sha256": "da70a7d32118bf665883fe7492ac997ef6e021c7fd9f141cb01f832fbe4905eb",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-04.log",
+        "sha256": "7d8124ab79a9b311808d05580c7ce964bec3153568e215c1d3a29fc7efa8e3d2",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-05.log",
+        "sha256": "f1d67e2555e9957564dafb2bb9522016420c452684dec454b8bae87116e3c308",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-06.log",
+        "sha256": "e96e9a5b88fbb7a3531b3137f23fbf756ace1fac154541bfadbba17c5da6fb89",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-07.log",
+        "sha256": "22b1119db21d2a81b137113aa7ce9f24cf54277d0f982e5b8b26795bc81f83b8",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-08.log",
+        "sha256": "df1133d6272a8f55d2493e49ef73e190f38b83c25a00cd6a7b6ac93e7a499a12",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-09.log",
+        "sha256": "cef0e521ee34f601def77b2ffbc03b66395b8de94c1e127f68528f1e2d272e82",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-10.log",
+        "sha256": "6fdbe8aa65cf67e649fd34d92f47dd70656efa37b30c59ce4135c36ed5290806",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-11.log",
+        "sha256": "9feab3aa8d0d4a497333ae4fa2250fa2be66e4cd0c06f3df6b14f02fb4e7bfb7",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-12.log",
+        "sha256": "e09eeb04599995698f0ba3a7c183c090ee9ef886be794e515a6edf5fe266c661",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-13.log",
+        "sha256": "a524731ce24be7aaca494d75114b12a96948e2f07ed9d68afcb77aa46feac620",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-14.log",
+        "sha256": "8a8c3908ea334f4e741223b43ced88778dd11bf53f746aca8e6c710735d97307",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-15.log",
+        "sha256": "8a4e7366369a6c4d65da905461af85821476035fc4f18779804db17877d6d5d3",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-16.log",
+        "sha256": "3c023df10bf686a863c79e85d46c2f1dffda0fa7e5f5e86794eac232138b002c",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-17.log",
+        "sha256": "b16b7b9ea2d89c8dd630b0402372e8be37eca664bd041091120af341cf51825c",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-18.log",
+        "sha256": "22b1119db21d2a81b137113aa7ce9f24cf54277d0f982e5b8b26795bc81f83b8",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-19.log",
+        "sha256": "bdad42085977517d7b861ce1032641277a0489ea34cffa7f041d0526e9f61a92",
+        "passed": true
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/publication-repeats-v4/publication-20.log",
+        "sha256": "aca8dca38b35e77010156f0ec79674f783051df627ae2199ef5c3f524782db1b",
+        "passed": true
+      }
+    ]
+  },
+  "review": {
+    "snapshot_sha256": "62fbd2edc7bdf092e7a767d6d833475ff2188489c269826f95a6abbf2ac167ba",
+    "acceptance_sha256": "6be35482208cec12e07664eed4b9f2aa11e6a3b282392bbcb7c708ff9b591809",
+    "peer_id": "peer-18e264647d80a9d0-425627",
+    "conversation_id": "conversation-18e264647edf5f10-425631",
+    "request_message_id": "cmsg-18e2667d7b660378-429021",
+    "scope": "exact v4 source hashes only"
+  },
+  "regressions": {
+    "publication-files-red.log": "86cdf5fdd956e3c2bfb3ddaa6a755339755042b422888ce48768c10cad5b7330",
+    "publication-staging-red.log": "6a66d48a8fdd992cca80dd8a3d52dedbbf1f71e46291ee064d480ceff1a133a5",
+    "publication-staging-green.log": "bba83c094ccd75c544bb52e75395ceabfa163c124bcc39bca69bb3d79800115a",
+    "publication-payload-cancel-v2.log": "d38aef69c174a5cbd3082bd0029750ab6e6030afceb48bff9875386d41019074",
+    "publication-payload-cancel-v3.log": "c9cf72c526254f8f91f992823fa5a0be34ef42db9af350efa75435c17221787b"
+  },
+  "installed_observations": {
+    "catalyst": {
+      "host": "catalyst.local",
+      "path": "/Users/spencer/.cargo/bin/reap",
+      "device": 16777232,
+      "sha256": "0678c4bb849a373492ff004b7cf75d92bb501dc5799e07891337de36cc2c2406"
+    },
+    "catalyst-mini": {
+      "host": "catalyst-mini.local",
+      "path": "/Users/spencer/.cargo/bin/reap",
+      "device": 16777234,
+      "sha256": "0678c4bb849a373492ff004b7cf75d92bb501dc5799e07891337de36cc2c2406"
+    }
+  },
+  "retained_finding": {
+    "citation": "ISS-NATIVE-PAYLOAD-RECOVERY-FIXTURE-INTERMIT",
+    "state": "new",
+    "root_cause_established": false
+  },
+  "boundary": {
+    "internal_storage_only": true,
+    "same_micro_certificate_and_per_role_designated_requirement": true,
+    "product_installation": false,
+    "live_authority_conversion": false,
+    "conversation_source_prune": false,
+    "foreign_process_termination": false
+  },
+  "evidence_locations": {
+    "root": "/Users/spencer/src/reap/target/control-t13/mutation-bridge",
+    "mini": "/private/tmp/reap-cores-transport-8yjfimnx/publication-t19-v2",
+    "mini_local_mirror": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/publication-mini-v2",
+    "repeat_fixture_root": "/private/tmp/reap-publication-repeat-t19-v4"
+  },
+  "limits": [
+    "Public applying routes remain foreground and unconverted.",
+    "Only private quarantine index publication is integrated; other metadata and applying families remain open.",
+    "Retained publication preparation remains after an attempted request, even if later refused; each file is bounded to 1 MiB.",
+    "Unknown top-level index fields refuse; nested Entry fields follow the legacy decoder.",
+    "External edits after final validation are not serialized with the native syscall.",
+    "Efficiency, own-Git applying coverage, fences, default KEEP, native archives, source release and full fleet product delivery remain open."
+  ]
+}
