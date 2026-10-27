@@ -1,0 +1,413 @@
+{
+  "version": 1,
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "verified source checkpoint; not fleet activation or full Task acceptance",
+  "source_revision": "62d2b9f9c1f471fc1829ba9bf2fc63e3e751cce3",
+  "base_revision": "022a90c02039f4b95972f2531fddd2326515b0c7",
+  "source_files": {
+    "README.md": "c004a23b59d0d87e7a1453548bfc1c70ab436b3e92fea3463617c086c1ced5ee",
+    "docs/specs/job-client.md": "97abc755f77c60cf751e5fd6f83fb1e8f3511d6ee407f7ac69bfb582f3dcd599",
+    "docs/specs/job-execution.md": "9214c32fa2413257c343bd427223ffdfcc0b47dc5ded87f68e4d6dc49a592d69",
+    "docs/specs/mutation-execution.md": "5b841079142914168aaadb41221b9db0d20fdbfb808fc93240081f71742b4bac",
+    "skill/SKILL.md": "92be8870d0ee418723388847bfa514e0bdd7a45db2eaf841b0909f6e286a6faa",
+    "src/client.rs": "3bccd9f83e2ff8969a275f179ca2dc4a782e5893d1f8576a8dac69b7a2ec4d83",
+    "src/client/tests.rs": "d7e20d575c3ddc16849481ec631a216852f2566cdb0cf9d87ee4a1aeea519065",
+    "src/dispatch/files_job.rs": "b370464eaead310ea204e53e3389a8c8298397fbdbbc5d0c0d14c9faf211e842",
+    "src/files.rs": "1146912c3ae0f13c3e250986f48e427fe967a61d39974174475977a5fedf928d",
+    "src/main.rs": "7ec23ed2d8cd7b219e5b3aa2f67b35738d146d99849d09bb292697333b4f7442",
+    "src/maintenance.rs": "849f8bf7682a4cf0aede2fcf828f6bbe7d25c8ca2c764ce6763f76540294d077",
+    "src/service/tests.rs": "a4956c8676c5d2c6ab9d408756500ddb55143b901adb20aa01194264de990d62",
+    "src/util.rs": "bf342f06f05430fed62f2fa9c32354b9c3f44f223fb59e779797bf393fb0621e",
+    "tests/lifecycle_state.rs": "f9b77ce79de647d7e2229e1bf35c0cd6106fb9d1425076bedc20975301c9df14",
+    "tests/reap_files.rs": "98e00398784a40df9d68fd9d9d49d2b49695d77390ef8ff01e72d9d8f4c3bd81",
+    "tests/skill_workspaces.py": "c5cd94114296bb6e03caca4f78d60327af1309edf56e18831f20b6bc5dc8f565",
+    "tests/test_preservation.py": "87457b50df857ddab56fd980b54e436b1d161f27fa26c09cb1878c22df9c607b",
+    "tests/test_public_files.py": "aa0e92b3d62735b8983672ce89642c78aa60c9e1eb77994b57b39943e36490b9",
+    "tests/test_public_mutations.py": "1d274f9c4670f84d60a5dbedc2e2fb003c4588423ade8bcd82a008a792e16f8f",
+    "tools/verify_control_macos.py": "73ff94a320fe39f69a5e3e16788db06a14e5514bbaa82012a56caa16949fa6e6",
+    "src/activity.rs": "b649a071ad6a251a10b3a5b6eb4ff30f9a3a3a98038f8dadb1d71b56450c2e04",
+    "src/quarantine.rs": "52eead60ce7d7e90f0c0e1e3e24d1b7cbae1210cd471e7e0662851e09dde8bfa",
+    "src/worker/tests.rs": "3e99fa38ea3157758333359728fb526c847a941c15730f21e56be86a79548d6a",
+    "tests/test_fixture_retention.py": "de5115c496344e8a25a1c77093adfa3c310992a162b7623f71518dcd79b77b8a"
+  },
+  "native_artifacts": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-public-frozen-v5/app",
+      "sha256": "4f7a4663bca4bd3d48ee7082f8f16f3d134a75d00b3416d83743e10268a8aef8",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 25725440,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-public-frozen-v5/unit",
+      "sha256": "71941102e1f864819cceb49dc04e20f048b67e5fa16b54049884cd52a4212d21",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 33856544,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-public-frozen-v5/fault",
+      "sha256": "b41a7681d33125110aed666ab3c9fdbf28605f4cef4cddda0e93c9d46b414a6b",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults",
+      "bytes": 52384,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/fault.dylib"
+    }
+  },
+  "native_source_binding": {
+    "build_snapshot_sha256": "785947b59c6f57870c98b47ac23c1d6e5211fd2503b2fa7969eac84b7192e138",
+    "final_snapshot_sha256": "6c64bab550255d5f7f545bc5f41df1b616e87217acbdd8ed50e14f7b02624aa7",
+    "all_rust_src_bytes_unchanged": true,
+    "final_delta": [
+      "tests/reap_files.rs",
+      "tests/test_preservation.py",
+      "tests/test_public_mutations.py",
+      "tests/test_fixture_retention.py"
+    ]
+  },
+  "source_bin_suite": {
+    "exit": 0,
+    "passed": 365,
+    "ignored_native_fault_cases": 5,
+    "results": [
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 369 filtered out; finished in 0.04s",
+      "test result: ok. 365 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 368.64s"
+    ],
+    "log_sha256": "a2f7718c452b98a03322e629de7156b686946572742c88fa821530a47dd88c4e"
+  },
+  "integration_compile": {
+    "exit": 0,
+    "log_sha256": "9b84397ca2e4197e99aba3237be9e9358c7c60f71733074cea2e6bcfaec1bb78",
+    "runtime_integration_not_run": true
+  },
+  "native": {
+    "catalyst": {
+      "service": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 51,
+        "results": [
+          "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 355 filtered out; finished in 27.79s"
+        ],
+        "receipt_sha256": "007d6425f46ad9ee4f41cad815ae56901f126e0c9253b4b4d6fc3fb9e7c3fb1f",
+        "log_sha256": "5e8ed547b39b1b986d452194677372b93a2ca00ebcc12f436ca0a96855e4cbaf",
+        "skipped_test_driver_cases": []
+      },
+      "launch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 1.92s"
+        ],
+        "receipt_sha256": "fd0f50632460a3964e200eaacb7fae2779cdfd92e4f413ebc6aab7df805d40f7",
+        "log_sha256": "dcb9598b1c46da1df40352d53ac8f22866de26cd30f408a797865e8440acb1bf",
+        "skipped_test_driver_cases": []
+      },
+      "control": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 7,
+        "results": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 369 filtered out; finished in 0.06s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 360 filtered out; finished in 3.07s"
+        ],
+        "receipt_sha256": "00dbab1ebb59b953bf56cefb552c6d94f14655c744197eaa9842991ded387364",
+        "log_sha256": "30f73ca5c60429273b3755b57e0fd1c9fc71525758b912b320e3fbebb284d16d",
+        "skipped_test_driver_cases": []
+      },
+      "client": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 0.02s"
+        ],
+        "receipt_sha256": "5838e098440a9bebd0d4b8839b83082f2c96d89cbbc00df7cb1b5db51f2486e7",
+        "log_sha256": "9bba198887b9dd69eb70a3e037d1bac26bbff95fd4393774252aedec7060ab31",
+        "skipped_test_driver_cases": []
+      },
+      "util": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 0.73s"
+        ],
+        "receipt_sha256": "feb3cfedb10568ab9225b76a992c0f2ae1f744ffe053f9a7c53300b3b1b65cb3",
+        "log_sha256": "a600ff06f09c8105e65161e83082630080f9314cc5ac8b0ae82e49bea1245a0c",
+        "skipped_test_driver_cases": []
+      },
+      "worker": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 342 filtered out; finished in 9.83s"
+        ],
+        "receipt_sha256": "ef05dcec0df1b0bc5059b061072202cb72eb1c3d255d68245c994ad042fe3707",
+        "log_sha256": "215da8c005070d9c37e4f2b4a200affd69b27727ca79017f95578a7edbfd7cd8",
+        "skipped_test_driver_cases": []
+      },
+      "dispatch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 330 filtered out; finished in 262.17s"
+        ],
+        "receipt_sha256": "7a4ff5674d14944c19b050f60af5313332ca9bd89002727a0718ba4e94b59496",
+        "log_sha256": "10df4a775e137b6bb0848f559dd001330e545630646793f2554c79c1fa7aca0d",
+        "skipped_test_driver_cases": []
+      },
+      "production-dispatch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 337 filtered out; finished in 153.72s"
+        ],
+        "receipt_sha256": "6d102ba5aaad6a1e213ad732565753785a2cee7b087894e9e416ff85fb97f393",
+        "log_sha256": "f3aac37aca9ed56af2740627e8c1dbed60d5432b71ed982dff17a36801fb704c",
+        "skipped_test_driver_cases": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches",
+          "dispatch::tests::native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+          "dispatch::tests::native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+          "dispatch::tests::native_files_apply_refuses_configuration_revoked_during_final_activity",
+          "dispatch::tests::native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+          "dispatch::tests::native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
+          "dispatch::tests::native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads"
+        ]
+      }
+    },
+    "catalyst-mini": {
+      "service": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 51,
+        "results": [
+          "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 355 filtered out; finished in 23.66s"
+        ],
+        "receipt_sha256": "2dfdb43bc61dc645ae4ee5c0fdaf11a3d87dd6a8a7bee25aef4bdbf69e4acaf2",
+        "log_sha256": "e2dc9704936a4d23e0cd285ffde895e48823e2769e2e434a4f541d2de5671ac6",
+        "skipped_test_driver_cases": []
+      },
+      "launch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 1.03s"
+        ],
+        "receipt_sha256": "b217accbaaa9e8d848d71c109c135720fc3990e92b191ac1f452284b89179046",
+        "log_sha256": "1c97e2bf3f71705d20b933370b0771b7c065ee67ceade028453a16f8df748478",
+        "skipped_test_driver_cases": []
+      },
+      "control": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 7,
+        "results": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 369 filtered out; finished in 0.02s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 360 filtered out; finished in 2.55s"
+        ],
+        "receipt_sha256": "26dad0ba48e8e77d758d4ed842af876058efe100d8aa78aa10a78d5a78151be3",
+        "log_sha256": "c07af3899dbdea87cd00f6cc2cafc3679ac37606a61626879caf80f527e432fd",
+        "skipped_test_driver_cases": []
+      },
+      "client": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 0.01s"
+        ],
+        "receipt_sha256": "16db3dd49865a29f35dfdebc8c0eb17fcec9cfd62d7ae65deedc768a236d68e5",
+        "log_sha256": "b11667deeac1521e2baebcdde6778657df1f7de775caeed2c18a72642a6fe8bd",
+        "skipped_test_driver_cases": []
+      },
+      "util": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 0.67s"
+        ],
+        "receipt_sha256": "5be552ec1f201f4ed159fc7f1f688ee5239d82c1936a193be51204b825a508e3",
+        "log_sha256": "d51f09829212c325d64b129cd18bb14bb255bceb0cb8b403ad28ff8cf2a9ef1d",
+        "skipped_test_driver_cases": []
+      },
+      "worker": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 342 filtered out; finished in 8.46s"
+        ],
+        "receipt_sha256": "d0a15f1bb30b599a5395a1e0e03da56efb392a838c62f6da69a9202708f0a6f4",
+        "log_sha256": "068c1dbe33685fecf8558c0b1b3f89349030b94f64d873af2a713b4e6d8b163d",
+        "skipped_test_driver_cases": []
+      },
+      "dispatch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 330 filtered out; finished in 125.64s"
+        ],
+        "receipt_sha256": "783cb781bb707d9a964e908cbf367d95333c4d2d5be0cd82f667d83e02f89bab",
+        "log_sha256": "ef47e217e9bd356b395c51be4f02a5f98cc213a3e6a5994812e7446674182170",
+        "skipped_test_driver_cases": []
+      },
+      "production-dispatch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 337 filtered out; finished in 75.61s"
+        ],
+        "receipt_sha256": "d0b9b12287547158bc909f5958554432e7d71472224fb6b73dd1847df29b28b0",
+        "log_sha256": "579d11d3c8330d4ac11ab81852882f278b3506d0fbc2fd453e3639d00b0768a7",
+        "skipped_test_driver_cases": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches",
+          "dispatch::tests::native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+          "dispatch::tests::native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+          "dispatch::tests::native_files_apply_refuses_configuration_revoked_during_final_activity",
+          "dispatch::tests::native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+          "dispatch::tests::native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
+          "dispatch::tests::native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads"
+        ]
+      }
+    }
+  },
+  "client_and_fixture_checks": {
+    "root_fifo": {
+      "log_sha256": "3230caf5bcf7b75210d6ff84024c594754689765ada21013297a85b6f4fb1f1f",
+      "summary": "Ran 1 test in 0.034s",
+      "command_receipt_sha256": "624c124f8c59eb8d496a747bff93a0d0bb0c168c4ae5724a59cbecdb84a5910a",
+      "command_record": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "/Users/spencer/src/reap/tests/test_public_mutations.py",
+          "PublicMutations.test_files_apply_does_not_wait_for_configuration_fifo"
+        ],
+        "cwd": "/Users/spencer/src/reap",
+        "REAP_TEST_BIN": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-public-frozen-v5/app",
+        "binary_sha256_before": "4f7a4663bca4bd3d48ee7082f8f16f3d134a75d00b3416d83743e10268a8aef8",
+        "binary_sha256_after": "4f7a4663bca4bd3d48ee7082f8f16f3d134a75d00b3416d83743e10268a8aef8",
+        "harness_sha256": "1d274f9c4670f84d60a5dbedc2e2fb003c4588423ade8bcd82a008a792e16f8f",
+        "log_sha256": "3230caf5bcf7b75210d6ff84024c594754689765ada21013297a85b6f4fb1f1f",
+        "exit": 0,
+        "storage_device": 16777232
+      }
+    },
+    "mini_fifo": {
+      "log_sha256": "c6d92f0d84f2b03647abdbdcfc8bed8b68bc6e4c52fb3bb4eea49eabfc5c4cb4",
+      "summary": "Ran 1 test in 0.047s",
+      "command_receipt_sha256": "098f51ffe4db3bec62539c5f9d1baeb4d884827db991cb8dc016f914931d0ba4",
+      "command_record": {
+        "command": [
+          "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+          "/private/tmp/reap-cores-transport-8yjfimnx/files-client-t19-v5/tests/test_public_mutations.py",
+          "PublicMutations.test_files_apply_does_not_wait_for_configuration_fifo"
+        ],
+        "cwd": "/private/tmp/reap-cores-transport-8yjfimnx/files-client-t19-v5",
+        "REAP_TEST_BIN": "/private/tmp/reap-cores-transport-8yjfimnx/files-client-t19-v5/app",
+        "binary_sha256_before": "4f7a4663bca4bd3d48ee7082f8f16f3d134a75d00b3416d83743e10268a8aef8",
+        "binary_sha256_after": "4f7a4663bca4bd3d48ee7082f8f16f3d134a75d00b3416d83743e10268a8aef8",
+        "harness_sha256": "1d274f9c4670f84d60a5dbedc2e2fb003c4588423ade8bcd82a008a792e16f8f",
+        "log_sha256": "c6d92f0d84f2b03647abdbdcfc8bed8b68bc6e4c52fb3bb4eea49eabfc5c4cb4",
+        "exit": 0,
+        "storage_device": 16777234
+      }
+    },
+    "root_fixture_retention": {
+      "log_sha256": "1c8400bb976db5953e9a6129305ed02d312990e8cd728edd2a7a11101c965b8f",
+      "summary": "Ran 3 tests in 0.019s"
+    },
+    "mini_fixture_retention": {
+      "log_sha256": "8cb2b9e75550350b0404c01e362f6749225fae08c2ce18df074de4ad3964e538",
+      "summary": "Ran 3 tests in 0.015s"
+    }
+  },
+  "reviews": [
+    {
+      "receipt_sha256": "e07e9210b6998dd992c763d9b06345439e3078030d27f6d72da906357da02622",
+      "artifact": "target/control-t13/mutation-bridge/files-client-review-wait-v4a.json",
+      "request": "cmsg-18e26d1c63630f78-433099"
+    },
+    {
+      "receipt_sha256": "18a2316e24fb2fbfe0c6cd16ad0c440a71028cb0117dc27d6724f81f4b3ded79",
+      "artifact": "target/control-t13/mutation-bridge/files-activity-review-wait-v1a.json",
+      "request": "cmsg-18e26e1173def650-434576"
+    },
+    {
+      "receipt_sha256": "4c7f66f6c23a79f1303670e1d5cb46dd853d6e6b731e3c8f260812e57bddd50e",
+      "artifact": "target/control-t13/mutation-bridge/files-fixture-review-wait-v6a.json",
+      "request": "cmsg-18e26f289dde6720-434867"
+    }
+  ],
+  "original_activity_failure": {
+    "issue": "ISS-NATIVE-FILES-CLEANUP-INTERMITTENTLY-REFU",
+    "cause": "not established",
+    "log_sha256": "ed20890e4d2e1f5c656f2477e1b6cb7be902d7983af1bea67f84b79921c4ad4a",
+    "fixture": "target/control-t13/dispatch-772f280420cd17b54671d1e6df9592b1",
+    "effects": 0,
+    "phase": "refused",
+    "worker_observation": {
+      "completed_units": 0,
+      "last_blocked": null,
+      "last_error": "move /Users/spencer/src/reap/target/control-t13/dispatch-772f280420cd17b54671d1e6df9592b1/project/run-b -> /Users/spencer/src/reap/target/control-t13/dispatch-772f280420cd17b54671d1e6df9592b1/state/reap/quarantine/entries/eaddcc01/run-b: invalid activity record; inspect /Users/spencer/src/reap/target/control-t13/dispatch-772f280420cd17b54671d1e6df9592b1/state/reap/quarantine/entries/eaddcc01 before retrying",
+      "unknown_effects": false
+    },
+    "record_sha256": "8bdae12dfb6681965a22ffc43bc125ad653eac0b93fa8bb05d5d4e021fcd8842"
+  },
+  "other_open_issue": "ISS-NATIVE-PAYLOAD-RECOVERY-FIXTURE-INTERMIT",
+  "fixture_repair_issue": "ISS-FIXTURE-CLEANUP-CAN-DISCARD-DATA-AFTER-F",
+  "fixture_red_log_sha256": "b6a9d32cbf5a104cb8d430624e3529fc0c8e1afe4f940ce398c15f63e6135a2f",
+  "installed_observations": {
+    "catalyst": {
+      "path": "/Users/spencer/.cargo/bin/reap",
+      "sha256": "0678c4bb849a373492ff004b7cf75d92bb501dc5799e07891337de36cc2c2406",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 4687712,
+      "storage_device": 16777232
+    },
+    "catalyst-mini": {
+      "path": "/Users/spencer/.cargo/bin/reap",
+      "sha256": "0678c4bb849a373492ff004b7cf75d92bb501dc5799e07891337de36cc2c2406",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 4687712,
+      "storage_device": 16777234
+    }
+  },
+  "product_installation_performed": false,
+  "operator_guide_deployment_performed": false,
+  "live_authority_conversion_or_source_prune": false,
+  "private_evidence": {
+    "root": "/Users/spencer/src/reap/target/control-t13/mutation-bridge",
+    "mini": "/private/tmp/reap-cores-transport-8yjfimnx/files-client-t19-v5"
+  },
+  "remaining": [
+    "all other applying adapters and shared reservations",
+    "cohort drains and old-reader fences before C7 activation",
+    "default KEEP and lifetime migration",
+    "permanent native provider archives and independent consumer retrieval",
+    "separate fail-closed conversation source release",
+    "complete Cargo suite, public allowed effects and installed-path checks on both Macs",
+    "operator-guide activation with complete signed product delivery",
+    "native activity format failure root cause"
+  ]
+}
