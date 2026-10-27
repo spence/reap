@@ -100,6 +100,14 @@ recent artifacts ineligible. For apply, Reap holds Cargo's per-profile
 lock error prevents that. Dry-runs do not lock. Cargo does not use this lock
 on NFS, so do not apply there during a build.
 
+Cargo apply preserves running executable paths from a bounded native snapshot,
+including a removal directory that contains one. Incomplete process evidence
+refuses the target. A partial removal returns nonzero; inspect its survivors.
+An unresolved executable name needs complete scoped vnode evidence, not an
+assumption of inactivity. An incomplete candidate walk preserves that candidate.
+The snapshot does not serialize later process starts or protect every open data
+file or mapped library. Keep the build lock and minimum-age brake.
+
 ## 2. Temporary checkouts: lease at creation, retire when expired
 
 For work authorized for time-bounded retirement (benchmark clones, disposable

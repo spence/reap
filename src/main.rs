@@ -380,6 +380,7 @@ enum RunError {
   Manifest(String),
   Protected(PathBuf),
   CargoLock(String),
+  Activity(String),
 }
 
 fn main() {
@@ -531,7 +532,11 @@ fn build_and_run(
     None
   };
   let plan = plan_project(&manifest, now_secs(), quick).map_err(|p| RunError::Protected(p.0))?;
-  let removed = if apply { apply_plan(&plan) } else { 0 };
+  let removed = if apply {
+    apply_plan(&plan).map_err(|error| RunError::Activity(error.to_string()))?
+  } else {
+    0
+  };
   Ok((plan, removed))
 }
 
@@ -624,6 +629,10 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
         eprintln!("  {}: SKIPPED Cargo cleanup: {}", name, e);
         errors += 1;
       }
+      Err(RunError::Activity(e)) => {
+        eprintln!("SKIPPED Cargo cleanup: executable activity is unavailable: {e}");
+        errors += 1;
+      }
     }
   }
 
@@ -710,6 +719,10 @@ fn cmd_one(
     }
     Err(RunError::CargoLock(e)) => {
       eprintln!("SKIPPED Cargo cleanup: {}", e);
+      return 1;
+    }
+    Err(RunError::Activity(e)) => {
+      eprintln!("SKIPPED Cargo cleanup: executable activity is unavailable: {e}");
       return 1;
     }
   };

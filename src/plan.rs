@@ -1,5 +1,5 @@
-//! The safety core: what reap would delete, and the three guards that keep it
-//! safe to run anytime (structural containment, min-age, manifest protections).
+//! Bounded Cargo compaction with redundancy, minimum age, manifest protection,
+//! preservation roles, and a native executable-activity snapshot before removal.
 //!
 //! The dedup keeps exactly what the current build links; the invariants are
 //! covered by the tests in this module.
@@ -665,18 +665,62 @@ fn add_category(
 // Deletion
 // --------------------------------------------------------------------------- //
 
-pub fn apply_plan(plan: &Plan) -> usize {
+/// Apply one candidate set after a complete native executable snapshot.
+/// Snapshot failure returns before removals; later path failures retain their existing diagnostics.
+pub fn apply_plan(plan: &Plan) -> std::io::Result<usize> {
+  if plan.item_count() == 0 {
+    return Ok(0);
+  }
+  let physical_target = fs::canonicalize(&plan.target)?;
+  let candidates = plan
+    .categories
+    .iter()
+    .flat_map(|category| &category.paths)
+    .map(|path| {
+      path
+        .strip_prefix(&plan.target)
+        .map_err(std::io::Error::other)?;
+      let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("missing candidate parent"))?;
+      let name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("missing candidate name"))?;
+      let physical = fs::canonicalize(parent)?.join(name);
+      let relative = physical
+        .strip_prefix(&physical_target)
+        .map_err(std::io::Error::other)?;
+      Ok((path, relative.to_path_buf()))
+    })
+    .collect::<std::io::Result<Vec<_>>>()?;
+  let mut active = crate::activity::executables(&physical_target)?;
   let mut removed = 0;
-  for c in &plan.categories {
-    for p in &c.paths {
-      let res = crate::preservation::remove(p);
-      match res {
-        Ok(()) => removed += 1,
-        Err(e) => eprintln!("warning: could not remove {}: {}", p.display(), e),
+  for (p, relative) in candidates {
+    let physical = physical_target.join(&relative);
+    match active.protects(&physical, &relative) {
+      Ok(false) => {}
+      Ok(true) => {
+        eprintln!(
+          "preserved {}: active executable or mapped image",
+          p.display()
+        );
+        continue;
+      }
+      Err(error) => {
+        eprintln!(
+          "preserved {}: incomplete activity evidence: {error}",
+          p.display()
+        );
+        continue;
       }
     }
+    let res = crate::preservation::remove(p);
+    match res {
+      Ok(()) => removed += 1,
+      Err(e) => eprintln!("warning: could not remove {}: {}", p.display(), e),
+    }
   }
-  removed
+  Ok(removed)
 }
 
 // --------------------------------------------------------------------------- //
@@ -991,7 +1035,7 @@ mod tests {
       "keep.names artifact never touched"
     );
 
-    apply_plan(&plan);
+    apply_plan(&plan).unwrap();
     assert!(
       !deps.join("libfoo-1111111111111111.rlib").exists(),
       "old foo deleted on apply"
@@ -1074,7 +1118,7 @@ mod tests {
       "kept release profile untouched"
     );
 
-    apply_plan(&plan);
+    apply_plan(&plan).unwrap();
     assert!(
       !tgt.join("debug/deps/libz-6666666666666666.rlib").exists(),
       "stale debug deps gone"
@@ -1138,7 +1182,7 @@ mod tests {
       }],
       total_bytes: 3,
     };
-    assert_eq!(apply_plan(&plan), 1);
+    assert_eq!(apply_plan(&plan).unwrap(), 1);
     assert!(!removable.exists());
     assert!(protected.is_file());
     let _ = fs::remove_dir_all(&root);
