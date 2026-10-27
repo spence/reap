@@ -1,0 +1,298 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "issue": "ISS-CARGO-CLEANUP-DELETES-A-RUNNING-EXECUTAB",
+  "contract": "SPEC-EXECUTABLE-ACTIVITY",
+  "boundary": "Cargo activity guard delivered; full T19 and redesign remain active",
+  "source_revision": "adc2e5ca65f2dc251cefa7fa384a7dffbf49b0ae",
+  "operator_guide_revision": "0894db6b4ec98d440c5288ec8f4147198e9ae072",
+  "verified_at": "2026-10-26T22:56:13.347657-07:00",
+  "artifacts": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/app",
+      "source": "/Users/spencer/src/reap/target/control-t13/active-executable-fix/target/release/reap",
+      "sha256": "0678c4bb849a373492ff004b7cf75d92bb501dc5799e07891337de36cc2c2406",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/unit",
+      "source": "/Users/spencer/src/reap/target/control-t13/active-executable-fix/target/debug/deps/reap-b474d274394e83a9",
+      "sha256": "de3509a5cbcead7365a008241f08aed26f1f3c5a57c03457de64c15bd19ec339",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests"
+    },
+    "activity-fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/activity-fault.dylib",
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v2/activity-fault.dylib",
+      "sha256": "d2cc39c2304742a515a75d0c730fce09ba8122c487f30f5c70bf28df878c15ca",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults"
+    },
+    "fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/fault.dylib",
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v2/fault.dylib",
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults"
+    }
+  },
+  "accepted_sources": {
+    "README.md": "a34dd51086f8cb99e489ad2df0cc208930c5cb1963ac544358ffb3a4036f6610",
+    "skill/SKILL.md": "bc5216b9403e3281afd0bed4105ac013722f6cb0fb1b25db2e64edcce344f15e",
+    "src/activity.rs": "ecbba2267d9a85ef9a95b8e87b96e076141b749b73995ac9256a072b1ef16b0f",
+    "src/activity/executable_paths.rs": "570f794d5af5350b9578a764eb694ae2677ad1a819958937f1ad82f83ef1830b",
+    "src/main.rs": "7cb231d63f0c2bb07f06acf07e9a05ce8e0252c2acfe8673c08c3a28cbb826f1",
+    "src/plan.rs": "af63c94d6417f90f457780cf9df07280337a88b18bec4824086f3a6e1aecd884",
+    "src/preservation.rs": "0a730025984c523bc899545206b2e8be6c3af55f2fa41c1dd6c19518c68f47ec",
+    "tests/test_active_executables.py": "7c4cc26c60d249cb08ca91bc36265a4e0c9b57f2e709aa3b919b59dce11f26fc",
+    "tests/native_activity_fault.c": "0c4d4e282fe86ede16910e35a4ab96e78b9425ecc7d8886d437ed4e2f0c4a426",
+    "docs/specs/executable-activity.md": "8170043710fa67ada7abd7764417d2de05e950cfcc30733ad2dbaee73bc7fe8c",
+    "skills/shared/skills/reap/SKILL.md": "e20fd626660efd329fefe9604dca1ffa3a00bcc8f987663520843aba35fc9246",
+    "src/activity/executable_paths/mapped_paths.rs": "ad36903c740e366323a337128732ba6fd5e04637e9b4fe2ced552b42a2a1ccdf"
+  },
+  "review": {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "effort": "high",
+    "conversation_id": "conversation-18e2498f0603e038-399523",
+    "request_id": "cmsg-18e24b3f50a1ab50-404749",
+    "accepted": true,
+    "closed": true
+  },
+  "source_suite": {
+    "unit_passed": 323,
+    "ignored_native_faults": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23,
+    "exit": 0,
+    "log": "active-executable-full-rust-v3.log"
+  },
+  "source_installer_cases": 19,
+  "source_guide_delivery_cases": 6,
+  "hosts": {
+    "catalyst": {
+      "installed": {
+        "app_sha256": "0678c4bb849a373492ff004b7cf75d92bb501dc5799e07891337de36cc2c2406",
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "guide_sha256": "e20fd626660efd329fefe9604dca1ffa3a00bcc8f987663520843aba35fc9246",
+        "guide_devices_internal": true
+      },
+      "cli": {
+        "version": "reap 0.1.0",
+        "help_sha256": "6c3630d67e03ef704d9de8278f6c9332b375244509276c2fd728475afd471109"
+      },
+      "gates": {
+        "active": {
+          "passed": 6,
+          "log": "active-executable-installed-regression.log"
+        },
+        "preservation": {
+          "passed": 15,
+          "log": "active-executable-installed-preservation.log"
+        },
+        "workspaces": {
+          "passed": 5,
+          "log": "active-executable-installed-workspaces.log"
+        },
+        "public_check": {
+          "passed": 8,
+          "log": "active-executable-installed-public-check.log"
+        },
+        "public_files": {
+          "passed": 7,
+          "log": "active-executable-installed-public-files.log"
+        },
+        "service": {
+          "passed": 14,
+          "runtime_removed": true,
+          "labels_absent": 48,
+          "driver_sha256": "de3509a5cbcead7365a008241f08aed26f1f3c5a57c03457de64c15bd19ec339"
+        },
+        "launch": {
+          "passed": 13,
+          "runtime_removed": true,
+          "labels_absent": 0,
+          "driver_sha256": "de3509a5cbcead7365a008241f08aed26f1f3c5a57c03457de64c15bd19ec339"
+        }
+      },
+      "guide_consumers": {
+        "codex": {
+          "configuration": {
+            "observed_model": "gpt-6-luna",
+            "observed_effort": "medium",
+            "observed_execution_profile": "workspace",
+            "working_directory": "/Users/spencer/src/reap/target/control-t13/active-executable-fix"
+          },
+          "launch": {
+            "conversation_id": "conversation-18e24c2eb9229280-406911",
+            "launch_key": "reap-active-executable-guide-codex-catalyst-v1",
+            "launch_status": "submitted",
+            "peer_id": "peer-18e24c2eb867be60-406907",
+            "request_message_id": "cmsg-18e24c2ec98fe8e8-406914"
+          },
+          "reply": {
+            "provider": "Codex",
+            "skill_path": "/Users/spencer/.codex/skills/reap/SKILL.md",
+            "skill_sha256": "e20fd626660efd329fefe9604dca1ffa3a00bcc8f987663520843aba35fc9246",
+            "cargo_preserves_running_executable": true,
+            "unresolved_executable_name_proves_inactivity": false,
+            "partial_removal_returns_nonzero": true,
+            "snapshot_serializes_later_process_starts": false
+          },
+          "closed": true
+        },
+        "claude": {
+          "configuration": {
+            "observed_model": "claude-haiku-5-5",
+            "observed_effort": "medium",
+            "observed_execution_profile": "workspace",
+            "working_directory": "/Users/spencer/src/reap/target/control-t13/active-executable-fix"
+          },
+          "launch": {
+            "conversation_id": "conversation-18e24c2ef3994328-406927",
+            "launch_key": "reap-active-executable-guide-claude-catalyst-v1",
+            "launch_status": "submitted",
+            "peer_id": "peer-18e24c2ef247b518-406923",
+            "request_message_id": "cmsg-18e24c2ef438bb60-406930"
+          },
+          "reply": {
+            "provider": "Claude",
+            "skill_path": "/Users/spencer/.claude/skills/reap/SKILL.md",
+            "skill_sha256": "e20fd626660efd329fefe9604dca1ffa3a00bcc8f987663520843aba35fc9246",
+            "cargo_preserves_running_executable": true,
+            "unresolved_executable_name_proves_inactivity": false,
+            "partial_removal_returns_nonzero": true,
+            "snapshot_serializes_later_process_starts": false
+          },
+          "closed": true
+        }
+      },
+      "agentless_preflight": {
+        "agent_hosts": false,
+        "role_count": 3
+      }
+    },
+    "catalyst-mini": {
+      "installed": {
+        "app_sha256": "0678c4bb849a373492ff004b7cf75d92bb501dc5799e07891337de36cc2c2406",
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "guide_sha256": "e20fd626660efd329fefe9604dca1ffa3a00bcc8f987663520843aba35fc9246",
+        "guide_devices_internal": true
+      },
+      "cli": {
+        "version": "reap 0.1.0",
+        "help_sha256": "6c3630d67e03ef704d9de8278f6c9332b375244509276c2fd728475afd471109"
+      },
+      "gates": {
+        "active": {
+          "passed": 6,
+          "log": "installed-regression.log"
+        },
+        "preservation": {
+          "passed": 15,
+          "log": "installed-preservation.log"
+        },
+        "workspaces": {
+          "passed": 5,
+          "log": "installed-workspaces.log"
+        },
+        "public_check": {
+          "passed": 8,
+          "log": "installed-public-check.log"
+        },
+        "public_files": {
+          "passed": 7,
+          "log": "installed-public-files.log"
+        },
+        "service": {
+          "passed": 14,
+          "runtime_removed": true,
+          "labels_absent": 48,
+          "driver_sha256": "de3509a5cbcead7365a008241f08aed26f1f3c5a57c03457de64c15bd19ec339"
+        },
+        "launch": {
+          "passed": 13,
+          "runtime_removed": true,
+          "labels_absent": 0,
+          "driver_sha256": "de3509a5cbcead7365a008241f08aed26f1f3c5a57c03457de64c15bd19ec339"
+        }
+      },
+      "guide_consumers": {
+        "codex": {
+          "configuration": {
+            "observed_model": "gpt-6-luna",
+            "observed_effort": "medium",
+            "observed_execution_profile": "workspace",
+            "working_directory": "/private/tmp/reap-cores-transport-8yjfimnx/active-executable-t19"
+          },
+          "launch": {
+            "conversation_id": "conversation-18e24c2eda4ce208-4393119",
+            "launch_key": "reap-active-executable-guide-codex-mini-v1",
+            "launch_status": "submitted",
+            "peer_id": "peer-18e24c2ed941e660-4393115",
+            "request_message_id": "cmsg-18e24c2ee4caa8a0-4393122"
+          },
+          "reply": {
+            "provider": "Codex",
+            "skill_path": "/Users/spencer/.codex/skills/reap/SKILL.md",
+            "skill_sha256": "e20fd626660efd329fefe9604dca1ffa3a00bcc8f987663520843aba35fc9246",
+            "cargo_preserves_running_executable": true,
+            "unresolved_executable_name_proves_inactivity": false,
+            "partial_removal_returns_nonzero": true,
+            "snapshot_serializes_later_process_starts": false
+          },
+          "closed": true
+        },
+        "claude": {
+          "configuration": {
+            "observed_model": "claude-haiku-5-5",
+            "observed_effort": "medium",
+            "observed_execution_profile": "workspace",
+            "working_directory": "/private/tmp/reap-cores-transport-8yjfimnx/active-executable-t19"
+          },
+          "launch": {
+            "conversation_id": "conversation-18e24c2f013e03b0-4393135",
+            "launch_key": "reap-active-executable-guide-claude-mini-v1",
+            "launch_status": "submitted",
+            "peer_id": "peer-18e24c2effa76dc0-4393130",
+            "request_message_id": "cmsg-18e24c2f0257d820-4393138"
+          },
+          "reply": {
+            "provider": "Claude",
+            "skill_path": "/Users/spencer/.claude/skills/reap/SKILL.md",
+            "skill_sha256": "e20fd626660efd329fefe9604dca1ffa3a00bcc8f987663520843aba35fc9246",
+            "cargo_preserves_running_executable": true,
+            "unresolved_executable_name_proves_inactivity": false,
+            "partial_removal_returns_nonzero": true,
+            "snapshot_serializes_later_process_starts": false
+          },
+          "closed": true
+        }
+      },
+      "agentless_preflight": {
+        "agent_hosts": false,
+        "role_count": 3
+      }
+    }
+  },
+  "limits": [
+    "The snapshot does not serialize later process starts or outside namespace changes.",
+    "Legacy applying commands remain foreground; the full bounded applying bridge is not delivered.",
+    "This proof does not activate lifetime conversion, provider-native conversation archives, or source pruning.",
+    "Linux and other-platform runtime proof remains separate.",
+    "The issue remains planned under T19 for complete per-unit freshness and executor integration."
+  ],
+  "evidence": {
+    "local": "/Users/spencer/src/reap/target/control-t13/mutation-bridge",
+    "mini": "/private/tmp/reap-cores-transport-8yjfimnx/active-executable-t19",
+    "old_binary_reproduction": "active-executable-regression-red.log",
+    "alias_and_unlinked_reproduction": "active-executable-alias-unlinked-red.log",
+    "resource_bound_reproduction": "active-executable-budget-red.log",
+    "resource_bound_correction": "active-executable-budget-green.log",
+    "native_identity": "active-executable-mini-native-identity-v3.json"
+  }
+}
