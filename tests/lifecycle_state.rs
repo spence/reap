@@ -3230,6 +3230,8 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
   assert_eq!(dry["outcome"], "ok");
   assert_eq!(dry["mode"], "dry-run");
   assert_eq!(dry["stages"].as_array().unwrap().len(), 7);
+  assert_eq!(dry["stages"][4]["command"], "reap files --wait 30");
+  assert_eq!(dry["stages"][4]["outcome"], "ok");
   assert_eq!(dry["stages"][6]["outcome"], "skipped");
   assert!(dry["stages"][3]["stdout"]
     .as_str()

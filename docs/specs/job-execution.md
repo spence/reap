@@ -13,8 +13,8 @@ This contract covers the first read-only `check [path]` execution path.
 The public CLI uses the bounded job client. This path does not activate applying operations,
 legacy migration, archive policy, source pruning, or new cleanup authority.
 The unified legacy bridge, old-reader barriers, and commit guards remain required for effectful routes.
-Internal prepared `files [governed-root]` requests also use owned resolver and preview phases.
-The public `files` route is not activated by that internal adapter.
+Read-only `files [governed-root-or-workspace]` requests also use owned resolver and preview phases.
+The public route uses the bounded job client; applying Files operations retain their separate legacy route.
 
 ## Contract
 
@@ -50,7 +50,7 @@ The public `files` route is not activated by that internal adapter.
 - **C7** — Deterministic task validation or combined-wire-capacity rejection fails only that job, before a new launch intent or process exists.
   Journal and uncertain ownership failures remain service failures; they cannot become rejected-before-launch evidence.
   Binding: `oversized_combined_task_fails_only_its_job_without_creating_a_bulk_process`.
-- **C8** — Internal files preview binds caller, namespace, configuration, governed roots, state inputs, and native physical resources.
+- **C8** — Read-only files preview binds caller, namespace, configuration, governed roots, state inputs, and native physical resources.
   It accepts only read mode. Proven absent roots differ from existing non-directories.
   Changed configuration or namespace refuses assessment. The worker does not write targets or first-seen observations.
   The metadata writer publishes complete first-seen facts with the result under C13.
@@ -87,7 +87,7 @@ The public `files` route is not activated by that internal adapter.
   Required siblings affect retention decisions but never become removal candidates outside the selected path.
   Unmatched sibling subtrees and unrelated projects are not traversed for display sizing.
   Ancestor seals, honored child declarations, preservation roles, incomplete inputs, and native identity guards retain their force.
-  This internal read-only path does not activate a scoped applying route or the public Files client.
+  This read-only path does not activate a scoped applying route.
   Checks: `scoped_expiry_cannot_cross_intervening_protection_or_select_siblings`,
   `scoped_retention_uses_complete_units_and_matching_sibling_groups`,
   `scoped_preview_uses_policy_dependencies_without_unrelated_subtree_walks`,
@@ -218,8 +218,9 @@ Incomplete evidence still protects the whole request; independent partial progre
 Native activity, bounded index tracking, and native Git recovery supply their separate evidence.
 Unsupported recovery profiles protect the selection.
 Contended handoffs rewrite retained state and rebuild Git caches between workers.
-Efficient continuation, shared maintenance discovery, independent partial progress,
-legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
+Efficient contended continuation, shared maintenance discovery, independent partial progress,
+and legacy bridge/old-reader barriers remain required for the full redesign.
+Read-only callers and operator guidance must distinguish pending receipts from terminal results.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.
 No recovery path reruns an uncertain mutating operation; none is supported by this dispatcher.
 

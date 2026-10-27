@@ -625,7 +625,8 @@ test reap runs (`cargo test reapfile`).
 ```
 
 ```bash
-reap files            # dry-run: every governed root
+reap files            # bounded read-only job: every governed root
+reap files PATH --wait 30 # await one governed root or workspace assessment
 reap files --apply    # remove what the declarations say, after re-checking each path
 ```
 
@@ -638,7 +639,9 @@ Child disposal rules in a newly seen declaration also wait for grace. A sealed d
 the declarations beneath it. Invalid files and incomplete directory coverage
 protect their affected subtrees. Incomplete coverage also blocks whole-ancestor
 removal, including a sealed or scratch ancestor. The command reports incomplete
-coverage with a failure exit while independent unrelated units can proceed.
+coverage with a failure exit. The legacy applying route can still process independent
+unrelated units. Read-only native assessment currently refuses the complete selection
+on incomplete discovery; that refusal is not proof that no unrelated unit is eligible.
 
 Before each removal, `--apply` re-checks that the path is still inside the root
 without crossing a symlink, that it was not modified within
@@ -651,8 +654,10 @@ checks is not removed unless its declaration sets `"scratch": true`. This includ
 stashed, or unpushed work, no upstream, main-checkout non-branch refs, and private worktree refs.
 Partial file and directory
 removals also use enclosing checkout guards. Nested checkout discovery has no
-depth-three safety cutoff. First-seen times live in `reap-files-seen.json` in the state
-directory; deleting that cache only delays action.
+depth-three safety cutoff. The legacy applying route keeps first-seen times in
+`reap-files-seen.json`; deleting that cache only delays action. Read-only jobs keep
+identity-bound observations in their journal. Neither cache imports credit from the other.
+An assessment is not a promise that a later applying invocation will remove the same units.
 
 Declaration and lease checks use the same Git recoverability assessment: all local
 branches, HEAD, stashes, uncommitted/untracked paths, and ignored local data.
@@ -1076,11 +1081,13 @@ Safety behavior is covered with synthetic target-tree tests. Changes to artifact
 classification or deletion boundaries should include an invariant test showing
 both what is removed and what must survive.
 
-The bounded [job client](docs/specs/job-client.md) supports manifest validation and job observations:
+The bounded [job client](docs/specs/job-client.md) supports manifest validation, read-only declaration assessment, and job observations:
 
 ```bash
 reap check [dir]                 # ordinary response budget: one second
 reap check [dir] --wait 30        # explicit completion wait
+reap files [dir]                 # ordinary response budget: one second
+reap files [dir] --wait 30        # explicit read-only completion wait
 reap job show GENERATION:EPOCH:NONCE
 reap job wait GENERATION:EPOCH:NONCE --timeout 30
 reap job page GENERATION:EPOCH:NONCE 0
@@ -1089,7 +1096,7 @@ reap job cancel GENERATION:EPOCH:NONCE
 
 These commands emit JSON. Exit 0 requires completed success; exit 75 means pending or unknown.
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
-`check` submits one read-only job. A pending receipt includes the same-key observation command;
+`check` and non-applying `files` submit read-only jobs. A pending receipt includes the same-key observation command;
 require completed success before a dependent step. `--wait` without a value means 30 seconds.
 Waiting does not cancel or resubmit work. Receipts identify protocol 2, operation, mode, and
 requested scope. The requested scope is not native target identity or cleanup permission.
@@ -1103,7 +1110,8 @@ Live and uncertain workers retain their slots until exact absence is proved. The
 Observe the same key for its terminal result. A result already durably staged remains unchanged.
 An already successful job retains exit 0. This does not mean that cancellation took effect.
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
-macOS installation registers that broker. Other filesystem commands retain their foreground routes.
+macOS installation registers that broker. Applying Files and other filesystem commands retain their foreground routes.
+`files --apply` rejects `--wait`; the bounded applying executor migration remains open.
 
 Their component contracts are [transport](docs/specs/control-transport.md) and
 [admission](docs/specs/admission.md). Native admission proof does not establish
@@ -1122,7 +1130,7 @@ This library operation does not establish complete conversation dependencies or 
 Native prepared jobs now have a [read-only check execution path](docs/specs/job-execution.md)
 through owned resolver/bulk workers and durable terminal results. Ordinary `check` uses this path;
 applying operations are not activated.
-Internal declaration preview also has native resolver and worker phases with structured counters.
+Read-only declaration preview has native resolver and worker phases with structured counters.
 It can assess one workspace with governing ancestor policy and required sibling retention measurements.
 It does not recursively scan unrelated sibling subtrees for display sizing.
 Its private worker path can retain a bounded checkpoint and yield after a 64-item discovery quantum.
@@ -1133,7 +1141,7 @@ The owned launcher supports two direct helpers with separate durable grants insi
 Workers can request helpers over their private channel; the coordinator creates and supervises them.
 The writer waits on owned channels, including bytes that arrive after a read batch.
 It handles queued requests between bounded batches. The idle wait has a 20 ms limit.
-Internal declaration preview batches activity targets into one supervised native scan per selected root.
+Read-only declaration preview batches activity targets into one supervised native scan per selected root.
 The granted helper becomes the fixed system tool in the same process. Complete parsed output,
 empty stderr, native exit, and durable release precede a successful activity reply.
 Incomplete evidence protects the selection. Native preview reads Git tracking from bounded index snapshots
@@ -1149,7 +1157,8 @@ Rename retains credit; copies and policy changes receive fresh grace. KEEP remai
 Complete results publish bounded observations in the job journal, without target or legacy-cache writes.
 Result retirement can forget this derived evidence; lost credit restarts grace.
 A public helper command is not provided.
-Public `files` still uses its foreground route; its activation and caller-migration gates remain open.
+Public non-applying `files` uses this path and emits protocol 2 JSON, not foreground diagnostic text.
+Read-only maintenance explicitly waits for its result. A pending receipt is not a completed maintenance stage.
 These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.
 

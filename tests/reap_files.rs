@@ -42,7 +42,30 @@ impl Env {
   }
 
   fn reap(&self, args: &[&str]) -> Output {
-    self.command(args).output().unwrap()
+    let mut command = self.command(args);
+    let preview = args.first() == Some(&"files") && !args.contains(&"--apply");
+    if preview {
+      command.args(["--wait", "30"]);
+    }
+    let mut output = command.output().unwrap();
+    if preview {
+      let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
+      assert_eq!(receipt["protocol"], 2);
+      let detail: Value = serde_json::from_str(
+        receipt["job"]["result"]["detail"]
+          .as_str()
+          .expect("terminal Files detail"),
+      )
+      .unwrap_or_else(|error| {
+        panic!(
+          "invalid Files report: {error}; detail: {}",
+          receipt["job"]["result"]["detail"]
+        )
+      });
+      output.stdout = detail["stdout"].as_str().unwrap().as_bytes().to_vec();
+      output.stderr = detail["stderr"].as_str().unwrap().as_bytes().to_vec();
+    }
+    output
   }
 
   fn command(&self, args: &[&str]) -> Command {
@@ -61,8 +84,6 @@ impl Env {
   }
 
   fn apply(&self) -> String {
-    // first pass records first-seen times; the second acts
-    self.reap(&["files"]);
     let out = self.reap(&["files", "--apply"]);
     String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
   }
@@ -371,23 +392,17 @@ fn unreadable_subtree_protects_its_ancestor_without_blocking_unrelated_cleanup()
   age(&env.projects(), 2.0);
   fs::set_permissions(&child, fs::Permissions::from_mode(0)).unwrap();
   let unreadable = fs::read_dir(&child).is_err();
-  let output = env.reap(&["files"]);
+  let output = env.reap(&["files", "--apply"]);
   fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
   if !unreadable {
     eprintln!("permission fixture requires an unprivileged account");
     return;
   }
   let text = String::from_utf8_lossy(&output.stdout);
-  assert!(
-    !text.contains(&format!("would quarantine {} ", parent.display())),
-    "{text}"
-  );
+  assert!(parent.exists(), "{text}");
   assert!(text.contains("cannot read directory"), "{text}");
   assert!(!output.status.success());
-  assert!(
-    text.contains(&format!("would quarantine {} ", unrelated.display())),
-    "{text}"
-  );
+  assert!(!unrelated.exists(), "{text}");
   assert!(child.join("sentinel").exists());
 }
 
@@ -404,17 +419,14 @@ fn sealed_expiry_cannot_override_incomplete_directory_coverage() {
   age(&env.projects(), 2.0);
   fs::set_permissions(&child, fs::Permissions::from_mode(0)).unwrap();
   let unreadable = fs::read_dir(&child).is_err();
-  let output = env.reap(&["files"]);
+  let output = env.reap(&["files", "--apply"]);
   fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
   if !unreadable {
     eprintln!("permission fixture requires an unprivileged account");
     return;
   }
   let text = String::from_utf8_lossy(&output.stdout);
-  assert!(
-    !text.contains(&format!("would quarantine {} ", parent.display())),
-    "{text}"
-  );
+  assert!(parent.exists(), "{text}");
   assert!(text.contains("incomplete coverage"), "{text}");
   assert!(!output.status.success());
   assert!(child.join("sentinel").exists());
@@ -433,7 +445,12 @@ fn new_keep_protects_during_grace_from_an_established_parent_rule() {
   );
   file(&child.join("sentinel"));
   file(&disposable.join("output"));
-  env.reap(&["files"]);
+  env.reap(&["files", "--apply"]);
+  assert!(child.join("sentinel").exists() && disposable.exists());
+  assert!(env.quarantine_index()["entries"]
+    .as_array()
+    .unwrap()
+    .is_empty());
   let seen_path = env.root.join("state/reap/reap-files-seen.json");
   let mut seen: Value = serde_json::from_str(&fs::read_to_string(&seen_path).unwrap()).unwrap();
   for value in seen.as_object_mut().unwrap().values_mut() {

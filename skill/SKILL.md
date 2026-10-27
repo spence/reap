@@ -55,10 +55,12 @@ purge selectors do not waive this guard. Uncertain role evidence refuses the aff
 Ordinary KEEP still permits authorized Cargo compaction. This guard does not activate conversation
 archives, source pruning, or version 2 lifetime disposal.
 
-## Bounded manifest validation and job observations
+## Bounded read commands and job observations
 
 `reap check [PATH]` submits read-only manifest validation with a one-second response budget.
 Use `reap check [PATH] --wait 30` when the next step needs completed validation.
+`reap files [PATH]` submits read-only declaration assessment with the same response budget.
+Use `reap files [PATH] --wait 30` before a dependent step. PATH can select a workspace inside a governed root.
 `--wait` without a value means 30 seconds. A pending receipt is not successful validation.
 `reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
 `reap job wait GENERATION:EPOCH:NONCE --timeout 30` explicitly waits for completion.
@@ -69,11 +71,11 @@ These commands emit protocol 2 JSON. Exit 0 means completed success; exit 75 mea
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
 A wait timeout does not cancel or resubmit the job. Require terminal success before a dependent step.
 An unavailable broker is not permission for a synchronous fallback.
-Internal Files preview can request supervised native activity evidence. This does not activate
-the public Files job route or permit cleanup from pending or incomplete evidence.
+Files preview can request supervised native activity evidence. Pending or incomplete evidence grants no cleanup permission.
 Its Git tracking uses bounded snapshots. Unsupported or changed dependencies protect the selection.
 macOS installation registers the three fixed on-demand roles. Ordinary commands never install them.
-Other filesystem commands retain their current route; full command migration remains open.
+`files --apply` and other filesystem commands retain their current route; full command migration remains open.
+`files --apply` rejects `--wait`. Read-only journal observations do not supply grace credit to the legacy applying cache.
 
 Use `reap job cancel ID` only for a job you own or were assigned. Observe the same key afterward.
 A pending cancellation does not prove exit or rollback. Do not infer cleanup permission or a free worker slot.
@@ -387,7 +389,7 @@ reason, plus optional `children` rules by name pattern (`keep_newest`,
 `docs/specs/reap-file.md` in the reap repo.
 
 ```bash
-reap files            # dry-run; shows honoured, set-aside, and invalid declarations
+reap files --wait 30  # await read-only assessment; protocol 2 JSON
 reap files --apply    # remove what declarations say, re-checking each path
 ```
 

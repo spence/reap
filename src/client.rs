@@ -64,6 +64,21 @@ pub fn run(command: JobCmd, entered: Instant) -> i32 {
 
 /// Submit and observe ordinary manifest validation without reading caller filesystem state.
 pub fn run_check(path: Option<String>, wait: Option<Duration>, entered: Instant) -> i32 {
+  run_read("check", path, wait, entered)
+}
+
+/// Submit read-only declaration assessment without reading caller filesystem state.
+pub fn run_files(path: Option<String>, wait: Option<Duration>, entered: Instant) -> i32 {
+  run_read("files", path, wait, entered)
+}
+
+/// Prepare one read invocation and observe its same retained key within the cumulative deadline.
+fn run_read(
+  operation: &str,
+  path: Option<String>,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
   let timeout = wait.unwrap_or(RESPONSE_BUDGET);
   let Some(deadline) = entered.checked_add(timeout).filter(|_| !timeout.is_zero()) else {
     return emit(Receipt::new(
@@ -86,10 +101,10 @@ pub fn run_check(path: Option<String>, wait: Option<Duration>, entered: Instant)
     return emit(Receipt::new(
       State::Invalid,
       None,
-      Some("internal configuration snapshots are not a public check override".into()),
+      Some("internal configuration snapshots are not a public read override".into()),
     ));
   }
-  let mut argv = vec!["check".into()];
+  let mut argv = vec![operation.into()];
   if let Some(path) = path {
     argv.push(path);
   }

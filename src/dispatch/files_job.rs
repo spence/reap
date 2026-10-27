@@ -1,7 +1,7 @@
 //! Read-only declaration assessment under the existing owned resolver and bulk grants.
 //!
-//! This internal path returns complete counters and bounded diagnostics. It does not activate
-//! public command routing, applying operations, lifetime conversion, or source release.
+//! This path returns complete counters and bounded diagnostics. It grants no applying operation,
+//! lifetime conversion, or source release.
 
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};

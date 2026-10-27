@@ -217,7 +217,6 @@ class Preservation(unittest.TestCase):
                         "scratch": True, "seal": True,
                     }))
                     fixture.age(directory)
-                fixture.run("files")
                 result = fixture.run("files", "--apply")
                 self.assert_payload(payload)
                 self.assertFalse(disposable.exists(), result)

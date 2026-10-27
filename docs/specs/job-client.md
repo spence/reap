@@ -1,6 +1,6 @@
 # SPEC-JOB-CLIENT — bounded submission and job observations
 
-- Status: public `check`, job views, and cancellation requests; other command migration remains open.
+- Status: public `check`, read-only `files`, job views, and cancellation requests; other command migration remains open.
 - Consumers: Reap CLI adapters and native integration fixtures.
 - Grounds: `DEC-LIFETIME-AUTHORITY`, sections 7 and 8.
 - Bindings: `src/client.rs`, the named tests below, and native service fixtures.
@@ -30,12 +30,13 @@
   Invalid identifiers do not produce executable command suggestions.
 - **C7** — A successful writer observation includes its supplied observation time when available.
   Missing freshness is explicit; the client does not invent a filesystem observation time.
-- **C8** — `check [PATH]` uses native preparation and durable admission, not a foreground
+- **C8** — `check [PATH]` and read-only `files [PATH]` use native preparation and durable admission, not a foreground
   filesystem route. Its ordinary response budget starts at application entry and is one second.
-  `check [PATH] --wait [SECONDS]` permits a longer observation deadline; an omitted value means
+  Either command's `--wait [SECONDS]` permits a longer observation deadline; an omitted value means
   30 seconds. Preparation and admission retain their one-second budget. Waiting observes the same
   key without cancellation or resubmission. All forms emit protocol 2 JSON receipts.
-- **C9** — A valid public `check` invocation supplies operation `check`, mode `read`, and the requested
+  `files --apply` does not use this read-only route and rejects `--wait`.
+- **C9** — A valid public read invocation supplies its exact operation (`check` or `files`), mode `read`, and the requested
   scope in its receipt. New executable jobs retain this summary with their immutable input. Restart, lookup,
   and exact replay preserve it. A mismatched summary cannot establish success. The requested
   scope is presentation metadata, not native target identity or cleanup permission.
@@ -67,6 +68,7 @@ These are named code bindings, not an automated specification-fixture registrati
 | C1, C4 | `expired_submission_budget_does_not_capture_context_or_replace_the_key` |
 | C4 | `native_client_prepare_admit_executes_check_and_returns_durable_terminal`; `tools/verify_ingress_macos.py` |
 | C1, C2, C8 | `tests/test_public_check.py`, through the actual installed broker |
+| C1, C2, C8, C9 | `tests/test_public_files.py`, through the actual installed broker |
 | C1, C8 | `native_client_waits_for_cold_writer_within_original_admission_budget` |
 | C9 | `native_invocation_summary_survives_restart_and_exact_replay`; `test_actual_cwd_and_requested_scope_survive_public_lookup`; malformed-summary client cases |
 | C10 | `cancellation_acknowledgement_is_pending_and_missing_confirmation_never_succeeds`; native stalled-bulk cancellation and sync-fault cases |
@@ -77,7 +79,7 @@ does not prove cumulative timing, context capture, process ownership, or actual 
 
 ## Delivery boundary
 
-`check`, `job show ID`, `job wait ID`, `job page ID INDEX`, and `job cancel ID` use this client and emit JSON receipts.
+`check`, read-only `files`, `job show ID`, `job wait ID`, `job page ID INDEX`, and `job cancel ID` use this client and emit JSON receipts.
 Other filesystem commands retain their current route. The client does not register platform services,
 grant cleanup permission, migrate lifetimes, or release conversation sources. Native Linux conformance remains open.
 The full CLI and operator migration must preserve terminal-versus-pending semantics before activation.

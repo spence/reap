@@ -303,13 +303,21 @@ fn execute(
     if apply && !diagnostic {
       args.push("--apply");
     }
+    let read_files = stage == Stage::Files && !apply;
+    if read_files {
+      args.extend(["--wait", "30"]);
+    }
     let command = format!("reap {}", args.join(" "));
     let before = available_bytes(&qdir).ok();
     let started = Instant::now();
-    let output = Command::new(binary)
-      .args(&args)
-      .env("REAP_INTERNAL_CONFIG_SNAPSHOT", &config_text)
-      .output();
+    let mut child = Command::new(binary);
+    child.args(&args);
+    if read_files {
+      child.env_remove("REAP_INTERNAL_CONFIG_SNAPSHOT");
+    } else {
+      child.env("REAP_INTERNAL_CONFIG_SNAPSHOT", &config_text);
+    }
+    let output = child.output();
     let after = available_bytes(&qdir).ok();
     let elapsed_millis = started.elapsed().as_millis();
     let (outcome, exit_code, stdout, stderr, output_truncated, reason) = match output {
