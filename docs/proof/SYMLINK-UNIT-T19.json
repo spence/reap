@@ -1,0 +1,134 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "private_symlink_unit_verified_full_work_active",
+  "source_revision": "d7600ba37507e311e96fbcc55c9cdc9563087acc",
+  "source_manifest": {
+    "src/identity.rs": "60deba24d6cf6f65ba5aeafe8f94195041654db24019a9192d3f2b653fb3307f",
+    "src/mutation/native.rs": "fe4b7f37b1e2beab866e53b7026cfd78264f081be5835343b304dbc94f97310a",
+    "src/worker/tests/mutation.rs": "0db737e6a9c3e264825aa2c17b24b02a7851a5310a66058251ca9ec9ea03ead4",
+    "src/journal/tests/mutation.rs": "d3efab058d46a9de36498b837c732cb66e04c0b4e4a1581cfa67b5204426ea6d",
+    "tools/verify_control_macos.py": "4af562412c39996613f18698adea835ca639d04a737f67133d885e2ac13c4416",
+    "docs/specs/mutation-execution.md": "6814af5dd84a7301ff1da958f156920e8baf74ad1bab55e16f09f353c7b7eb57"
+  },
+  "driver": {
+    "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/native-symlink-release-v1/unit",
+    "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9",
+    "sha256": "4a9db58c93fb7aa4f689294130a516137c1b76f978851be67e7012eb2b0bec5a",
+    "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "identifier": "dev.micro.reap.native-tests",
+    "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+    "bytes": 29274704,
+    "storage_device": 16777232
+  },
+  "mini_identity": {
+    "host": "catalyst-mini.local",
+    "device": 16777234,
+    "sha256": "4a9db58c93fb7aa4f689294130a516137c1b76f978851be67e7012eb2b0bec5a",
+    "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+  },
+  "source_suite": {
+    "exit": 0,
+    "unit_passed": 343,
+    "native_fault_cases_omitted": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23
+  },
+  "native": {
+    "catalyst": {
+      "worker": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-hzjqhjoj",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "4a9db58c93fb7aa4f689294130a516137c1b76f978851be67e7012eb2b0bec5a",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 320 filtered out; finished in 10.60s"
+        ]
+      },
+      "journal": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-v_gkwxjm",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "4a9db58c93fb7aa4f689294130a516137c1b76f978851be67e7012eb2b0bec5a",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "results": [
+          "test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 309 filtered out; finished in 43.47s"
+        ]
+      },
+      "identity": {
+        "exit": 0,
+        "results": [
+          "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 343 filtered out; finished in 0.01s"
+        ]
+      }
+    },
+    "catalyst-mini": {
+      "worker": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-x_8quoxc",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "4a9db58c93fb7aa4f689294130a516137c1b76f978851be67e7012eb2b0bec5a",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 320 filtered out; finished in 8.10s"
+        ]
+      },
+      "journal": {
+        "receipt": {
+          "runtime": "/private/tmp/reap-control-runtime-52fi2bgs",
+          "labels_absent": [],
+          "native_exit": 0,
+          "binary_sha256": "4a9db58c93fb7aa4f689294130a516137c1b76f978851be67e7012eb2b0bec5a",
+          "skipped_test_driver_cases": [],
+          "runtime_removed": true,
+          "verification_exit": 0
+        },
+        "results": [
+          "test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 309 filtered out; finished in 29.27s"
+        ]
+      },
+      "identity": {
+        "exit": 0,
+        "results": [
+          "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 343 filtered out; finished in 0.04s"
+        ]
+      }
+    }
+  },
+  "review": {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "effort": "high",
+    "peer_id": "peer-18e2523a978b6ae0-414761",
+    "request_message_id": "cmsg-18e2523aa5422110-414778",
+    "state": "completed",
+    "acceptance": "**ACCEPT \u2014 current bounded diff.** No blocking defects or decisive coverage gaps found.\n\nAcceptance covers only the private same-volume rename extension for symlink leaves. It does not accept public activation, native fleet behavior, or full T19 completion.\n\nI reviewed the callers, identity implementation, grant and recovery paths, affected tests, and supplied evidence. No files changed; no builds or runtime tests executed.\n\n### SHA-256\n\n```text\n60deba24d6cf6f65ba5aeafe8f94195041654db24019a9192d3f2b653fb3307f  src/identity.rs\nfe4b7f37b1e2beab866e53b7026cfd78264f081be5835343b304dbc94f97310a  src/mutation/native.rs\n0db737e6a9c3e264825aa2c17b24b02a7851a5310a66058251ca9ec9ea03ead4  src/worker/tests/mutation.rs\nd3efab058d46a9de36498b837c732cb66e04c0b4e4a1581cfa67b5204426ea6d  src/journal/tests/mutation.rs\n4af562412c39996613f18698adea835ca639d04a737f67133d885e2ac13c4416  tools/verify_control_macos.py\n6814af5dd84a7301ff1da958f156920e8baf74ad1bab55e16f09f353c7b7eb57  docs/specs/mutation-execution.md\n```\n\nI remain available for corrections."
+  },
+  "limits": [
+    "No public applying route activated",
+    "No product installed by this component proof",
+    "No live conversion or conversation-source pruning",
+    "No external-volume quick test",
+    "Native fault-only cases not repeated for this bounded extension"
+  ],
+  "evidence_sha256": {
+    "native-symlink-full.log": "ec2e17ae84eca1ffc2a4775fadce9713d5354a510de7e7e89bcffcb16d31162d",
+    "native-symlink-unit-red.log": "90871a8844bb9e86531964198ada64c9e3beed50ec940b9b4a2c8376134bd5d1",
+    "native-symlink-open-modes.json": "14986bc8a5e59b728756814a390c5b569ecae22fce8b1157e41342102a42af85",
+    "symlink-unit-review-wait-3.json": "9607973cab66040d77dad82859213ed0d066fac1f0a432cbfe49203b97a51ae8",
+    "symlink-unit-sol-review-wait-1.json": "e73a3075f2f9780465b95df12d1ed219a476f6cfdce8c63cc066322609a4b5cf"
+  }
+}
