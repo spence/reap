@@ -64,6 +64,16 @@ impl ObjectIdentity {
     }
     native::read(file)
   }
+
+  /// Read a held namespace entry without following a symlink descriptor to its target.
+  /// This identity does not grant declaration adoption; `read` retains its stricter type boundary.
+  pub(crate) fn read_entry(file: &File) -> io::Result<Self> {
+    if file.metadata()?.file_type().is_symlink() {
+      native::read(file)
+    } else {
+      Self::read(file)
+    }
+  }
 }
 
 #[cfg(target_os = "macos")]
@@ -419,6 +429,43 @@ mod tests {
     assert!(ObjectIdentity::read(&link).is_err());
     assert!(InstanceIdentity::read(&directory, &link).is_err());
     assert!(ObjectIdentity::read(&File::open("/dev/null").unwrap()).is_err());
+  }
+
+  #[test]
+  fn namespace_link_identity_is_distinct_and_never_grants_declaration_adoption() {
+    let fixture = Fixture::new();
+    let target = fixture.0.join("target");
+    fs::write(&target, b"target remains unchanged").unwrap();
+    let path = fixture.0.join("link");
+    symlink("target", &path).unwrap();
+    let open_link = |path: &std::path::Path| {
+      OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_SYMLINK)
+        .open(path)
+        .unwrap()
+    };
+    let held = open_link(&path);
+    let initial = ObjectIdentity::read_entry(&held).unwrap();
+    assert_ne!(
+      initial,
+      ObjectIdentity::read(&File::open(&target).unwrap()).unwrap()
+    );
+    assert!(ObjectIdentity::read(&held).is_err());
+    assert!(InstanceIdentity::read(&File::open(&fixture.0).unwrap(), &held).is_err());
+    fs::rename(&path, fixture.0.join("moved-link")).unwrap();
+    assert_eq!(ObjectIdentity::read_entry(&held).unwrap(), initial);
+    assert_eq!(
+      ObjectIdentity::read_entry(&open_link(&fixture.0.join("moved-link"))).unwrap(),
+      initial
+    );
+    symlink("target", &path).unwrap();
+    assert_ne!(
+      ObjectIdentity::read_entry(&open_link(&path)).unwrap(),
+      initial
+    );
+    assert!(ObjectIdentity::read_entry(&File::open("/dev/null").unwrap()).is_err());
+    assert_eq!(fs::read(target).unwrap(), b"target remains unchanged");
   }
 
   #[test]

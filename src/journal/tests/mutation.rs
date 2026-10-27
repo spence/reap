@@ -479,13 +479,19 @@ fn native_unit_to(
     request.guard_fingerprint,
   )
   .unwrap();
+  staged_native(fixture, held)
+}
+
+#[cfg(target_os = "macos")]
+fn staged_native(
+  fixture: &Fixture,
+  held: crate::mutation::HeldRename,
+) -> (Journal, Key, crate::mutation::HeldRename, Staged) {
+  let resources = held.intent().resources.clone();
   let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
   let key = key(&journal);
   journal.admit_mutation(key.clone(), input(), 1).unwrap();
-  let launch = journal
-    .reserve_launch(&key, 1, request.resources)
-    .unwrap()
-    .unwrap();
+  let launch = journal.reserve_launch(&key, 1, resources).unwrap().unwrap();
   journal
     .grant_process(
       &key,
@@ -498,6 +504,41 @@ fn native_unit_to(
     .stage_mutation(&key, 1, held.intent().clone())
     .unwrap();
   (journal, key, held, staged)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_symlink_replacement_cannot_use_the_original_link_permission() {
+  use std::os::unix::fs::symlink;
+  let fixture = Fixture::new();
+  let source = fixture.0.join("source");
+  let destination = fixture.0.join("destination");
+  fs::write(fixture.0.join("target"), b"target remains unchanged").unwrap();
+  symlink("target", &source).unwrap();
+  let resources = Resources::Bulk {
+    physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+  };
+  let held =
+    crate::mutation::HeldRename::prepare(&source, &destination, &resources, "a".repeat(64))
+      .unwrap();
+  let (mut journal, key, held, staged) = staged_native(&fixture, held);
+  let Staged::New(record) = &staged else {
+    unreachable!()
+  };
+  let worker = record.worker.clone();
+  let nonce = record.nonce.clone();
+  fs::remove_file(&source).unwrap();
+  symlink("target", &source).unwrap();
+  let result = held.commit(staged, &worker, || Ok("a".repeat(64))).unwrap();
+  assert_eq!(result.phase, Phase::Refused);
+  journal.finish_mutation(&key, &nonce, result.phase).unwrap();
+  assert_eq!(journal.mutation(&key).unwrap().unwrap().completed_units, 0);
+  assert_eq!(fs::read_link(source).unwrap(), PathBuf::from("target"));
+  assert!(fs::symlink_metadata(destination).is_err());
+  assert_eq!(
+    fs::read(fixture.0.join("target")).unwrap(),
+    b"target remains unchanged"
+  );
 }
 
 #[cfg(target_os = "macos")]

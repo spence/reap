@@ -61,6 +61,11 @@ fn fixture_intent(fixture: &Fixture) -> Rename {
   fs::create_dir(&source).unwrap();
   fs::write(source.join("valuable"), b"exact native source").unwrap();
   fs::write(fixture.0.join("survivor"), b"unselected fixture bytes").unwrap();
+  existing_intent(fixture)
+}
+
+fn existing_intent(fixture: &Fixture) -> Rename {
+  let source = fixture.0.join("source");
   let resources = Resources::Bulk {
     physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
   };
@@ -73,6 +78,86 @@ fn fixture_intent(fixture: &Fixture) -> Rename {
   .unwrap()
   .intent()
   .clone()
+}
+
+#[test]
+fn native_symlink_unit_moves_only_the_link_and_recovers_without_target_access() {
+  use std::os::unix::fs::symlink;
+
+  for (stop, dangling) in (0..=2).flat_map(|stop| [false, true].map(|dangling| (stop, dangling))) {
+    let fixture = Fixture::new();
+    let target = fixture.0.join("protected-target");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("valuable"), b"protected target bytes").unwrap();
+    fs::write(target.join(".reap"), br#"{"version":2,"role":"permanent_archive","keep":{"reason":"synthetic permanent target"},"seal":true}"#).unwrap();
+    let link = PathBuf::from(if dangling {
+      "missing-target"
+    } else {
+      "protected-target/valuable"
+    });
+    symlink(&link, fixture.0.join("source")).unwrap();
+    let intent = existing_intent(&fixture);
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let key = mutation_job(&mut journal);
+    let mut owned = spawned(
+      start(
+        &mut journal,
+        &key,
+        1,
+        Task::MutationFixture {
+          intent: intent.clone(),
+          stop,
+        },
+      )
+      .unwrap(),
+    );
+    owned.deliver(&mut journal).unwrap();
+    let done = complete(&mut owned, &mut journal);
+    assert!(owned.release(&mut journal).unwrap());
+    if stop == 0 {
+      assert_eq!(done.exit_code, 0);
+      assert_eq!(
+        done.report.unwrap(),
+        Report::MutationFixture {
+          phase: Phase::Moved
+        }
+      );
+    } else {
+      assert_ne!(done.exit_code, 0);
+      let record = journal.mutation(&key).unwrap().unwrap().current.unwrap();
+      let outcome = recover_unit(&mut journal, &key, &record);
+      assert_eq!(
+        outcome.phase,
+        if stop == 1 {
+          Phase::Refused
+        } else {
+          Phase::Moved
+        }
+      );
+      journal
+        .recover_mutation(&key, &record.nonce, outcome.phase)
+        .unwrap();
+    }
+    let entry = if stop == 1 {
+      &intent.source.path
+    } else {
+      &intent.destination
+    };
+    assert!(fs::symlink_metadata(entry)
+      .unwrap()
+      .file_type()
+      .is_symlink());
+    assert_eq!(fs::read_link(entry).unwrap(), link);
+    assert_eq!(
+      fs::read(target.join("valuable")).unwrap(),
+      b"protected target bytes"
+    );
+    assert!(target.join(".reap").is_file());
+    assert_eq!(
+      journal.mutation(&key).unwrap().unwrap().completed_units,
+      u64::from(stop != 1)
+    );
+  }
 }
 
 fn mutation_job(journal: &mut Journal) -> Key {

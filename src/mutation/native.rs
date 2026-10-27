@@ -21,7 +21,7 @@ pub(crate) struct HeldRename {
 
 impl HeldRename {
   /// Capture exact objects and physical resources before the journal retains unit intent.
-  /// The destination must be absent; regular files and directories are supported.
+  /// The destination must be absent; regular files, directories, and symlink leaves are supported.
   pub(crate) fn prepare(
     source: &Path,
     destination: &Path,
@@ -119,7 +119,7 @@ impl HeldRename {
   fn revalidate(&self) -> io::Result<()> {
     same_path(&self.intent.source_parent, &self.source_parent)?;
     same_path(&self.intent.destination_parent, &self.destination_parent)?;
-    if ObjectIdentity::read(&self.source)? != self.intent.source.identity
+    if ObjectIdentity::read_entry(&self.source)? != self.intent.source.identity
       || identity_at(&self.source_parent, &self.intent.source.path)?.as_ref()
         != Some(&self.intent.source.identity)
     {
@@ -175,7 +175,7 @@ fn observation(phase: Phase, detail: impl AsRef<str>) -> Observation {
 fn object(path: &Path, file: &File) -> io::Result<Object> {
   Ok(Object {
     path: path.into(),
-    identity: ObjectIdentity::read(file)?,
+    identity: ObjectIdentity::read_entry(file)?,
   })
 }
 
@@ -218,12 +218,18 @@ fn directory(path: &Path) -> io::Result<File> {
 }
 
 fn open_child(parent: &File, path: &Path) -> io::Result<File> {
-  open_at(parent, name(path)?, 0)
+  #[cfg(target_os = "macos")]
+  let flags = libc::O_SYMLINK;
+  #[cfg(target_os = "linux")]
+  let flags = libc::O_PATH;
+  #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+  let flags = 0;
+  open_at(parent, name(path)?, flags)
 }
 
 fn identity_at(parent: &File, path: &Path) -> io::Result<Option<ObjectIdentity>> {
   match open_child(parent, path) {
-    Ok(file) => ObjectIdentity::read(&file).map(Some),
+    Ok(file) => ObjectIdentity::read_entry(&file).map(Some),
     Err(reason) if reason.kind() == io::ErrorKind::NotFound => Ok(None),
     Err(reason) => Err(reason),
   }
@@ -257,12 +263,21 @@ fn absent(parent: &File, path: &Path) -> io::Result<()> {
 
 fn open_at(parent: &File, name: &[u8], flags: i32) -> io::Result<File> {
   let name = CString::new(name)?;
+  // on Darwin, O_SYMLINK binds the link; O_NOFOLLOW refuses that same open
+  #[cfg(target_os = "macos")]
+  let nofollow = if flags & libc::O_SYMLINK == 0 {
+    libc::O_NOFOLLOW
+  } else {
+    0
+  };
+  #[cfg(not(target_os = "macos"))]
+  let nofollow = libc::O_NOFOLLOW;
   // SAFETY: parent remains open and name is terminated; no link or special-file wait is followed.
   let fd = unsafe {
     libc::openat(
       parent.as_raw_fd(),
       name.as_ptr(),
-      flags | libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+      flags | libc::O_RDONLY | nofollow | libc::O_NONBLOCK | libc::O_CLOEXEC,
     )
   };
   if fd < 0 {

@@ -40,6 +40,12 @@
   Restore establishes effective retention before completion. A conditional release needs exact fresh
   work evidence and separate disposal permission; agent exit, inactivity, and a missed review do not
   release work. Native archives and source pruning retain their separate activation gates.
+- **C9 — Symlink leaves.** An ordinary symlink unit moves only the link entry, not its target.
+  Native entry identity and recovery do not follow the link. A dangling destination remains an
+  existing destination. Declaration adoption still requires a real directory and regular metadata
+  file; symlink-entry support grants no declaration-adoption permission.
+  Binding: `worker::tests::mutation::native_symlink_unit_moves_only_the_link_and_recovers_without_target_access`;
+  the native identity rejection and replacement cases.
 
 ## Conformance boundary
 
@@ -53,12 +59,13 @@ the actual unit worker and every affected effect/recovery boundary. Metadata tra
 not prove target effects or full bridge conformance. Installed tests on both Macs and the full source
 suite remain delivery gates. No live authority conversion or source pruning is enabled here.
 
-The first internal unit is a same-volume, no-replace rename of a regular file or directory.
+The first internal unit is a same-volume, no-replace rename of a regular file, directory, or
+symlink leaf. Native symlink entry identity does not follow its target or permit declaration adoption.
 The writer retains exact native object and parent identities, resource keys, a guard fingerprint,
 and the original process grant. Only a newly synchronized response permits final fresh guards.
 Recovery inspects and synchronizes both original parents without moving either object. A replacement,
-duplicate name, changed parent, or unknown result retains uncertainty and exclusion. Native symlink
-units, cross-volume moves, recursive deletion, policy publication, and public adapter activation
+duplicate name, changed parent, or unknown result retains uncertainty and exclusion.
+Cross-volume moves, recursive deletion, policy publication, and public adapter activation
 remain outside this first unit's implemented boundary.
 
 Target recovery runs in a read-only owned worker, not in the state writer. Its durable launch binds
