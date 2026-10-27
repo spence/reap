@@ -215,13 +215,13 @@ enum Cmd {
   },
   /// Assess `.reap` lifetimes through a bounded read job, or apply with --apply.
   Files {
-    /// One governed root or read-only workspace scope (default: every governed root).
+    /// One governed root or workspace scope (default: every governed root).
     path: Option<String>,
     /// Move or delete what the declarations remove, after re-checking each path
     #[arg(long)]
     apply: bool,
-    /// Wait for read-only completion within this many seconds (default with --wait: 30).
-    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout, conflicts_with = "apply")]
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
     wait: Option<std::time::Duration>,
   },
   /// Lease a temporary checkout so it can be retired once its TTL expires
@@ -444,13 +444,7 @@ fn main() {
       to,
       verbose,
     }) => cmd_stores(path, apply, init, bind, to, verbose),
-    Some(Cmd::Files { path, apply, wait }) => {
-      if apply {
-        files::run(path, true)
-      } else {
-        client::run_files(path, wait, entered)
-      }
-    }
+    Some(Cmd::Files { path, apply, wait }) => client::run_files(path, apply, wait, entered),
     Some(Cmd::Lease { cmd }) => cmd_lease(cmd),
     Some(Cmd::Create { cmd }) => create::run(cmd),
     Some(Cmd::Parents { cmd }) => parents::run(cmd),

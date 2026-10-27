@@ -20,9 +20,9 @@ class PublicMutations(unittest.TestCase):
     def setUp(self):
         base = ROOT / "target/control-t13"
         base.mkdir(parents=True, exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="public-mutations-", dir=base)
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name).resolve()
+        self.root = Path(tempfile.mkdtemp(prefix="public-mutations-", dir=base)).resolve()
+        self.unconfirmed = 0
+        self.addCleanup(self.close_fixture)
         self.assertEqual(self.root.stat().st_dev, Path("/System/Volumes/Data").stat().st_dev)
         self.home = self.root / "home"
         self.config = self.home / ".config/reap/config.json"
@@ -48,8 +48,18 @@ class PublicMutations(unittest.TestCase):
                      "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
             self.environment.pop(name, None)
 
+    def close_fixture(self):
+        if self.unconfirmed:
+            (self.root / ".reap").write_text(json.dumps({
+                "version": 1, "keep": {"reason": "unconfirmed public mutation fixture"},
+            }))
+            print(f"Retained unconfirmed mutation fixture: {self.root}")
+        else:
+            shutil.rmtree(self.root)
+
     def run_cli(self, *arguments, timeout=2):
         started = time.monotonic()
+        self.unconfirmed += 1
         result = subprocess.run([BINARY, *map(str, arguments)], cwd=self.root,
                                 env=self.environment, capture_output=True, timeout=timeout)
         result.elapsed = time.monotonic() - started
@@ -59,6 +69,8 @@ class PublicMutations(unittest.TestCase):
         except json.JSONDecodeError as error:
             self.fail(f"mutation returned no protocol receipt: {error}; stdout={result.stdout!r}")
         self.assertEqual(result.receipt["protocol"], 2)
+        if result.receipt["state"] not in ("pending", "acceptance_unknown", "unknown", "capacity", "failed"):
+            self.unconfirmed -= 1
         self.assertEqual((self.kept / "valuable").read_bytes(), PAYLOAD)
         return result
 
@@ -71,6 +83,8 @@ class PublicMutations(unittest.TestCase):
             result = subprocess.run([BINARY, "job", "wait", receipt["job_id"], "--timeout", "30"],
                                     cwd=self.root, env=self.environment, capture_output=True, timeout=32)
             result.receipt = json.loads(result.stdout)
+            if result.receipt["state"] == "completed":
+                self.unconfirmed -= 1
             self.assertEqual(result.receipt["key"], receipt["key"])
         self.assertEqual(result.returncode, 0, result)
         self.assertEqual(result.receipt["state"], "completed")
@@ -78,11 +92,20 @@ class PublicMutations(unittest.TestCase):
         self.assertEqual((self.kept / "valuable").read_bytes(), PAYLOAD)
         return result
 
-    def test_applying_commands_do_not_wait_for_configuration_fifo(self):
+    def test_files_apply_does_not_wait_for_configuration_fifo(self):
+        self.config.unlink()
+        os.mkfifo(self.config)
+        result = self.run_cli("files", self.governed, "--apply")
+        self.assertIn(result.returncode, (1, 75))
+        self.assertNotEqual(result.receipt["state"], "completed")
+        self.assertEqual(result.receipt["invocation"]["operation"], "files")
+        self.assertEqual(result.receipt["invocation"]["mode"], "apply")
+        self.assertTrue(self.kept.exists())
+
+    def test_remaining_applying_commands_do_not_wait_for_configuration_fifo(self):
         self.config.unlink()
         os.mkfifo(self.config)
         commands = [
-            ("files", self.governed, "--apply"),
             ("stores", self.project, "--apply"),
             ("retire", self.project, "--now", "--apply", "--min-age-minutes", "0"),
         ]

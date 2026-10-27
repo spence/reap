@@ -551,6 +551,95 @@ mod native {
   }
 
   #[test]
+  fn native_files_apply_client_commits_payload_and_index_and_replays_one_result() {
+    use crate::client::{Client, State};
+    let fixture = Fixture::new();
+    fixture.install(Role::ContextResolver);
+    let mut input = intent(&fixture);
+    let project = fixture.root.join("apply-project");
+    let disposable = project.join("disposable");
+    let kept = project.join("kept");
+    fs::create_dir_all(&disposable).unwrap();
+    fs::create_dir(&kept).unwrap();
+    fs::write(disposable.join("payload"), b"authorized payload survives").unwrap();
+    fs::write(
+      disposable.join(".reap"),
+      br#"{"version":1,"expires":"2020-01-01T00:00:00Z","scratch":true}"#,
+    )
+    .unwrap();
+    fs::write(kept.join("valuable"), b"unrelated kept work").unwrap();
+    fs::write(
+      kept.join(".reap"),
+      br#"{"version":1,"keep":{"reason":"protected survivor"}}"#,
+    )
+    .unwrap();
+    let qdir = input
+      .namespace
+      .xdg_state_home
+      .as_ref()
+      .unwrap()
+      .join("reap/quarantine");
+    fs::create_dir_all(&qdir).unwrap();
+    fs::write(
+      input.namespace.home.join(".config/reap/config.json"),
+      serde_json::to_vec(&serde_json::json!({
+        "governed_roots":[project],"reap_file_grace_hours":0,"reap_file_min_age_minutes":0,
+        "quarantine":{"auto_purge":false}
+      }))
+      .unwrap(),
+    )
+    .unwrap();
+    input.argv = vec![
+      "files".into(),
+      project.to_str().unwrap().into(),
+      "--apply".into(),
+    ];
+    let key = key(&fixture);
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    fixture.call(Role::ContextResolver, Request::Ping);
+    let admitted = client.submit(input.clone(), Some(key.clone()));
+    assert_eq!(admitted.state, State::Pending, "{admitted:?}");
+    let done = client.wait(key.clone(), Duration::from_secs(30));
+    assert_eq!(done.state, State::Completed, "{done:?}");
+    assert_eq!(done.key.as_ref(), Some(&key));
+    let job = done.job.as_ref().unwrap();
+    assert_eq!(job.invocation.as_ref().unwrap().mode, "apply");
+    assert_eq!(job.result.as_ref().unwrap().effects, 2);
+    assert!(!disposable.exists());
+    let index = crate::quarantine::load_index(&qdir).unwrap();
+    assert_eq!(index.entries.len(), 1);
+    let entry = &index.entries[0];
+    let attribution = entry.provenance.as_ref().unwrap();
+    assert_eq!(entry.owner, "native-fixture");
+    assert_eq!(attribution.actor.as_deref(), Some("native-fixture"));
+    assert_eq!(attribution.session.as_deref(), Some("caller-context"));
+    assert_eq!(
+      fs::read(
+        qdir
+          .join("entries")
+          .join(&entry.id)
+          .join(&entry.name)
+          .join("payload")
+      )
+      .unwrap(),
+      b"authorized payload survives"
+    );
+    assert_eq!(
+      fs::read(kept.join("valuable")).unwrap(),
+      b"unrelated kept work"
+    );
+    assert_eq!(client.submit(input, Some(key.clone())).job, done.job);
+    fixture.stop(Role::StateWriter);
+    fixture.install(Role::StateWriter);
+    fixture.epoch();
+    assert_eq!(client.show(key).job, done.job);
+    assert_eq!(
+      crate::quarantine::load_index(&qdir).unwrap().entries.len(),
+      1
+    );
+  }
+
+  #[test]
   #[ignore = "requires the native full-sync fault library through verify_control_macos.py"]
   fn native_client_waits_for_cold_writer_within_original_admission_budget() {
     use crate::client::{Client, State};

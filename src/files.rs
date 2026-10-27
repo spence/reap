@@ -16,7 +16,7 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 
-use crate::config::{home, load_config, Config};
+use crate::config::{home, Config};
 use crate::lease::{load_leases, Lease};
 use crate::plan::{human, now_secs};
 use crate::provenance::{self, Provenance};
@@ -1915,19 +1915,8 @@ impl Default for Report {
   }
 }
 
-pub fn run(path: Option<String>, apply: bool) -> i32 {
-  let (cfg, _) = load_config();
-  execute(
-    path,
-    apply,
-    &cfg,
-    &mut io::stdout().lock(),
-    &mut io::stderr().lock(),
-  )
-  .exit_code
-}
-
 /// Run the shared files engine. A failed or truncated output sink does not stop assessment.
+#[cfg(test)]
 pub(crate) fn execute(
   path: Option<String>,
   apply: bool,

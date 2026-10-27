@@ -64,18 +64,24 @@ pub fn run(command: JobCmd, entered: Instant) -> i32 {
 
 /// Submit and observe ordinary manifest validation without reading caller filesystem state.
 pub fn run_check(path: Option<String>, wait: Option<Duration>, entered: Instant) -> i32 {
-  run_read("check", path, wait, entered)
+  run_prepared("check", path, false, wait, entered)
 }
 
-/// Submit read-only declaration assessment without reading caller filesystem state.
-pub fn run_files(path: Option<String>, wait: Option<Duration>, entered: Instant) -> i32 {
-  run_read("files", path, wait, entered)
+/// Submit declaration assessment or application without reading caller filesystem state.
+pub fn run_files(
+  path: Option<String>,
+  apply: bool,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  run_prepared("files", path, apply, wait, entered)
 }
 
-/// Prepare one read invocation and observe its same retained key within the cumulative deadline.
-fn run_read(
+/// Prepare one invocation and observe its same retained key within the cumulative deadline.
+fn run_prepared(
   operation: &str,
   path: Option<String>,
+  apply: bool,
   wait: Option<Duration>,
   entered: Instant,
 ) -> i32 {
@@ -101,12 +107,15 @@ fn run_read(
     return emit(Receipt::new(
       State::Invalid,
       None,
-      Some("internal configuration snapshots are not a public read override".into()),
+      Some("internal configuration snapshots are not a public invocation override".into()),
     ));
   }
   let mut argv = vec![operation.into()];
   if let Some(path) = path {
     argv.push(path);
+  }
+  if apply {
+    argv.push("--apply".into());
   }
   let input = Intent {
     argv,
@@ -115,7 +124,14 @@ fn run_read(
       xdg_state_home: std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from),
       config_snapshot: None,
     },
-    provenance: serde_json::json!({}),
+    provenance: if apply {
+      serde_json::json!({
+        "actor": crate::util::default_owner(),
+        "session": crate::provenance::from_env("REAP_SESSION"),
+      })
+    } else {
+      serde_json::json!({})
+    },
   };
   let summary = invocation::summary(&input);
   let client = Client::default();

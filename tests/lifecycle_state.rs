@@ -3246,6 +3246,10 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
   let after_first = fs::read(root.state().join("leases.json")).unwrap();
   let applied: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
   assert_eq!(applied["outcome"], "ok");
+  assert_eq!(
+    applied["stages"][4]["command"],
+    "reap files --apply --wait 30"
+  );
   assert!(applied["stages"][3]["stdout"]
     .as_str()
     .unwrap()

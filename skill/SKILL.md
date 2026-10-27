@@ -55,12 +55,13 @@ purge selectors do not waive this guard. Uncertain role evidence refuses the aff
 Ordinary KEEP still permits authorized Cargo compaction. This guard does not activate conversation
 archives, source pruning, or version 2 lifetime disposal.
 
-## Bounded read commands and job observations
+## Bounded Files commands and job observations
 
 `reap check [PATH]` submits read-only manifest validation with a one-second response budget.
 Use `reap check [PATH] --wait 30` when the next step needs completed validation.
 `reap files [PATH]` submits read-only declaration assessment with the same response budget.
 Use `reap files [PATH] --wait 30` before a dependent step. PATH can select a workspace inside a governed root.
+Use `reap files [PATH] --apply --wait 30` to await authorized cleanup through the shared executor.
 `--wait` without a value means 30 seconds. A pending receipt is not successful validation.
 `reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
 `reap job wait GENERATION:EPOCH:NONCE --timeout 30` explicitly waits for completion.
@@ -74,8 +75,9 @@ An unavailable broker is not permission for a synchronous fallback.
 Files preview can request supervised native activity evidence. Pending or incomplete evidence grants no cleanup permission.
 Its Git tracking uses bounded snapshots. Unsupported or changed dependencies protect the selection.
 macOS installation registers the three fixed on-demand roles. Ordinary commands never install them.
-`files --apply` and other filesystem commands retain their current route; full command migration remains open.
-`files --apply` rejects `--wait`. Read-only journal observations do not supply grace credit to the legacy applying cache.
+`files --apply` uses the same bounded client and records its exact payload and index units.
+Other applying commands retain their foreground routes; full command migration remains open.
+Complete zero-effect Files jobs in either mode can publish journal grace credit. Legacy cache credit is not imported.
 
 Use `reap job cancel ID` only for a job you own or were assigned. Observe the same key afterward.
 A pending cancellation does not prove exit or rollback. Do not infer cleanup permission or a free worker slot.
@@ -398,7 +400,7 @@ reason, plus optional `children` rules by name pattern (`keep_newest`,
 
 ```bash
 reap files --wait 30  # await read-only assessment; protocol 2 JSON
-reap files --apply    # remove what declarations say, re-checking each path
+reap files --apply --wait 30 # await authorized declaration cleanup
 ```
 
 A new KEEP protects immediately. Disposal permission and child disposal rules in
@@ -457,6 +459,8 @@ stage. Its latest receipt is `~/.local/state/reap/maintenance-last.json` and
 `status` reports the last result. Inspect the receipt for full bounded stage
 output, blocked reasons, and the next command after failure. Available-space
 deltas are observations that may include other writers, not exact attribution.
+An applying Files stage with outcome `pending` or `unconfirmed` stops later stages.
+Use `reap job show ID` or `reap job wait ID` to resolve that same job; do not resubmit unconfirmed work.
 With `auto_purge: false`, maintenance records purge as skipped.
 With `auto_purge: true`, maintenance purges only indexed entries past the grace
 period that pass the hold and validation checks.

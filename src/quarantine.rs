@@ -751,8 +751,8 @@ impl ActivityFields {
             return Err(io::Error::new(
               io::ErrorKind::InvalidData,
               format!(
-                "activity path is unavailable (type {kind:?}, name {:?})",
-                String::from_utf8_lossy(&name[..name.len().min(128)])
+                "activity path is unavailable (type {kind:?}, name bytes {})",
+                name.len()
               ),
             ));
           }

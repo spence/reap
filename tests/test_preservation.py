@@ -20,8 +20,8 @@ class Fixture:
     def __init__(self, base=None):
         base = base or ROOT / "target/control-t13"
         base.mkdir(parents=True, exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(prefix="preservation-cli-", dir=base)
-        self.root = pathlib.Path(self.temporary.name).resolve()
+        self.root = pathlib.Path(tempfile.mkdtemp(prefix="preservation-cli-", dir=base)).resolve()
+        self.unconfirmed_files = 0
         self.home = self.root / "home"
         self.projects = self.home / "projects"
         self.state = self.root / "state/reap"
@@ -42,11 +42,30 @@ class Fixture:
             self.environment.pop(name, None)
 
     def close(self):
-        self.temporary.cleanup()
+        if self.unconfirmed_files:
+            (self.root / ".reap").write_text(json.dumps({
+                "version": 1, "keep": {"reason": "unconfirmed Files preservation fixture"},
+            }))
+            print(f"Retained unconfirmed Files fixture: {self.root}")
+        else:
+            shutil.rmtree(self.root)
 
     def run(self, *arguments):
-        return subprocess.run([str(BINARY), *map(str, arguments)], cwd=self.root,
-                              env=self.environment, capture_output=True, timeout=30)
+        files = arguments and arguments[0] == "files"
+        if files:
+            self.unconfirmed_files += 1
+            arguments = (*arguments, "--wait", "30")
+        result = subprocess.run([str(BINARY), *map(str, arguments)], cwd=self.root,
+                                env=self.environment, capture_output=True, timeout=35 if files else 30)
+        if files:
+            receipt = json.loads(result.stdout)
+            assert receipt["protocol"] == 2, receipt
+            if receipt["state"] == "completed":
+                self.unconfirmed_files -= 1
+            detail = json.loads(receipt["job"]["result"]["detail"])
+            result.stdout = detail["stdout"].encode()
+            result.stderr = detail["stderr"].encode()
+        return result
 
     def role(self, directory, role):
         directory.mkdir(parents=True, exist_ok=True)

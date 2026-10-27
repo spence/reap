@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,7 @@ const FUTURE: &str = "2999-01-01T00:00:00Z";
 
 struct Env {
   root: PathBuf,
+  unconfirmed: Cell<usize>,
 }
 
 impl Env {
@@ -34,7 +36,10 @@ impl Env {
     let root = fs::canonicalize(root).unwrap();
     let cfg = json!({"reap_file_grace_hours": grace_hours, "reap_file_min_age_minutes": 10.0});
     fs::write(root.join("home/.config/reap/config.json"), cfg.to_string()).unwrap();
-    Env { root }
+    Env {
+      root,
+      unconfirmed: Cell::new(0),
+    }
   }
 
   fn projects(&self) -> PathBuf {
@@ -43,12 +48,12 @@ impl Env {
 
   fn reap(&self, args: &[&str]) -> Output {
     let mut command = self.command(args);
-    let preview = args.first() == Some(&"files") && !args.contains(&"--apply");
-    if preview {
+    let files = args.first() == Some(&"files");
+    if files {
       command.args(["--wait", "30"]);
     }
     let mut output = command.output().unwrap();
-    if preview {
+    if files {
       let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
       assert_eq!(receipt["protocol"], 2);
       let detail: Value = serde_json::from_str(
@@ -64,11 +69,21 @@ impl Env {
       });
       output.stdout = detail["stdout"].as_str().unwrap().as_bytes().to_vec();
       output.stderr = detail["stderr"].as_str().unwrap().as_bytes().to_vec();
+      assert!(matches!(
+        receipt["state"].as_str(),
+        Some("completed" | "failed")
+      ));
+      if receipt["state"] == "completed" {
+        self.unconfirmed.set(self.unconfirmed.get() - 1);
+      }
     }
     output
   }
 
   fn command(&self, args: &[&str]) -> Command {
+    if args.first() == Some(&"files") {
+      self.unconfirmed.set(self.unconfirmed.get() + 1);
+    }
     // Fleet verification uses the installed consumer with this same fixture harness.
     let binary =
       std::env::var_os("REAP_TEST_BIN").unwrap_or_else(|| env!("CARGO_BIN_EXE_reap").into());
@@ -98,7 +113,18 @@ impl Env {
 
 impl Drop for Env {
   fn drop(&mut self) {
-    let _ = fs::remove_dir_all(&self.root);
+    if self.unconfirmed.get() != 0 {
+      let _ = fs::write(
+        self.root.join(".reap"),
+        r#"{"version":1,"keep":{"reason":"unconfirmed Files fixture"}}"#,
+      );
+      eprintln!(
+        "Retained unconfirmed Files fixture: {}",
+        self.root.display()
+      );
+    } else {
+      let _ = fs::remove_dir_all(&self.root);
+    }
   }
 }
 
@@ -179,6 +205,54 @@ fn expired_declaration_is_quarantined_with_provenance() {
   assert_eq!(e["original_path"], run.to_str().unwrap());
   assert_eq!(e["owner"], "tester");
   assert!(e["purpose"].as_str().unwrap().contains("one-off probe"));
+}
+
+#[test]
+fn applying_client_carries_explicit_and_default_caller_attribution() {
+  for explicit in [true, false] {
+    let env = Env::new(0.0);
+    let run = env.projects().join("p/caller-attribution");
+    declare(&run, json!({"version":1,"expires":PAST,"scratch":true}));
+    file(&run.join("data"));
+    age(&env.projects(), 2.0);
+    let mut command = env.command(&["files", "--apply", "--wait", "30"]);
+    if explicit {
+      command
+        .env("REAP_OWNER", "caller-fixture")
+        .env("REAP_SESSION", "caller-session");
+    }
+    let output = command.output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(receipt["protocol"], 2);
+    assert_eq!(receipt["state"], "completed");
+    env.unconfirmed.set(env.unconfirmed.get() - 1);
+    assert_eq!(receipt["job"]["result"]["effects"], 2);
+    assert!(!run.exists());
+    let index = env.quarantine_index();
+    let entry = &index["entries"][0];
+    let expected_owner = if explicit {
+      "caller-fixture".to_owned()
+    } else {
+      let hostname = Command::new("/bin/hostname").output().unwrap();
+      assert!(hostname.status.success());
+      format!(
+        "{}@{}",
+        std::env::var("USER").unwrap_or_else(|_| "unknown".into()),
+        String::from_utf8(hostname.stdout).unwrap().trim()
+      )
+    };
+    assert_eq!(entry["owner"], expected_owner);
+    assert_eq!(entry["provenance"]["actor"], expected_owner);
+    assert_eq!(
+      entry["provenance"]["session"],
+      if explicit {
+        json!("caller-session")
+      } else {
+        Value::Null
+      }
+    );
+  }
 }
 
 #[test]
@@ -357,19 +431,8 @@ fn failed_git_tracking_cannot_authorize_a_tracked_declaration() {
   let control = env.reap(&["files"]);
   assert!(String::from_utf8_lossy(&control.stdout).contains("tracked by git"));
 
-  let bin = env.root.join("bin");
-  fs::create_dir(&bin).unwrap();
-  fs::write(bin.join("git"), "#!/bin/sh\nexit 128\n").unwrap();
-  fs::set_permissions(bin.join("git"), fs::Permissions::from_mode(0o700)).unwrap();
-  let path = std::env::join_paths(
-    std::iter::once(bin).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
-  )
-  .unwrap();
-  let output = env
-    .command(&["files", "--apply"])
-    .env("PATH", path)
-    .output()
-    .unwrap();
+  fs::write(repo.join(".git/index"), b"incomplete native index").unwrap();
+  let output = env.reap(&["files", "--apply"]);
   let text = String::from_utf8_lossy(&output.stdout);
   assert!(
     repo.join(".reap").exists() && repo.join("sentinel").exists(),
@@ -434,7 +497,7 @@ fn sealed_expiry_cannot_override_incomplete_directory_coverage() {
 
 #[test]
 fn new_keep_protects_during_grace_from_an_established_parent_rule() {
-  let env = Env::new(24.0);
+  let env = Env::new(2.0 / 3600.0);
   let parent = env.projects().join("p/runs");
   let child = parent.join("run-kept");
   let disposable = parent.join("run-disposable");
@@ -451,12 +514,7 @@ fn new_keep_protects_during_grace_from_an_established_parent_rule() {
     .as_array()
     .unwrap()
     .is_empty());
-  let seen_path = env.root.join("state/reap/reap-files-seen.json");
-  let mut seen: Value = serde_json::from_str(&fs::read_to_string(&seen_path).unwrap()).unwrap();
-  for value in seen.as_object_mut().unwrap().values_mut() {
-    *value = json!(0);
-  }
-  fs::write(&seen_path, seen.to_string()).unwrap();
+  std::thread::sleep(std::time::Duration::from_secs(3));
   declare(
     &child,
     json!({"version": 1, "keep": {"reason": "still needed"}}),

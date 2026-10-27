@@ -68,7 +68,16 @@ class WorkspaceLifecycle(unittest.TestCase):
         return self.run_command(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(path), *args])
 
     def reap(self, *args, check=True):
-        return self.run_command([REAP, *map(str, args)], check=check)
+        if args and args[0] == 'files':
+            args = (*args, '--wait', '30')
+        result = self.run_command([REAP, *map(str, args)], check=check)
+        if args and args[0] == 'files':
+            receipt = json.loads(result.stdout)
+            self.assertEqual(receipt['protocol'], 2)
+            self.assertIn(receipt['state'], ('completed', 'failed'))
+            detail = json.loads(receipt['job']['result']['detail'])
+            result.stdout, result.stderr = detail['stdout'], detail['stderr']
+        return result
 
     def declare(self, **lifetime):
         body = {'version': 1, 'owner': 'workspace-fixture', 'purpose': 'isolated native test',

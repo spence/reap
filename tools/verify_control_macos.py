@@ -113,6 +113,7 @@ def main():
                                "native_confirmation_requires_the_original_live_client",
                                "native_capture_pins_actual_cwd_after_client_exit_and_path_replacement"],
             "service::tests": ["native_admission_survives_control_restart_and_writer_process_death",
+                               "native_files_apply_client_commits_payload_and_index_and_replays_one_result",
                                "native_result_pages_keep_complete_reports_and_survive_writer_restart",
                                "native_alias_writer_cannot_replace_the_locked_owner",
                                "malformed_native_requests_do_not_poison_the_writer",

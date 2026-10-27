@@ -138,9 +138,9 @@ impl Capture {
         output.extend_from_slice(bytes);
         Ok(())
       }
-      Self::Handles(fields) => fields
-        .push(bytes)
-        .map_err(|_| io::Error::other("invalid activity record")),
+      Self::Handles(fields) => fields.push(bytes).map_err(|reason| {
+        io::Error::new(reason.kind(), format!("invalid activity record: {reason}"))
+      }),
     }
   }
 

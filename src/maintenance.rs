@@ -189,10 +189,16 @@ pub fn run(apply: bool, only: Option<Stage>, if_free_below_gib: Option<f64>) -> 
 
   if let Err(reason) = execute(&path, &binary, &mut receipt, apply, only) {
     receipt.error = Some(reason);
-    receipt.next_action = Some(format!(
-      "inspect {} and rerun `reap maintain`",
-      path.display()
-    ));
+    receipt.next_action = Some(
+      if receipt.stages.last().is_some_and(|stage| {
+        stage.stage == "files" && matches!(stage.outcome.as_str(), "pending" | "unconfirmed")
+      }) {
+        "inspect the retained Files receipt; resolve that job and do not resubmit unconfirmed work"
+          .into()
+      } else {
+        format!("inspect {} and rerun `reap maintain`", path.display())
+      },
+    );
   }
   receipt.finished_unix = unix_now();
   receipt.outcome = if receipt.error.is_some() {
@@ -303,8 +309,8 @@ fn execute(
     if apply && !diagnostic {
       args.push("--apply");
     }
-    let read_files = stage == Stage::Files && !apply;
-    if read_files {
+    let files = stage == Stage::Files;
+    if files {
       args.extend(["--wait", "30"]);
     }
     let command = format!("reap {}", args.join(" "));
@@ -312,19 +318,29 @@ fn execute(
     let started = Instant::now();
     let mut child = Command::new(binary);
     child.args(&args);
-    if read_files {
+    if files {
       child.env_remove("REAP_INTERNAL_CONFIG_SNAPSHOT");
     } else {
       child.env("REAP_INTERNAL_CONFIG_SNAPSHOT", &config_text);
     }
     let output = child.output();
+    let mut files_closed = !(files && apply);
     let after = available_bytes(&qdir).ok();
     let elapsed_millis = started.elapsed().as_millis();
     let (outcome, exit_code, stdout, stderr, output_truncated, reason) = match output {
       Ok(output) => {
+        if files && apply {
+          files_closed = files_stage_closed(&output);
+        }
         let (stdout, out_truncated) = bounded(&output.stdout);
         let (stderr, err_truncated) = bounded(&output.stderr);
-        let outcome = if output.status.success() {
+        let outcome = if !files_closed {
+          if output.status.code() == Some(75) {
+            "pending"
+          } else {
+            "unconfirmed"
+          }
+        } else if output.status.success() {
           "ok"
         } else {
           "failed"
@@ -370,8 +386,35 @@ fn execute(
       reason,
       next_action: (outcome == "failed").then(|| stage.next_action().to_string()),
     });
+    if !files_closed {
+      return Err("Files result is unconfirmed; no later stage was started".into());
+    }
   }
   Ok(())
+}
+
+/// Permit later stages only after terminal Files evidence or confirmed non-admission.
+fn files_stage_closed(output: &std::process::Output) -> bool {
+  use crate::client::{Receipt, State};
+
+  let Ok(receipt) = serde_json::from_slice::<Receipt>(&output.stdout) else {
+    return false;
+  };
+  if receipt.protocol != 2 || output.status.code() != Some(receipt.exit_code()) {
+    return false;
+  }
+  match receipt.state {
+    State::Completed | State::Failed => receipt.job.as_ref().is_some_and(|job| {
+      receipt.key.as_ref() == Some(&job.key)
+        && job.completed_at.is_some()
+        && job
+          .result
+          .as_ref()
+          .is_some_and(|result| (result.exit_code == 0) == (receipt.state == State::Completed))
+    }),
+    State::NotAccepted | State::Invalid | State::Unavailable => receipt.job.is_none(),
+    _ => false,
+  }
 }
 
 pub fn last_status(state: &Path) -> Result<Option<String>, String> {
@@ -421,4 +464,114 @@ fn unix_now() -> u64 {
     .duration_since(UNIX_EPOCH)
     .map(|duration| duration.as_secs())
     .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+  use std::os::unix::fs::PermissionsExt;
+  use std::path::PathBuf;
+
+  use serde_json::json;
+
+  use super::*;
+
+  struct Fixture(PathBuf);
+
+  impl Drop for Fixture {
+    fn drop(&mut self) {
+      let _ = fs::remove_dir_all(&self.0);
+    }
+  }
+
+  #[test]
+  fn applying_maintenance_stops_after_unconfirmed_files_and_continues_after_completion() {
+    for state in ["pending", "malformed", "completed", "not_accepted"] {
+      let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+      let root =
+        std::env::temp_dir().join(format!("reap-maintenance-{}-{nonce}", std::process::id()));
+      fs::create_dir(&root).unwrap();
+      let fixture = Fixture(root);
+      #[cfg(target_os = "macos")]
+      assert_eq!(
+        fs::metadata(&fixture.0).unwrap().dev(),
+        fs::metadata("/System/Volumes/Data").unwrap().dev()
+      );
+      fs::write(
+        fixture.0.join(".reap"),
+        r#"{"version":1,"keep":{"reason":"owned maintenance fixture"}}"#,
+      )
+      .unwrap();
+      let quarantine = fixture.0.join("quarantine");
+      fs::create_dir(&quarantine).unwrap();
+      let config = fixture.0.join("config.json");
+      fs::write(
+        &config,
+        json!({"quarantine":{"dir":quarantine,"auto_purge":true}}).to_string(),
+      )
+      .unwrap();
+
+      let mut response = json!({"protocol":2,"state":state,"key":null,"job_id":null,
+        "job":null,"observed_at":null,"reason":null,"next_command":null});
+      if state == "completed" {
+        let key = json!({"generation":"a".repeat(32),"epoch":1,"nonce":"b".repeat(32)});
+        response["key"] = key.clone();
+        response["job"] = json!({"key":key,"created_at":1,"completed_at":2,
+          "result":{"exit_code":0,"effects":2,"detail":"{}"}});
+      }
+      let stdout = if state == "malformed" {
+        "lost output".into()
+      } else {
+        response.to_string()
+      };
+      let exit = match state {
+        "pending" => 75,
+        "not_accepted" => 1,
+        _ => 0,
+      };
+      let binary = fixture.0.join("stage");
+      fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"${{0%/*}}/trace\"\nif [ \"$1\" = files ]; then\n  printf '%s\\n' '{stdout}'\n  exit {exit}\nfi\n")).unwrap();
+      fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+      let mut receipt = Receipt {
+        version: 1,
+        mode: "apply".into(),
+        started_unix: 0,
+        finished_unix: 0,
+        config_path: config.display().to_string(),
+        binary_path: binary.display().to_string(),
+        outcome: "running".into(),
+        stages: vec![],
+        error: None,
+        next_action: None,
+      };
+
+      let result = execute(&config, &binary, &mut receipt, true, None);
+      let trace = fs::read_to_string(fixture.0.join("trace")).unwrap();
+      assert!(trace.contains("files --apply --wait 30\n"), "{trace}");
+      if matches!(state, "pending" | "malformed") {
+        assert!(result.unwrap_err().contains("no later stage was started"));
+        assert_eq!(receipt.stages.last().unwrap().stage, "files");
+        assert_eq!(
+          receipt.stages.last().unwrap().outcome,
+          if state == "pending" {
+            "pending"
+          } else {
+            "unconfirmed"
+          }
+        );
+        assert!(trace.ends_with("files --apply --wait 30\n"), "{trace}");
+        assert!(!trace.contains("retire"), "{trace}");
+        assert!(!trace.contains("purge"), "{trace}");
+      } else {
+        result.unwrap();
+        assert_eq!(receipt.stages.last().unwrap().stage, "purge");
+        assert!(
+          trace.ends_with("retire --apply\npurge --apply\n"),
+          "{trace}"
+        );
+      }
+    }
+  }
 }

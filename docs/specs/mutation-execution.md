@@ -1,6 +1,6 @@
 # SPEC-MUTATION-EXECUTION — coordinated ordinary effects
 
-- Status: implementation in progress; no applying client is activated by this document.
+- Status: implementation in progress; fleet applying cutover is not complete.
 - Consumers: the prepared client, fixed writer, granted workers, and legacy applying adapters.
 - Grounds: owner-authorized `DEC-LIFETIME-AUTHORITY`, sections 7–11.
 - Work: `MS-LIFETIME-ENFORCE.T19`.
@@ -104,9 +104,15 @@ payload rename. Before that rename, it prepares an index of at most 1 MiB. The i
 recognized schema in a regular single-link file. Links, special files, unknown schemas, and
 oversized input refuse before payload removal. A lost publication result enters read-only recovery;
 neither recovery nor replay repeats the payload move or metadata publication.
-Cross-volume moves, lifetime-policy publication, and public adapter activation remain outside this
-implemented boundary. These private applying cases do not establish the full caller integration
+Cross-volume moves, lifetime-policy publication, and fleet adapter activation remain outside this
+verified boundary. These private applying cases do not establish the full caller integration
 or performance requirements.
+
+The source Files client now submits applying requests through the bounded client. Maintenance and
+workflow fixtures await the same terminal result. Fleet activation remains a separate gate; other
+applying families still need the shared executor before the full bridge can be released.
+A failed terminal result can retain an uncertain unit and its C5 physical reservation.
+Legacy foreground commands do not honor that reservation. They must migrate before fleet activation under C7.
 
 Target recovery runs in a read-only owned worker, not in the state writer. Its durable launch binds
 the exact unresolved unit and physical reservation after original worker/helper absence. Cancellation

@@ -128,8 +128,8 @@ class PublicFiles(unittest.TestCase):
                 self.assertIsNone(result.receipt["job"])
                 self.assertLess(result.elapsed, 1.25)
 
-    def test_wait_rejects_invalid_deadlines_and_applying_mode(self):
-        for arguments in (("--wait", "0"), ("--wait", "nan"), ("--apply", "--wait", "1")):
+    def test_wait_rejects_invalid_deadlines_in_both_modes(self):
+        for arguments in (("--wait", "0"), ("--wait", "nan"), ("--apply", "--wait", "nan")):
             with self.subTest(arguments=arguments):
                 result = subprocess.run([BINARY, "files", *arguments], cwd=self.root,
                                         env=self.environment, capture_output=True, timeout=2)

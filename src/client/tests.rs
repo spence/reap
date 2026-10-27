@@ -310,10 +310,29 @@ fn zero_or_unrepresentable_wait_is_invalid_before_any_transmission() {
 
 #[test]
 fn cli_wait_timeout_accepts_positive_finite_values_only() {
+  use clap::Parser;
   assert_eq!(parse_timeout("0.25").unwrap(), Duration::from_millis(250));
   assert_eq!(parse_timeout("30").unwrap(), Duration::from_secs(30));
   for value in ["0", "-1", "NaN", "inf", "1e300", "1e-12", "not-a-duration"] {
     assert!(parse_timeout(value).is_err(), "{value}");
+  }
+  for apply in [false, true] {
+    let mut args = vec!["reap", "files"];
+    if apply {
+      args.push("--apply");
+    }
+    args.extend(["--wait", "30"]);
+    let cli = crate::Cli::try_parse_from(args).unwrap();
+    let Some(crate::Cmd::Files {
+      apply: actual,
+      wait,
+      ..
+    }) = cli.cmd
+    else {
+      panic!("Files command was not parsed");
+    };
+    assert_eq!(actual, apply);
+    assert_eq!(wait, Some(Duration::from_secs(30)));
   }
 }
 

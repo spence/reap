@@ -1145,6 +1145,8 @@ fn failed_activity_evidence_is_not_retried_for_later_selections() {
   let first = helpers.activity(vec!["/first".into()]).unwrap_err();
   let second = helpers.activity(vec!["/second".into()]).unwrap_err();
   assert_eq!(first.to_string(), second.to_string());
+  assert!(first.to_string().contains("activity path is unavailable"));
+  assert!(first.to_string().contains("name bytes 15"));
   assert!(!first.to_string().contains("SECRET"));
   assert_eq!(helpers.request_id, 1);
   thread.join().unwrap();

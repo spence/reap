@@ -46,6 +46,7 @@ struct Context<'a> {
   requested_roots: usize,
   configuration: Config,
   namespace: Namespace,
+  attribution: crate::provenance::Provenance,
   caller: File,
   base: PathBuf,
   applying: bool,
@@ -184,6 +185,15 @@ pub(crate) fn assess(
   match &context.namespace.xdg_state_home {
     Some(state) => std::env::set_var("XDG_STATE_HOME", state),
     None => std::env::remove_var("XDG_STATE_HOME"),
+  }
+  for (name, value) in [
+    ("REAP_OWNER", context.attribution.actor.as_deref()),
+    ("REAP_SESSION", context.attribution.session.as_deref()),
+  ] {
+    match value {
+      Some(value) => std::env::set_var(name, value),
+      None => std::env::remove_var(name),
+    }
   }
   // SAFETY: this isolated worker owns the held, freshly validated caller directory.
   if unsafe { libc::fchdir(context.caller.as_raw_fd()) } != 0 {
@@ -452,6 +462,7 @@ fn inspect<'a>(
     requested_roots,
     configuration,
     namespace: intent.namespace,
+    attribution: serde_json::from_value(intent.provenance)?,
     caller: directory,
     base: caller.base,
     applying,

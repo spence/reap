@@ -14,7 +14,9 @@ The public CLI uses the bounded job client. This path does not activate applying
 legacy migration, archive policy, source pruning, or new cleanup authority.
 The unified legacy bridge, old-reader barriers, and commit guards remain required for effectful routes.
 Read-only `files [governed-root-or-workspace]` requests also use owned resolver and preview phases.
-The public route uses the bounded job client; applying Files operations retain their separate legacy route.
+The public Files route uses the bounded job client in both modes.
+Applying Files jobs use the shared mutation executor under [SPEC-MUTATION-EXECUTION](mutation-execution.md).
+Fleet activation remains subject to the complete applying-caller bridge and old-reader barriers.
 
 ## Contract
 

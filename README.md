@@ -648,7 +648,7 @@ test reap runs (`cargo test reapfile`).
 ```bash
 reap files            # bounded read-only job: every governed root
 reap files PATH --wait 30 # await one governed root or workspace assessment
-reap files --apply    # remove what the declarations say, after re-checking each path
+reap files --apply --wait 30 # await authorized declaration cleanup
 ```
 
 Reap honours a `.reap` file only under a governed root (`governed_roots`,
@@ -660,8 +660,7 @@ Child disposal rules in a newly seen declaration also wait for grace. A sealed d
 the declarations beneath it. Invalid files and incomplete directory coverage
 protect their affected subtrees. Incomplete coverage also blocks whole-ancestor
 removal, including a sealed or scratch ancestor. The command reports incomplete
-coverage with a failure exit. The legacy applying route can still process independent
-unrelated units. Read-only native assessment currently refuses the complete selection
+coverage with a failure exit. Native assessment refuses the complete selection
 on incomplete discovery; that refusal is not proof that no unrelated unit is eligible.
 
 Before each removal, `--apply` re-checks that the path is still inside the root
@@ -675,9 +674,9 @@ checks is not removed unless its declaration sets `"scratch": true`. This includ
 stashed, or unpushed work, no upstream, main-checkout non-branch refs, and private worktree refs.
 Partial file and directory
 removals also use enclosing checkout guards. Nested checkout discovery has no
-depth-three safety cutoff. The legacy applying route keeps first-seen times in
-`reap-files-seen.json`; deleting that cache only delays action. Read-only jobs keep
-identity-bound observations in their journal. Neither cache imports credit from the other.
+depth-three safety cutoff. Files jobs use identity-bound first-seen observations in their journal.
+Complete zero-effect Files jobs in either mode can publish journal grace credit.
+The CLI does not read or import grace credit from the legacy `reap-files-seen.json` cache.
 An assessment is not a promise that a later applying invocation will remove the same units.
 
 Declaration and lease checks use the same Git recoverability assessment: all local
@@ -993,7 +992,10 @@ Those volume deltas can include concurrent activity; they are not attributed
 bytes reclaimed. A failed stage leaves a nonzero overall result but does not
 silently authorize later work: each subsequent command independently rechecks
 its own authority and state. `reap status` shows the last result. A changed
-config or installed binary stops later stages; a concurrent maintenance run
+config or installed binary stops later stages. An applying Files stage with outcome
+`pending` or `unconfirmed` also stops later stages. Use `reap job show ID` or
+`reap job wait ID` to resolve that same job; do not resubmit unconfirmed work.
+A concurrent maintenance run
 cannot replace the active run's receipt. If `auto_purge` is false, the purge
 stage is recorded as skipped, not bypassed.
 
@@ -1102,13 +1104,14 @@ Safety behavior is covered with synthetic target-tree tests. Changes to artifact
 classification or deletion boundaries should include an invariant test showing
 both what is removed and what must survive.
 
-The bounded [job client](docs/specs/job-client.md) supports manifest validation, read-only declaration assessment, and job observations:
+The bounded [job client](docs/specs/job-client.md) supports manifest validation, declaration assessment and application, and job observations:
 
 ```bash
 reap check [dir]                 # ordinary response budget: one second
 reap check [dir] --wait 30        # explicit completion wait
 reap files [dir]                 # ordinary response budget: one second
 reap files [dir] --wait 30        # explicit read-only completion wait
+reap files [dir] --apply --wait 30 # explicit cleanup completion wait
 reap job show GENERATION:EPOCH:NONCE
 reap job wait GENERATION:EPOCH:NONCE --timeout 30
 reap job page GENERATION:EPOCH:NONCE 0
@@ -1117,7 +1120,8 @@ reap job cancel GENERATION:EPOCH:NONCE
 
 These commands emit JSON. Exit 0 requires completed success; exit 75 means pending or unknown.
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
-`check` and non-applying `files` submit read-only jobs. A pending receipt includes the same-key observation command;
+`check` and non-applying `files` submit read-only jobs. `files --apply` submits a mutation job.
+A pending receipt includes the same-key observation command;
 require completed success before a dependent step. `--wait` without a value means 30 seconds.
 Waiting does not cancel or resubmit work. Receipts identify protocol 2, operation, mode, and
 requested scope. The requested scope is not native target identity or cleanup permission.
@@ -1131,8 +1135,9 @@ Live and uncertain workers retain their slots until exact absence is proved. The
 Observe the same key for its terminal result. A result already durably staged remains unchanged.
 An already successful job retains exit 0. This does not mean that cancellation took effect.
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
-macOS installation registers that broker. Applying Files and other filesystem commands retain their foreground routes.
-`files --apply` rejects `--wait`; the bounded applying executor migration remains open.
+macOS installation registers that broker. Files application records exact payload and index units
+through the shared executor. Other applying filesystem commands still retain their foreground routes.
+The full applying-command migration remains open. No new lifetime authority is activated by this route.
 
 Their component contracts are [transport](docs/specs/control-transport.md) and
 [admission](docs/specs/admission.md). Native admission proof does not establish

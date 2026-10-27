@@ -479,15 +479,18 @@ fn read_probe_pipe(
   }
 }
 
+/// Read the kernel hostname without a child process or filesystem access.
 pub fn hostname() -> String {
-  Command::new("hostname")
-    .output()
-    .ok()
-    .filter(|o| o.status.success())
-    .and_then(|o| String::from_utf8(o.stdout).ok())
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
-    .unwrap_or_else(|| "unknown-host".to_string())
+  let mut bytes = [0_u8; 1024];
+  // SAFETY: bytes remains writable for the supplied length throughout the native call.
+  let status = unsafe { libc::gethostname(bytes.as_mut_ptr().cast(), bytes.len()) };
+  let name = (status == 0)
+    .then(|| bytes.iter().position(|byte| *byte == 0))
+    .flatten()
+    .and_then(|end| std::str::from_utf8(&bytes[..end]).ok())
+    .map(str::trim)
+    .filter(|name| !name.is_empty());
+  name.unwrap_or("unknown-host").to_owned()
 }
 
 /// Owner attribution for leases/quarantine entries: `$REAP_OWNER` if set
@@ -631,6 +634,17 @@ mod tests {
     let d = std::env::temp_dir().join(format!("reap-util-{}-{}", std::process::id(), n));
     fs::create_dir_all(&d).unwrap();
     d
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn kernel_hostname_matches_the_system_hostname_command() {
+    let output = Command::new("/bin/hostname").output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+      hostname(),
+      std::str::from_utf8(&output.stdout).unwrap().trim()
+    );
   }
 
   #[test]
