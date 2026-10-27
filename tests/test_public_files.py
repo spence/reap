@@ -25,6 +25,7 @@ class PublicFiles(unittest.TestCase):
 
     def setUp(self):
         base = ROOT / "target/control-t13"
+        base.mkdir(parents=True, exist_ok=True)
         temporary = tempfile.TemporaryDirectory(prefix="public-files-", dir=base)
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
