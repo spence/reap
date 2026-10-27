@@ -1,0 +1,368 @@
+{
+  "schema": 1,
+  "work": "MS-LIFETIME-ENFORCE.T14",
+  "component": "public non-applying Files deadline-bounded client",
+  "full_goal_complete": false,
+  "runtime_source_revision": "2b819abfe1896968bbc779c68609293f887c419c",
+  "verification_source_revision": "9561c7ce2190320f34c406620e97b7fdedb965a0",
+  "operator_source_revision": "c52f5e9712f908adcf58f83663f56e83991ad6d0",
+  "source_manifest": {
+    "README.md": "86a389b54f0f725fe52aaad6423d256988351532153c65b2fe71277064c1f84d",
+    "docs/specs/job-client.md": "fc1296a8d54e5aaf5ba43c4f778990c71f5fa5f6fad7a4966ac13f3b638b857e",
+    "docs/specs/job-execution.md": "849cfa66872b43682d1561a83ffcefd189b91f6b0018442c59074602115707b8",
+    "skill/SKILL.md": "be73ccb5c6f01fbd4baa83d116864b03047f4b47d97e8b4c42507e33f591d495",
+    "src/client.rs": "18c43e744fa9f6c827a23e0a274c7151766969dddb5dfe64b00e04a46e2cc206",
+    "src/dispatch/files_job.rs": "e6f8fafe89adb2110f0588bdd1c40597ebd8f832a75b465cf8af3a31daffde3c",
+    "src/main.rs": "b6b0cf2c5722fa8aa2eee3461561e6d159cb7a60f5c064b61454c638731de354",
+    "src/maintenance.rs": "e3238dbf260963751336b61c664f6579460a46b97f525930b387f4c97a98dc4c",
+    "tests/reap_files.rs": "5d127c258dbc81c1c863588430c2af17a4424c849464121d53c90d7ceac0f235",
+    "tests/test_public_files.py": "b4d0941d898951de70c403120623ea866c2b952011f27c61d2a8f82ecf1c6db9",
+    "/Users/spencer/src/skills/shared/skills/reap/SKILL.md": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+    "/Users/spencer/src/skills/shared/skills/reap/references/workspaces.md": "a41cf9be9a6bef2856e7701a94b0fe64c37c447985cee8921ddf63f550dc5eb8",
+    "tests/lifecycle_state.rs": "ded02eb7f95b15a2db021bbbbfed010f99ca6dfacfa4c14175c6b70c00e52329",
+    "tests/test_preservation.py": "b7771559710971ec77edc33c890a18f986ac5989fbf3d91f993ca1fb9f13af95"
+  },
+  "full_source_suite": {
+    "log": "full-rust-final.log",
+    "unit": 319,
+    "lifecycle": 57,
+    "declaration": 23,
+    "fault_only_ignored_here_run_natively": 5,
+    "summaries": [
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 323 filtered out; finished in 0.04s",
+      "test result: ok. 319 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 159.53s",
+      "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 90.64s",
+      "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.42s"
+    ]
+  },
+  "native": {
+    "catalyst": {
+      "service": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 310 filtered out; finished in 25.96s",
+        "labels_absent_count": 48,
+        "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+      },
+      "launch": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 311 filtered out; finished in 1.22s",
+        "labels_absent_count": 0,
+        "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+      },
+      "control": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 2.63s",
+        "labels_absent_count": 7
+      },
+      "worker": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 301 filtered out; finished in 6.68s",
+        "labels_absent_count": 0
+      }
+    },
+    "catalyst-mini": {
+      "service": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 310 filtered out; finished in 21.14s",
+        "labels_absent_count": 48,
+        "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+      },
+      "launch": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 311 filtered out; finished in 2.42s",
+        "labels_absent_count": 0,
+        "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+      },
+      "control": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 2.63s",
+        "labels_absent_count": 7
+      },
+      "worker": {
+        "native_exit": 0,
+        "verification_exit": 0,
+        "binary_sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+        "runtime_removed": true,
+        "test_summary": "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 301 filtered out; finished in 6.62s",
+        "labels_absent_count": 0
+      }
+    }
+  },
+  "installed_suites": {
+    "catalyst": {
+      "installed-public-files-v5.log": ".......\n----------------------------------------------------------------------\nRan 7 tests in 1.923s\n\nOK",
+      "installed-test_public_check.py.log": "........\n----------------------------------------------------------------------\nRan 8 tests in 2.281s\n\nOK",
+      "installed-test_preservation.py.log": "...............\n----------------------------------------------------------------------\nRan 15 tests in 14.582s\n\nOK",
+      "installed-workspaces.log": "\n----------------------------------------------------------------------\nRan 5 tests in 7.221s\n\nOK",
+      "installed-declarations.log": "test undeclared_targets_are_reported_and_declared_ones_are_not ... ok\ntest unreadable_subtree_protects_its_ancestor_without_blocking_unrelated_cleanup ... ok\n\ntest result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.36s\n"
+    },
+    "catalyst-mini": {
+      "installed-test_public_files.py.log": ".......\n----------------------------------------------------------------------\nRan 7 tests in 1.243s\n\nOK",
+      "installed-test_public_check.py.log": "........\n----------------------------------------------------------------------\nRan 8 tests in 1.913s\n\nOK",
+      "installed-test_preservation.py.log": "...............\n----------------------------------------------------------------------\nRan 15 tests in 7.713s\n\nOK",
+      "installed-workspaces.log": "\n----------------------------------------------------------------------\nRan 5 tests in 4.572s\n\nOK",
+      "installed-declarations.log": "test undeclared_targets_are_reported_and_declared_ones_are_not ... ok\ntest unreadable_subtree_protects_its_ancestor_without_blocking_unrelated_cleanup ... ok\n\ntest result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.92s\n"
+    }
+  },
+  "installed_suite_counts": {
+    "public_files": 7,
+    "public_check": 8,
+    "preservation": 15,
+    "workspace": 5,
+    "declaration": 23
+  },
+  "managed_first_seen": {
+    "catalyst": {
+      "host": "catalyst.local",
+      "operation": "files",
+      "first_seen": true,
+      "native_exit": 0,
+      "service_mode": "managed",
+      "managed_services_preserved": true,
+      "production_services_stopped": false,
+      "installed_sha256": "44b67fffd882f0caa139f94e2db90e9c9451277680f3d966e0c87b8a6d5e3c22",
+      "first_seen_rounds": 2,
+      "admission_elapsed_ns": 38361625,
+      "read_only_execution": true,
+      "terminal_exit_code": 0,
+      "terminal_effects": 0,
+      "released_bulk_launch": true,
+      "protected_survivor": true,
+      "verification_exit": 0
+    },
+    "catalyst-mini": {
+      "host": "catalyst-mini.local",
+      "operation": "files",
+      "first_seen": true,
+      "native_exit": 0,
+      "service_mode": "managed",
+      "managed_services_preserved": true,
+      "production_services_stopped": false,
+      "installed_sha256": "44b67fffd882f0caa139f94e2db90e9c9451277680f3d966e0c87b8a6d5e3c22",
+      "first_seen_rounds": 2,
+      "admission_elapsed_ns": 20425583,
+      "read_only_execution": true,
+      "terminal_exit_code": 0,
+      "terminal_effects": 0,
+      "released_bulk_launch": true,
+      "protected_survivor": true,
+      "verification_exit": 0
+    }
+  },
+  "artifacts": {
+    "reap-unit": {
+      "sha256": "ecc6daca985a6ddbf99a3eb65c0aa56c16f0f6b624637d23dc6adc3f0220531e",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "declaration-tests": {
+      "sha256": "c6e88f422e4017f7ca6f288bd3cc81a3d0febdbc7dc96471894f03894c88a490",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.declaration-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "reap-release": {
+      "sha256": "44b67fffd882f0caa139f94e2db90e9c9451277680f3d966e0c87b8a6d5e3c22",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    },
+    "fault.dylib": {
+      "sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\""
+    }
+  },
+  "installed": {
+    "catalyst": {
+      "sha256": "44b67fffd882f0caa139f94e2db90e9c9451277680f3d966e0c87b8a6d5e3c22",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "version": "reap 0.1.0",
+      "help_same_argv0": true,
+      "installer_preserved_guides": true
+    },
+    "catalyst-mini": {
+      "sha256": "44b67fffd882f0caa139f94e2db90e9c9451277680f3d966e0c87b8a6d5e3c22",
+      "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "version": "reap 0.1.0",
+      "help_same_argv0": true,
+      "installer_preserved_guides": true
+    }
+  },
+  "operator_guide_parity": {
+    "catalyst": {
+      ".claude": {
+        "SKILL.md": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+        "references/workspaces.md": "a41cf9be9a6bef2856e7701a94b0fe64c37c447985cee8921ddf63f550dc5eb8",
+        "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e"
+      },
+      ".codex": {
+        "SKILL.md": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+        "references/workspaces.md": "a41cf9be9a6bef2856e7701a94b0fe64c37c447985cee8921ddf63f550dc5eb8",
+        "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e"
+      }
+    },
+    "catalyst-mini": {
+      ".claude": {
+        "SKILL.md": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+        "references/workspaces.md": "a41cf9be9a6bef2856e7701a94b0fe64c37c447985cee8921ddf63f550dc5eb8",
+        "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e"
+      },
+      ".codex": {
+        "SKILL.md": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+        "references/workspaces.md": "a41cf9be9a6bef2856e7701a94b0fe64c37c447985cee8921ddf63f550dc5eb8",
+        "references/storage-review.md": "9a3f048835680c1779d049e605c5d69551492f6e0daa93e0847d75919ef7326e"
+      }
+    }
+  },
+  "fresh_native_guide_consumers": {
+    "catalyst": {
+      "codex": {
+        "launch": {
+          "conversation_id": "conversation-18e23cc0e2e57290-379386",
+          "launch_key": "reap-public-files-guide-codex-catalyst",
+          "launch_status": "submitted",
+          "peer_id": "peer-18e23cc0e203b198-379382",
+          "request_message_id": "cmsg-18e23cc0ef4d1768-379389"
+        },
+        "model": "gpt-6.1-sol",
+        "effort": "medium",
+        "execution_profile": "workspace",
+        "reply": {
+          "provider": "Codex",
+          "skill_path": "/Users/spencer/.codex/skills/reap/SKILL.md",
+          "skill_sha256": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+          "files_ordinary_budget_seconds": 1,
+          "files_output_protocol": 2,
+          "files_wait_command": "reap files --wait 30",
+          "files_apply_wait_supported": false,
+          "read_observations_supply_legacy_apply_grace": false
+        },
+        "closed": true
+      },
+      "claude": {
+        "launch": {
+          "conversation_id": "conversation-18e23ccb4c8f11d8-379708",
+          "launch_key": "reap-public-files-guide-claude-catalyst",
+          "launch_status": "submitted",
+          "peer_id": "peer-18e23ccb4bd606c0-379704",
+          "request_message_id": "cmsg-18e23ccb4cffb9b0-379711"
+        },
+        "model": "claude-sonnet-5-5",
+        "effort": "medium",
+        "execution_profile": "workspace",
+        "reply": {
+          "provider": "Claude",
+          "skill_path": "/Users/spencer/.claude/skills/reap/SKILL.md",
+          "skill_sha256": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+          "files_ordinary_budget_seconds": 1,
+          "files_output_protocol": "protocol 2 JSON",
+          "files_wait_command": "reap files --wait 30",
+          "files_apply_wait_supported": false,
+          "read_observations_supply_legacy_apply_grace": false
+        },
+        "closed": true
+      }
+    },
+    "catalyst-mini": {
+      "codex": {
+        "launch": {
+          "conversation_id": "conversation-18e23cc109b83ab0-4319449",
+          "launch_key": "reap-public-files-guide-codex-mini",
+          "launch_status": "submitted",
+          "peer_id": "peer-18e23cc108bb5480-4319445",
+          "request_message_id": "cmsg-18e23cc115300148-4319457"
+        },
+        "model": "gpt-6.1-sol",
+        "effort": "medium",
+        "execution_profile": "workspace",
+        "reply": {
+          "provider": "Codex",
+          "skill_path": "/Users/spencer/.codex/skills/reap/SKILL.md",
+          "skill_sha256": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+          "files_ordinary_budget_seconds": 1,
+          "files_output_protocol": 2,
+          "files_wait_command": "reap files --wait 30",
+          "files_apply_wait_supported": false,
+          "read_observations_supply_legacy_apply_grace": false
+        },
+        "closed": true
+      },
+      "claude": {
+        "launch": {
+          "conversation_id": "conversation-18e23ccb92d6e800-4319846",
+          "launch_key": "reap-public-files-guide-claude-mini",
+          "launch_status": "submitted",
+          "peer_id": "peer-18e23ccb9186a210-4319842",
+          "request_message_id": "cmsg-18e23ccb932f6840-4319849"
+        },
+        "model": "claude-sonnet-5-5",
+        "effort": "medium",
+        "execution_profile": "workspace",
+        "reply": {
+          "provider": "Claude",
+          "skill_path": "/Users/spencer/.claude/skills/reap/SKILL.md",
+          "skill_sha256": "ed2ab6c8b0b46cf8641dc1b12c31287d304adb30dba10fbd265104a2456d7e91",
+          "files_ordinary_budget_seconds": 1,
+          "files_output_protocol": "protocol 2 JSON",
+          "files_wait_command": "reap files --wait 30",
+          "files_apply_wait_supported": false,
+          "read_observations_supply_legacy_apply_grace": false
+        },
+        "closed": true
+      }
+    }
+  },
+  "installer_cases": 19,
+  "guide_delivery_cases": 6,
+  "independent_source_review": {
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "peer": "peer-18e23bff691fe948-377275",
+    "conversation": "conversation-18e23bff6b12eb60-377279",
+    "v4_request": "cmsg-18e23bff6b9949d0-377282",
+    "v5_request": "cmsg-18e23c8b766770d0-378898",
+    "verdict": "ACCEPT",
+    "runtime_acceptance_claimed_by_review": false,
+    "owned_peer_closed": true,
+    "reviewer_side_effect": "The reviewer disclosed a py_compile bytecode write despite the read-only brief, then unlinked that owned bytecode file. No source hashes changed. Root runtime proof is independent of this action."
+  },
+  "retained_failures": {
+    "old_public_fifo": "red.log: old signed public Files timed out after 2 seconds on its private config FIFO; the harness terminated only its own non-agent CLI.",
+    "mini_initial_fixture": "installed-test_public_files.py-initial.log: all 7 cases failed in setUp because the fresh copied source had no target/control-t13 parent. No Files invocation ran. The test-only mkdir correction is in verification_source_revision; all corrected installed cases passed.",
+    "review_session_recovery": "The first peer could not receive final corrections because Gateway refused an exact cwd mismatch. Findings and both failed request receipts remain; the replacement independently reviewed all fourteen final files at the same capability."
+  },
+  "evidence_root": "/Users/spencer/src/reap/target/control-t13/public-files",
+  "mini_runtime_root": "/private/tmp/reap-cores-transport-8yjfimnx/public-files-t14",
+  "quick_check_storage": "internal only on both Macs",
+  "external_fixture_enabled": false,
+  "live_conversion_or_source_pruning": false,
+  "limits": [
+    "files --apply and other filesystem commands still use legacy foreground routes.",
+    "Read-only native discovery refuses incomplete selections; independent partial progress remains open.",
+    "Shared maintenance discovery, lifetime integration/conversion, effectful bridge/fences, provider-native archival and remaining platform proof are not complete.",
+    "Durable FIFO recovery remains planned under ISS-RECOVER-QUEUED-EXECUTION-IN-DURABLE-ADMI."
+  ]
+}
