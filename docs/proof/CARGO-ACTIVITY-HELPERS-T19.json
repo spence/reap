@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "verified helper prerequisite; not Cargo caller migration, product install or full Task acceptance",
+  "source_revision": "a0eb79bb1d121204621348fbd0121a7c1babf901",
+  "base_revision": "2405987c8e8d8c85f0430e492e918646268b613f",
+  "source_files": {
+    "docs/specs/executable-activity.md": "0b1de051ba5168e4c9f88b286e08c663ef1add894dbbdf4c39994bc0c030fd7c",
+    "docs/specs/worker-grants.md": "e6b3eb5d0993e97c8391af57b299c0a4b670ea6deda47530dac196ef22950c11",
+    "src/activity.rs": "79ea12b3268a518f1a3b311b7bbf442320794e8c70448db2e2cd6552a3d18273",
+    "src/activity/executable_paths.rs": "9aa9c986a400f85ea1f4c283ee9f45e67eca53aba33d0483ff9fca11f710e00a",
+    "src/activity/executable_paths/mapped_paths.rs": "838584f192fb65ef7708d8decddb113ee72a5d5eef2c2863ed39a96e1422a559",
+    "src/service/tests.rs": "2c67549cb492b6ca0c95faea997d01a79ffdce1f6dd2bcbe6d3f6d7726bccb9b",
+    "src/worker.rs": "54f0d2dba514c3fbb871bd145907476dacc0f32be4b0c3ed7469776c79c57c49",
+    "src/worker/tests.rs": "6a7694abafb5a5516344d00c64c8fb7206255de6ad317b7821cba06603784d32"
+  },
+  "source_checks": {
+    "command": "env -u CARGO_TARGET_DIR CARGO_BUILD_JOBS=1 TMPDIR=/private/tmp cargo test --locked --target-dir target/control-t13/mutation-bridge/private-target --bin reap -- --test-threads=1",
+    "result": "test result: ok. 367 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 349.37s",
+    "log_sha256": "c721860af0d41dc379705159052dfbc1e21a997d73b1f43a5495b8a4a58ade86",
+    "compile_all_targets_exit": 0,
+    "compile_log_sha256": "248591cd88d5c4713db9ca55bc91661df5a725186c911598aac205322cc9dc07",
+    "format_exit": 0,
+    "format_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "new_warning": "Helpers::executables has no production caller until the Cargo adapter lands",
+    "existing_warning": "Journal::admit_mutation is unused",
+    "runtime_integration_not_run": true
+  },
+  "native_artifacts": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-frozen-v3/app",
+      "sha256": "70165f5bb2476e8af83aed39e06d854abce90e7e9ea73e6c07f5fcdd68654a9b",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 25930848,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-frozen-v3/unit",
+      "sha256": "29d78d634ba66d3bc904abdf34b642efe19e6389d35ed8d025d37910ee4ef66b",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 34234432,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-frozen-v3/fault",
+      "sha256": "03e6ea1c1e42a40ceb19e0cd6a9251f9fd36e6a288ac4be5fbb873e8ebe8bf5b",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults",
+      "bytes": 52384,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/fault.dylib"
+    },
+    "activity-fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-frozen-v3/activity-fault",
+      "sha256": "711d1ef35de6a7cdabac15dbd453f2242946ff252e673674ae4ee91b2d062ede",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults",
+      "bytes": 51808,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/activity-fault.dylib"
+    }
+  },
+  "native": {
+    "catalyst": {
+      "worker": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 343 filtered out; finished in 10.36s"
+        ],
+        "receipt_sha256": "69162ac8754fa30c3fdc2a0a6337decf7c26d6670e0c5f24a7fbce501d3e8251",
+        "log_sha256": "9608b0c97af535c0d822ec3d7fd55bd958aeaa8248874f25dd93fffbf49e1dc2"
+      },
+      "service": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 51,
+        "results": [
+          "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 28.01s"
+        ],
+        "receipt_sha256": "de2cb9810a29128448cec8819bac524b9738f9babf820c3a3164ff6c6a721a50",
+        "log_sha256": "1d0ff2a90f3f5d624230dce4b28c91f02b3b27aab0628ea4a707276c5050e0e9"
+      },
+      "launch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 1.88s"
+        ],
+        "receipt_sha256": "564827bcd37756a60ef9a8349b2384a8ce3d7767e2598a19f88fe1b06379eb15",
+        "log_sha256": "d7a4acbfe0a4171729f7b8c0ce98029a4df435f55fd3e61f17f3569864b2f08a"
+      },
+      "legacy_consumer": {
+        "result": "Ran 6 tests in 3.601s",
+        "log_sha256": "0b51d1ee8a8c4f336d398e12ce02a890a50a977d4a9d79c02f0b13c3469eb9bb",
+        "not_cargo_caller_migration": true,
+        "bound_run": {
+          "command": [
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            "/Users/spencer/src/reap/tests/test_active_executables.py"
+          ],
+          "cwd": "/Users/spencer/src/reap",
+          "environment": {
+            "REAP_TEST_BIN": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-frozen-v3/app",
+            "REAP_TEST_NATIVE_DRIVER": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-frozen-v3/unit",
+            "REAP_TEST_ACTIVITY_FAULT_LIBRARY": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-frozen-v3/activity-fault",
+            "TMPDIR": "/private/tmp",
+            "PYTHONDONTWRITEBYTECODE": "1"
+          },
+          "binary_sha256_before": {
+            "REAP_TEST_BIN": "70165f5bb2476e8af83aed39e06d854abce90e7e9ea73e6c07f5fcdd68654a9b",
+            "REAP_TEST_NATIVE_DRIVER": "29d78d634ba66d3bc904abdf34b642efe19e6389d35ed8d025d37910ee4ef66b",
+            "REAP_TEST_ACTIVITY_FAULT_LIBRARY": "711d1ef35de6a7cdabac15dbd453f2242946ff252e673674ae4ee91b2d062ede"
+          },
+          "binary_sha256_after": {
+            "REAP_TEST_BIN": "70165f5bb2476e8af83aed39e06d854abce90e7e9ea73e6c07f5fcdd68654a9b",
+            "REAP_TEST_NATIVE_DRIVER": "29d78d634ba66d3bc904abdf34b642efe19e6389d35ed8d025d37910ee4ef66b",
+            "REAP_TEST_ACTIVITY_FAULT_LIBRARY": "711d1ef35de6a7cdabac15dbd453f2242946ff252e673674ae4ee91b2d062ede"
+          },
+          "harness_sha256": "7c4cc26c60d249cb08ca91bc36265a4e0c9b57f2e709aa3b919b59dce11f26fc",
+          "log_sha256": "ae48f721e0d615ba4180d45eed6126065bce32c9f1c60e6b8a060ed47e597a95",
+          "exit": 0,
+          "elapsed_seconds": 3.088011542102322,
+          "storage_device": 16777232,
+          "receipt_path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-legacy-consumer-bound-v4.json",
+          "receipt_sha256": "7fffffc2a3bf6573f940ec88b83cf4322fea70a73f2925070e4b3216bf987d9e",
+          "log_path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-legacy-consumer-bound-v4.log"
+        }
+      }
+    },
+    "catalyst-mini": {
+      "worker": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 343 filtered out; finished in 8.50s"
+        ],
+        "receipt_sha256": "4dc31fc9f095a78818eb3d1403c641a25ec6450a25065a00a7d13329b85cf3ab",
+        "log_sha256": "2026f00b93731ae134900f67e1fa2562b3c4fc14ada73a10f52755630dc96ff5"
+      },
+      "service": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 51,
+        "results": [
+          "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 21.44s"
+        ],
+        "receipt_sha256": "8e63052f34bd80ef3fa1b4b0f719bf36f94d3fb72e7763f42b0e13811c652e51",
+        "log_sha256": "96a9db9cae329b01ba93098219513fe514be15f7418759c43c6936204a68c854"
+      },
+      "launch": {
+        "verification_exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 1.11s"
+        ],
+        "receipt_sha256": "2b06922c05350d49a422ff8570a1006edbb654dba6245816d7c326537c4f63d4",
+        "log_sha256": "539ee89deb1dbe1bba2fbb3a60823136c5420cffd2f4c4bbbc0b070df1be8c0a"
+      },
+      "legacy_consumer": {
+        "result": "Ran 6 tests in 3.364s",
+        "log_sha256": "fca0ac882c4122529a2f501cb3fef873749e9057cb601cb596b5e579d2ff27ee",
+        "not_cargo_caller_migration": true,
+        "bound_run": {
+          "command": [
+            "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+            "/private/tmp/reap-cores-transport-8yjfimnx/cargo-vnodes-t19-v3/tests/test_active_executables.py"
+          ],
+          "cwd": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-vnodes-t19-v3",
+          "environment": {
+            "REAP_TEST_BIN": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-vnodes-t19-v3/frozen/app",
+            "REAP_TEST_NATIVE_DRIVER": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-vnodes-t19-v3/frozen/unit",
+            "REAP_TEST_ACTIVITY_FAULT_LIBRARY": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-vnodes-t19-v3/frozen/activity-fault",
+            "TMPDIR": "/private/tmp",
+            "PYTHONDONTWRITEBYTECODE": "1"
+          },
+          "binary_sha256_before": {
+            "REAP_TEST_BIN": "70165f5bb2476e8af83aed39e06d854abce90e7e9ea73e6c07f5fcdd68654a9b",
+            "REAP_TEST_NATIVE_DRIVER": "29d78d634ba66d3bc904abdf34b642efe19e6389d35ed8d025d37910ee4ef66b",
+            "REAP_TEST_ACTIVITY_FAULT_LIBRARY": "711d1ef35de6a7cdabac15dbd453f2242946ff252e673674ae4ee91b2d062ede"
+          },
+          "binary_sha256_after": {
+            "REAP_TEST_BIN": "70165f5bb2476e8af83aed39e06d854abce90e7e9ea73e6c07f5fcdd68654a9b",
+            "REAP_TEST_NATIVE_DRIVER": "29d78d634ba66d3bc904abdf34b642efe19e6389d35ed8d025d37910ee4ef66b",
+            "REAP_TEST_ACTIVITY_FAULT_LIBRARY": "711d1ef35de6a7cdabac15dbd453f2242946ff252e673674ae4ee91b2d062ede"
+          },
+          "harness_sha256": "7c4cc26c60d249cb08ca91bc36265a4e0c9b57f2e709aa3b919b59dce11f26fc",
+          "log_sha256": "c8920f1939c03f5f73069358e245c6a3c74b40b02a318e3a534effb49a0ef3f1",
+          "exit": 0,
+          "elapsed_seconds": 3.192610458,
+          "storage_device": 16777234,
+          "receipt_path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-mini-v3/legacy-consumer-bound-v4.json",
+          "receipt_sha256": "e39e6c69651d62a9e0321bd08b416cbf8b41ce31a2ac68af1910a0a10f2fab52",
+          "log_path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-mini-v3/legacy-consumer-bound-v4.log"
+        }
+      }
+    }
+  },
+  "regressions": {
+    "protocol_red": {
+      "log": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-protocol-red.log",
+      "sha256": "bd08e06c5cad3d75e9e7dc394e29a63d9a7b1c42aa4f28ee55b9ffd1f4dc4fcc"
+    },
+    "channel_red": {
+      "log": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-channel-red-v2.log",
+      "sha256": "5f7481b61f6b97d08ee121503e55db9d9a82f36a116d96ec1b1650ba13a466eb"
+    },
+    "channel_green": {
+      "log": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-channel-green-v2.log",
+      "sha256": "0882152e8a133a2148c6559478ee0db164790f184dae8172ced7f53484f1ff4e"
+    },
+    "retained_fixture_failure": {
+      "log": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-service-failure-v2.json",
+      "sha256": "86a39428577e1bf05372e426089734091f6a6c2ee526ebbdc2a8e0875dc293d4"
+    }
+  },
+  "review": {
+    "initial": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-review-wait-v1a.json",
+      "sha256": "6c1957a45630387f8f9b24279bfc59bba5451a509a7bf6b4caa07e4e855b15b9"
+    },
+    "channel_correction": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-review-wait-v2a.json",
+      "sha256": "47603b379b765b15be0fd4f8ea7a95edef65e7d6aefc84d78ed0070636ae927e"
+    },
+    "accepted": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-review-wait-v3b.json",
+      "sha256": "3751e0a84ab91fdaba1254023073526f8c3149953d8e4818a1f60b3346b6b9cb"
+    }
+  },
+  "issues_open": [
+    "ISS-POSITIVE-FILES-FIXTURE-CAN-ENCOUNTER-AN",
+    "ISS-NATIVE-FILES-CLEANUP-INTERMITTENTLY-REFU",
+    "ISS-NATIVE-PAYLOAD-RECOVERY-FIXTURE-INTERMIT"
+  ],
+  "limits": [
+    "All quick-check inputs, executables, working directories, fixtures, output, logs and temporary files stayed on internal storage.",
+    "The active-executable consumer suite uses the new signed candidate with the existing foreground Cargo apply path. It does not prove a Cargo executor migration.",
+    "No product, service or operator guide was installed. No new cleanup authority, live conversion or conversation-source release was activated.",
+    "Per-unit executable freshness, all other applying callers, fair mutation work, permanent native archives and the full fleet outcome remain open."
+  ],
+  "mini_identity": {
+    "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-vnodes-mini-v3/identity-verification.json",
+    "sha256": "6892a41a6cd0d82420ea81acde3eda1706eaf8ee19e989252eb8e2ea6bf9669d"
+  }
+}
