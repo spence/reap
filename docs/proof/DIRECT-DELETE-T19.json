@@ -1,0 +1,406 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "private_component_verified_full_goal_active",
+  "source_revision": "ffe108cdd99b739c630bca5d4a658f18d4593c16",
+  "branch": "feat/mutation-executor",
+  "source_manifest": {
+    "docs/specs/mutation-execution.md": "6286868d292a95dedac0a5eb154f1edc627500f93afe2b2e3a2328bdcbd464a5",
+    "src/dispatch/tests.rs": "08080a4125bd2920b9e12c6ad370d40108aae585da44d70e16273799c3fd6941",
+    "src/files.rs": "3201f90952cfb42c16a48880f9ade36bc069398fc7d7760049afb3acc17bbe72",
+    "src/files/applying.rs": "c9b1141f30070dd016c96dd0be4732861c97088dea868de5ed886dbaed2f2adb",
+    "src/git_index.rs": "4430d245932d4610439a90987d6c3f41e9dc3ed8670e91baeb36e64a3c2fa4ab",
+    "src/journal.rs": "96f81a32b9d00775f74945da75f04dda765c6c0ae4901f03947abc9c7a622223",
+    "src/journal/tests/mutation.rs": "7a2d5e8880cbac925711d2d4c4eeb5059ee13dd65ff36b0d29c7ee9fe85bf6cc",
+    "src/mutation.rs": "f354f0416035505552fe57c3b9233e0ee9270059c62fb07be79a13c8b67533b6",
+    "src/mutation/native.rs": "bc379bbf43ed63fec5a1bcea854f2c2105c5ac7ab1bdbd53e79ad13899fe53de",
+    "src/worker.rs": "bf43d4be41fcf52f5e39977f420619bcd23df50c5dd7b0cf30264fa016721868",
+    "src/worker/tests/mutation.rs": "94effcf0f8b3cdda1b6c236a6cdf0f2c526a1a9d49b98049f53e075a03253862",
+    "tools/verify_control_macos.py": "15d4bd1fc2bdaf21799f5649e2549e20df486cd1b32c667096a81c6a68209eab"
+  },
+  "binaries": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-frozen-v3/app",
+      "sha256": "69fb40079c2310bcc90935ff63d64ec4c3ba61763278e6952c3e87fc20227ccf",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 25333056,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-frozen-v3/unit",
+      "sha256": "5061e294885e953e046fd122f723644ff8476b03899d0b026e0ae5f361bab042",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 29946448,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-frozen-v3/fault",
+      "sha256": "95848b1c0ec6b0b53037f6a1624236b9461ff70f9d7770c5b6cb42372ee9f5ef",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults",
+      "bytes": 52384,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/fault.dylib"
+    }
+  },
+  "source_suite": {
+    "exit": 0,
+    "unit_passed": 356,
+    "native_fault_omissions": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23,
+    "log_sha256": "75ae664ac062072d9391bd062c3fb88c275afe039d96a8a83132003d9ea03334"
+  },
+  "native": {
+    "catalyst": {
+      "worker": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 333 filtered out; finished in 10.67s"
+        ],
+        "receipt_sha256": "759a74908a9f1e558d34973175835df0fce50a798faa31dd716c1f4fa2c8d8b1",
+        "log_sha256": "232e94c028800e44cee221f57adca4bc38cfe7ade7d0aac08ec927966f45c952"
+      },
+      "journal": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 320 filtered out; finished in 45.78s"
+        ],
+        "receipt_sha256": "db631ec7691d7d6b0b0b583783a9a5c1611dfb882a2eda8844f6760c8d7fc764",
+        "log_sha256": "230122a0804bb266a66e75c7f3bae304db8d1b2ef2b1d15b296419e0ada2c261"
+      },
+      "budgets": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 2.06s"
+        ],
+        "receipt_sha256": "69ccefe5e365e43d9b77d4adbb6efc6f1f985b0f23754e67c2827cba71165139",
+        "log_sha256": "94342b7bd6a53f8127b5aa4dd54e8c7c40fccbe4337f99499244bc0e68a488c3"
+      },
+      "git": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 348 filtered out; finished in 1.39s"
+        ],
+        "receipt_sha256": "f1801cc8f3666fc19b6c5c082b99a8072e785f6b885c8ace46b4d5d0db0474ff",
+        "log_sha256": "366dc95e3c6f8733098a6e383796ea8ba4221f344b0089c4e87aa7b6ff63d7fc"
+      },
+      "dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 323 filtered out; finished in 217.52s"
+        ],
+        "receipt_sha256": "bf9e9be545cc420ea12d79dd9a82c79d4ecd50fd0aa7785a79628922cc3cb620",
+        "log_sha256": "0bad9035ae709f4b4162d4e18201d67277a0734ef2ec013553328506fa6125ad"
+      },
+      "production-dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches",
+          "dispatch::tests::native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+          "dispatch::tests::native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+          "dispatch::tests::native_files_apply_refuses_configuration_revoked_during_final_activity",
+          "dispatch::tests::native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+          "dispatch::tests::native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration"
+        ],
+        "results": [
+          "test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 329 filtered out; finished in 141.07s"
+        ],
+        "receipt_sha256": "697a8502bde482a9969dde6450f4019321b691a4950850762aa7c5388a3b6fe9",
+        "log_sha256": "e2bcc35525e478782fabde20974cc78139ca982df122fc43a5d709c4b7bc8d5f"
+      },
+      "control": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 7,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 360 filtered out; finished in 0.04s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 3.18s"
+        ],
+        "receipt_sha256": "f7c298538b2a738ab9b9c2f6820741f178a7bd10fd09b82fe2a62b5618629d3e",
+        "log_sha256": "0185bf9ab7ff151ccc915fc7113bb14d7d1957b52090ebdf014dba0a548a2629"
+      },
+      "service": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 48,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 347 filtered out; finished in 26.94s"
+        ],
+        "receipt_sha256": "1c7a095c3d76aec547868f3e05efcefb2ec7a2d7ba72e559b23a9f222a61b52f",
+        "log_sha256": "851376dabfb03c77d9fcefaed23a63716e64bf9023c18d59ae1131bc971ae702"
+      },
+      "launch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 348 filtered out; finished in 1.77s"
+        ],
+        "receipt_sha256": "4581c3a6b8386721384f2cdddc6de8db9f0ebae3012c0ee463823c1710b70d4d",
+        "log_sha256": "a9a7f26658cd54450177df8ef8fdef6480f6c83b638743e131498803f87c38bc"
+      }
+    },
+    "catalyst-mini": {
+      "worker": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 333 filtered out; finished in 23.90s"
+        ],
+        "receipt_sha256": "25747c86f7fd3c54f1b58b9ff8b35bc2c9f6e1d42ac1eb92111fbb34215317fb",
+        "log_sha256": "d25ba7cdcdd1cf5b98a08f300869eb223fe78d8ab0d9171dd48c09d3997b5a1b"
+      },
+      "journal": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 320 filtered out; finished in 74.15s"
+        ],
+        "receipt_sha256": "0a23407a912a53bad283b8e5d6c6efc5307078bf07d4a5a4dbab701286b2b9b0",
+        "log_sha256": "cd1200b5a25ba556a70565bfb6a6e97d7d9be7c8710d9501b7c5e79f6ff57ea2"
+      },
+      "budgets": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 359 filtered out; finished in 8.01s"
+        ],
+        "receipt_sha256": "3683c0735d5eb3ab09d54f2c576ce8d025a44332932f19c5dc782e45e6b23ee6",
+        "log_sha256": "027cdbe264e56e7c7074ac9e43dc150679be1930a7a11c54a34d74005cb74c46"
+      },
+      "git": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 348 filtered out; finished in 11.81s"
+        ],
+        "receipt_sha256": "d0acd922a1d1f876c0bfafe30a37c44c699760ad16b8081ffd94a6d4ac477c2a",
+        "log_sha256": "29a1ac0cf015f91ae466c4311aea1c1a8ecfa7fdd427ea8199c7344c8c123a63"
+      },
+      "dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 323 filtered out; finished in 149.98s"
+        ],
+        "receipt_sha256": "9be90bba708fddce7d5ccf0714b0a3bd145164882798510cc954497507419d16",
+        "log_sha256": "53e3ac5a5b0a80db5e67d6352fba8587990d61fb3e90668757d1c2cef782e48a"
+      },
+      "production-dispatch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [
+          "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches",
+          "dispatch::tests::native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+          "dispatch::tests::native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+          "dispatch::tests::native_files_apply_refuses_configuration_revoked_during_final_activity",
+          "dispatch::tests::native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+          "dispatch::tests::native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration"
+        ],
+        "results": [
+          "test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 329 filtered out; finished in 140.13s"
+        ],
+        "receipt_sha256": "3f6e2c090f0a841dfd2ac47011e0e5f2251bcb10da3fb69f9482c35835f07ed7",
+        "log_sha256": "1f77490bee02f12ee21b2656ec66631e2800ee2e2358e521b32bb08d54c69fba"
+      },
+      "control": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 7,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 360 filtered out; finished in 0.03s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 3.42s"
+        ],
+        "receipt_sha256": "581532062fa1f39c89a25746d6ad7ab1e4b641a3060fe68d69168bfd505d8078",
+        "log_sha256": "ea4eadc81bd341299ecc90301246171b162005143122088e8fd189b7262dfff1"
+      },
+      "service": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 48,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 347 filtered out; finished in 21.30s"
+        ],
+        "receipt_sha256": "69e30d6d342a9aa8c86cb4f51c52a2b2228f1bf341111bed6e6c54fbcc09f1ae",
+        "log_sha256": "67d8fa2556431ba56976ee1e6610b1fc2908c226f1b7c359e59649a066e4fc4e"
+      },
+      "launch": {
+        "exit": 0,
+        "runtime_removed": true,
+        "owned_labels_absent": 0,
+        "skipped_test_driver_cases": [],
+        "results": [
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 348 filtered out; finished in 1.11s"
+        ],
+        "receipt_sha256": "9b9b3dff45c04e9a0e4509ac14393e4eb10555137627d65e6a779d1f37677be0",
+        "log_sha256": "1b7ec310a17223943cca46088475b55e82c003f8184090f202412f13a59729b2"
+      }
+    }
+  },
+  "native_identities": {
+    "catalyst": {
+      "artifacts": {
+        "app": {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-frozen-v3/app",
+          "sha256": "69fb40079c2310bcc90935ff63d64ec4c3ba61763278e6952c3e87fc20227ccf",
+          "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap",
+          "bytes": 25333056,
+          "storage_device": 16777232
+        },
+        "unit": {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-frozen-v3/unit",
+          "sha256": "5061e294885e953e046fd122f723644ff8476b03899d0b026e0ae5f361bab042",
+          "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-tests",
+          "bytes": 29946448,
+          "storage_device": 16777232
+        },
+        "fault": {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-frozen-v3/fault",
+          "sha256": "95848b1c0ec6b0b53037f6a1624236b9461ff70f9d7770c5b6cb42372ee9f5ef",
+          "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-faults",
+          "bytes": 52384,
+          "storage_device": 16777232
+        }
+      }
+    },
+    "catalyst-mini": {
+      "artifacts": {
+        "app": {
+          "path": "/private/tmp/reap-cores-transport-8yjfimnx/files-delete-t19-v3/app",
+          "sha256": "69fb40079c2310bcc90935ff63d64ec4c3ba61763278e6952c3e87fc20227ccf",
+          "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap",
+          "bytes": 25333056,
+          "storage_device": 16777234
+        },
+        "unit": {
+          "path": "/private/tmp/reap-cores-transport-8yjfimnx/files-delete-t19-v3/unit",
+          "sha256": "5061e294885e953e046fd122f723644ff8476b03899d0b026e0ae5f361bab042",
+          "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-tests",
+          "bytes": 29946448,
+          "storage_device": 16777234
+        },
+        "fault": {
+          "path": "/private/tmp/reap-cores-transport-8yjfimnx/files-delete-t19-v3/fault",
+          "sha256": "95848b1c0ec6b0b53037f6a1624236b9461ff70f9d7770c5b6cb42372ee9f5ef",
+          "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-faults",
+          "bytes": 52384,
+          "storage_device": 16777234
+        }
+      }
+    }
+  },
+  "review": {
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "peer": "peer-18e25ce205efbac0-421944",
+    "conversation": "conversation-18e25ce206e91a98-421948",
+    "request": "cmsg-18e25ef866316fd8-423921",
+    "accepted_source_manifest": {
+      "docs/specs/mutation-execution.md": "6286868d292a95dedac0a5eb154f1edc627500f93afe2b2e3a2328bdcbd464a5",
+      "src/dispatch/tests.rs": "08080a4125bd2920b9e12c6ad370d40108aae585da44d70e16273799c3fd6941",
+      "src/files.rs": "3201f90952cfb42c16a48880f9ade36bc069398fc7d7760049afb3acc17bbe72",
+      "src/files/applying.rs": "c9b1141f30070dd016c96dd0be4732861c97088dea868de5ed886dbaed2f2adb",
+      "src/git_index.rs": "4430d245932d4610439a90987d6c3f41e9dc3ed8670e91baeb36e64a3c2fa4ab",
+      "src/journal.rs": "96f81a32b9d00775f74945da75f04dda765c6c0ae4901f03947abc9c7a622223",
+      "src/journal/tests/mutation.rs": "7a2d5e8880cbac925711d2d4c4eeb5059ee13dd65ff36b0d29c7ee9fe85bf6cc",
+      "src/mutation.rs": "f354f0416035505552fe57c3b9233e0ee9270059c62fb07be79a13c8b67533b6",
+      "src/mutation/native.rs": "bc379bbf43ed63fec5a1bcea854f2c2105c5ac7ab1bdbd53e79ad13899fe53de",
+      "src/worker.rs": "bf43d4be41fcf52f5e39977f420619bcd23df50c5dd7b0cf30264fa016721868",
+      "src/worker/tests/mutation.rs": "94effcf0f8b3cdda1b6c236a6cdf0f2c526a1a9d49b98049f53e075a03253862",
+      "tools/verify_control_macos.py": "15d4bd1fc2bdaf21799f5649e2549e20df486cd1b32c667096a81c6a68209eab"
+    },
+    "acceptance": "**Source acceptance: I accept the v4 hashes.** I found no blocking defects. This accepts source only. It does not accept runtime or full-delivery acceptance. Task and goal stay active. I made no edits and ran no builds.\n\n## What I checked\n\n- **Hashes:** All 12 entries in `files-delete-review-snapshot-v4.json` match the files on disk.\n  - Unchanged from v3: `dispatch/tests.rs`, `git_index.rs`, `journal.rs`, `journal/tests/mutation.rs`, `mutation.rs`, `mutation/native.rs`, `worker.rs` and `worker/tests/mutation.rs`.\n  - Changed from v3: `files.rs`, `files/applying.rs`, the spec, and the verifier.\n  - The unchanged files keep the typed intent, native actuators, journal counters and B2 hard-link handling I accepted in v2.\n- **B1 fix (`src/files.rs:1571-1613`):** `validate_preview` captures `remaining` before its closure and restores it after the closure has finished and dropped the ancestor vectors. The closure's `exhausted`, `guard_incomplete`, tracking, identity and policy checks run first and are never cleared. A failed charge keeps `exhausted` latched, so every later call returns \"preview coverage is incomplete\". `remaining` is positive again, but the latch decides.\n- **Remaining per-unit charges:** I found none outside the two restored sites. `blocked()` and the activity guard do not charge, and neither do the fingerprint, the parent listing or the Git retire path.\n- **Test and logs:** The new ancestor-only test makes 2,000 validations and checks the one-byte refusal, the latch, and repeated refusal. The red log fails at validation 1022, which is consistent with my earlier estimate. The v4 green log passes both budget tests at 04:18:40. That is after the `files.rs` edit (04:18:27) and the `applying.rs` edit (04:17:20).\n- **Verifier and spec:** The verifier requires both budget tests in `files::applying::tests`. Dispatch timeout is 300 seconds, journal 180, others 60. The C10 `Binding:` line names the hard-link/symlink survivor case and `files::applying::tests`.\n\n## Proof limits\n\n- `files-delete-full-v3.log` is the only whole-suite run on this exact source, and it was still running when I looked. Source acceptance holds for these hashes. The log will have to show no failures at them. The earlier full-v2 run does not count, because it predates the B1 fix.\n- The same-Micro both-Mac native gates and the default-driver run for the fault-hook dispatch cases are still required at these hashes.\n- Each unit still scans the whole inventory and activity, so cost is about entries times inventory size. This remains the open efficiency requirement, and no performance claim follows from this component.\n- A tree that contains its own `.git` still has only the synthetic Git-retirement unit test, with no end-to-end case. Add that case before full delivery.\n- Recovery counts an absent name as `Removed` even if another process removed it. The spec states this.\n\nAny source change after v4 voids this acceptance for the changed files. I'm available if you re-snapshot.",
+    "receipt_sha256": "5c63461d2bc2a74c19a8ae0e0a86215102f9b1b8330b277606c94680d6752598"
+  },
+  "regressions": {
+    "missing_adapter": {
+      "file": "files-delete-red.log",
+      "sha256": "5f15f4fb1dc694fac35711bca340bcae86fe1f81a01333d6f858b7a7c88c913f"
+    },
+    "temporary_evaluator_budget": {
+      "file": "files-delete-budget-red.log",
+      "sha256": "ac45b59924a36f92cea73d9043a67a33cad2e699bd84b2912c9e7eb3ffbf103f"
+    },
+    "hard_link_inventory": {
+      "file": "files-delete-hardlinks-red.log",
+      "sha256": "177b612a2a9121302df7c6955244a0f31cef6649471c6db0defc887261e37076"
+    },
+    "temporary_ancestor_budget": {
+      "file": "files-delete-ancestors-red.log",
+      "sha256": "c075773bc8703042de3db2e20824215f7546fb9b0816e636de73103136d970f8"
+    }
+  },
+  "scope": {
+    "installed_product_changed": false,
+    "public_applying_cutover": false,
+    "live_lifetime_conversion": false,
+    "conversation_source_pruning": false,
+    "other_applying_families_complete": false,
+    "efficiency_proven": false,
+    "own_git_tree_apply_end_to_end_proven": false,
+    "full_goal_complete": false
+  },
+  "storage": {
+    "source_and_build_device": 16777232,
+    "mini_runtime_device": 16777234,
+    "root_native_runtime_device": 16777232,
+    "mini_root": "/private/tmp/reap-cores-transport-8yjfimnx/files-delete-t19-v3",
+    "root_evidence": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-native-v3",
+    "mini_evidence_mirror": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/files-delete-mini-v3",
+    "quick_test_external_storage_used": false,
+    "mini_cargo_build": false
+  }
+}
