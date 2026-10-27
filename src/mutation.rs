@@ -13,7 +13,7 @@ use crate::journal::Key;
 use crate::launch::{Grant, Resources};
 
 mod native;
-pub(crate) use native::{recover, HeldRename};
+pub(crate) use native::{recover, HeldRename, HeldUnlink};
 
 // reserve 4 KiB of the private 64 KiB packet for task and reply envelopes
 const MAX_RECORD_BYTES: usize = 60 * 1024;
@@ -69,12 +69,94 @@ impl Rename {
   }
 }
 
+/// One direct entry removal. Directory intent permits only an empty-directory unlink.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Unlink {
+  pub source: Object,
+  pub source_parent: Object,
+  pub directory: bool,
+  pub resources: Resources,
+  pub guard_fingerprint: String,
+}
+
+impl Unlink {
+  pub(crate) fn validate(&self) -> io::Result<()> {
+    for object in [&self.source, &self.source_parent] {
+      path(&object.path)?;
+      crate::worker::validate_identity(&object.identity)?;
+    }
+    self.resources.validate()?;
+    if !matches!(self.resources, Resources::Bulk { .. })
+      || self.source.path.parent() != Some(self.source_parent.path.as_path())
+      || self.source.identity.volume_uuid != self.source_parent.identity.volume_uuid
+      || self.guard_fingerprint.len() != 64
+      || !self
+        .guard_fingerprint
+        .bytes()
+        .all(|b| b.is_ascii_hexdigit())
+    {
+      return Err(invalid("invalid or cross-volume unlink intent"));
+    }
+    Ok(())
+  }
+}
+
+/// Typed effects share the same durable permission and physical exclusion protocol.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+  tag = "operation",
+  content = "unit",
+  rename_all = "snake_case",
+  deny_unknown_fields
+)]
+pub enum Intent {
+  Rename(Rename),
+  Unlink(Unlink),
+}
+
+impl Intent {
+  pub(crate) fn validate(&self) -> io::Result<()> {
+    match self {
+      Self::Rename(intent) => intent.validate(),
+      Self::Unlink(intent) => intent.validate(),
+    }
+  }
+
+  pub(crate) fn resources(&self) -> &Resources {
+    match self {
+      Self::Rename(intent) => &intent.resources,
+      Self::Unlink(intent) => &intent.resources,
+    }
+  }
+
+  pub(crate) fn accepts(&self, phase: Phase) -> bool {
+    !matches!(
+      (self, phase),
+      (Self::Rename(_), Phase::Removed) | (Self::Unlink(_), Phase::Moved)
+    )
+  }
+}
+
+impl From<Rename> for Intent {
+  fn from(intent: Rename) -> Self {
+    Self::Rename(intent)
+  }
+}
+
+impl From<Unlink> for Intent {
+  fn from(intent: Unlink) -> Self {
+    Self::Unlink(intent)
+  }
+}
+
 /// An unresolved intent can have effects even if its worker has exited.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
   Intended,
   Moved,
+  Removed,
   Refused,
   Uncertain,
 }
@@ -82,6 +164,10 @@ pub enum Phase {
 impl Phase {
   pub(crate) fn unresolved(self) -> bool {
     matches!(self, Self::Intended | Self::Uncertain)
+  }
+
+  pub(crate) fn completed(self) -> bool {
+    matches!(self, Self::Moved | Self::Removed)
   }
 }
 
@@ -93,7 +179,7 @@ pub struct Record {
   pub nonce: String,
   pub launch_sequence: u64,
   pub worker: Grant,
-  pub intent: Rename,
+  pub intent: Intent,
   pub phase: Phase,
 }
 
@@ -105,7 +191,8 @@ impl Record {
     if self.sequence == 0
       || self.launch_sequence == 0
       || &self.worker.key != key
-      || self.worker.resources != self.intent.resources
+      || &self.worker.resources != self.intent.resources()
+      || !self.intent.accepts(self.phase)
       || [
         &self.nonce,
         &self.worker.launch,
@@ -148,7 +235,7 @@ impl Ledger {
     if let Some(record) = &self.current {
       record.validate(key)?;
       if self.completed_units > record.sequence
-        || (record.phase == Phase::Moved && self.completed_units == 0)
+        || (record.phase.completed() && self.completed_units == 0)
       {
         return Err(invalid("mutation effect counters contradict unit history"));
       }
@@ -163,7 +250,7 @@ impl Ledger {
       .current
       .as_ref()
       .filter(|record| record.phase.unresolved())
-      .map(|record| &record.intent.resources)
+      .map(|record| record.intent.resources())
   }
 
   pub(crate) fn successor(&self, next: &Self) -> bool {
@@ -179,13 +266,17 @@ impl Ledger {
           (previous.phase, record.phase),
           (
             Phase::Intended,
-            Phase::Moved | Phase::Refused | Phase::Uncertain
-          ) | (Phase::Uncertain, Phase::Moved | Phase::Refused)
+            Phase::Moved | Phase::Removed | Phase::Refused | Phase::Uncertain
+          ) | (
+            Phase::Uncertain,
+            Phase::Moved | Phase::Removed | Phase::Refused
+          )
         );
         transition
+          && record.intent.accepts(record.phase)
           && self
             .completed_units
-            .checked_add(u64::from(record.phase == Phase::Moved))
+            .checked_add(u64::from(record.phase.completed()))
             == Some(next.completed_units)
       }
       (Some(previous), Some(record)) => {

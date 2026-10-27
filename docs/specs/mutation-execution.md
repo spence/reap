@@ -40,12 +40,25 @@
   Restore establishes effective retention before completion. A conditional release needs exact fresh
   work evidence and separate disposal permission; agent exit, inactivity, and a missed review do not
   release work. Native archives and source pruning retain their separate activation gates.
-- **C9 — Symlink leaves.** An ordinary symlink unit moves only the link entry, not its target.
+- **C9 — Symlink leaves.** An ordinary symlink unit moves or removes only the link entry, not its target.
   Native entry identity and recovery do not follow the link. A dangling destination remains an
   existing destination. Declaration adoption still requires a real directory and regular metadata
   file; symlink-entry support grants no declaration-adoption permission.
   Binding: `worker::tests::mutation::native_symlink_unit_moves_only_the_link_and_recovers_without_target_access`;
   the native identity rejection and replacement cases.
+- **C10 — Direct deletion has partial effects.** Recursive deletion uses exact entry units in
+  postorder. Each unlink has retained source and parent identity, intent, and outcome. A directory
+  unlink requires an empty directory; it does not recursively remove new names. Controlling policy
+  remains until that directory has no other entries. The completed prefix remains truthful after
+  cancellation or interruption. Recovery observes issued units without resuming recursion or
+  removing replacements. Entry counts do not assert that file bytes have left all open handles.
+  Supported policy edits use the writer. An unsynchronized external replacement after final
+  validation is not serialized with the native unlink syscall.
+  Remaining hard links retain their names and bytes outside the permitted removal.
+  Binding: `dispatch::tests::native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion`;
+  `journal::tests::mutation::native_unlink_refuses_replacements_nonempty_directories_and_changed_guards`;
+  `dispatch::tests::native_files_apply_deletes_the_permitted_tree_without_touching_link_targets`;
+  `files::applying::tests` for repeated guard capacity and persistent refusals.
 
 ## Conformance boundary
 
@@ -65,8 +78,15 @@ The writer retains exact native object and parent identities, resource keys, a g
 and the original process grant. Only a newly synchronized response permits final fresh guards.
 Recovery inspects and synchronizes both original parents without moving either object. A replacement,
 duplicate name, changed parent, or unknown result retains uncertainty and exclusion.
-Cross-volume moves, recursive deletion, policy publication, and public adapter activation
-remain outside this first unit's implemented boundary.
+The private Files adapter also supports direct deletion through postorder entry units. Each native
+unlink removes one regular file, symlink leaf, or empty directory. Recovery synchronizes the original
+parent: an absent name is a completed namespace removal, the original entry is a refusal, and a
+replacement retains uncertainty. Known owned removals retire only their captured dependencies;
+external Git evidence and every remaining namespace binding still require validation. Logical
+retention statistics remain stable within one partially removed tree.
+Cross-volume moves, policy publication, and public adapter activation remain outside this
+implemented boundary. These private applying cases do not establish the full caller integration
+or performance requirements.
 
 Target recovery runs in a read-only owned worker, not in the state writer. Its durable launch binds
 the exact unresolved unit and physical reservation after original worker/helper absence. Cancellation

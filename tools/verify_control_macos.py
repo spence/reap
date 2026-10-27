@@ -31,6 +31,7 @@ def main():
                                             "journal::tests", "volumes::", "dispatch::tests",
                                             "client::tests", "preservation::tests", "git_index::tests",
                                             "git_index::recovery::tests", "files::tests",
+                                            "files::applying::tests",
                                             "checkpoint::tests"], default="control::tests")
     parser.add_argument("--fault-library", type=pathlib.Path)
     parser.add_argument("--worker-binary", type=pathlib.Path)
@@ -82,6 +83,8 @@ def main():
                 "native_files_apply_recovers_interrupted_units_without_repeating_a_move",
                 "native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
                 "native_files_apply_refuses_configuration_revoked_during_final_activity",
+                "native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+                "native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
             ]
             for name in cases:
                 case = "dispatch::tests::" + name
@@ -99,7 +102,7 @@ def main():
                 selection, env=environment,
                 cwd=output if arguments.filter == "archive::tests" else runtime,
                 stdout=log, stderr=subprocess.STDOUT,
-                timeout=180 if arguments.filter in {"dispatch::tests", "journal::tests"} else 60,
+                timeout=300 if arguments.filter == "dispatch::tests" else 180 if arguments.filter == "journal::tests" else 60,
             )
         receipt["native_exit"] = run.returncode
         result = run.returncode
@@ -175,6 +178,7 @@ def main():
                 "changed_sources_and_new_references_invalidate_cached_recovery",
                 "unsupported_objects_links_and_capacity_never_become_recovery"],
             "git_index::tests": ["checkpoint_restore_retains_original_index_config_and_alias_bindings",
+                                 "native_owned_removal_retires_only_exact_git_dependencies",
                                  "native_indexes_keep_tracked_paths_across_versions_and_hash_kinds",
                                  "malformed_truncated_checksum_and_capacity_evidence_never_proves_untracked",
                                  "native_extended_flags_stages_and_skip_hash_remain_tracked",
@@ -188,6 +192,8 @@ def main():
                                  "native_sha256_tracking_and_worktree_settings_are_bound_to_the_checkout"],
             "journal::tests": ["unpublished_working_output_is_not_adopted_repeated_or_forgotten_by_compaction",
                                "native_symlink_replacement_cannot_use_the_original_link_permission",
+                               "native_unlink_removes_only_prepared_entries_and_retained_permission_cannot_repeat",
+                               "native_unlink_refuses_replacements_nonempty_directories_and_changed_guards",
                                "recovery_bounds_unknown_working_directories_without_adopting_or_deleting_them",
                                "prior_boot_intents_release_without_pids_but_same_boot_and_legacy_unknown_intents_stay",
                                "first_seen_facts_publish_with_complete_files_results_and_cache_loss_restarts_grace",
@@ -200,6 +206,9 @@ def main():
                           "unknown_virtual_raid_and_incomplete_topologies_refuse",
                           "external_tunneled_nvme_requires_exact_endpoint"],
             "dispatch::tests": ["native_files_uncontended_scan_uses_one_bulk_worker",
+                                "native_files_apply_deletes_the_permitted_tree_without_touching_link_targets",
+                                "native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
+                                "native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
                                 "native_files_apply_retires_the_authorized_unit_and_preserves_kept_work",
                                 "native_files_apply_recovers_interrupted_units_without_repeating_a_move",
                                 "native_files_apply_advances_unit_permissions_and_recomputes_remaining_caps",
@@ -225,6 +234,8 @@ def main():
                               "malformed_or_other_key_terminal_evidence_cannot_return_success",
                               "lost_admission_reply_keeps_the_same_key_and_reports_possible_acceptance",
                               "missing_native_service_is_prompt_and_never_falls_back_to_filesystem_work"],
+            "files::applying::tests": ["repeated_guards_reuse_temporary_evaluator_capacity_for_large_inventories",
+                                       "repeated_validation_reuses_ancestor_capacity_without_clearing_refusals"],
             "preservation::tests": ["ancestors_descendants_and_late_roles_preserve_bytes_but_not_siblings",
                                     "parent_components_keep_native_meaning_and_cannot_bypass_role_checks",
                                     "child_links_are_leaves_and_parent_aliases_cannot_hide_roles",

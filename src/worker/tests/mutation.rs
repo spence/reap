@@ -246,7 +246,7 @@ fn native_mutation_channel_retains_exact_intent_before_effects_and_recovers_owne
     let done = complete(&mut owned, &mut journal);
     let ledger = journal.mutation(&key).unwrap().unwrap();
     let record = ledger.current.unwrap();
-    assert_eq!(record.intent, intent);
+    assert_eq!(record.intent, intent.clone().into());
     assert_eq!(record.worker.identity.pid, owned.pid());
     assert!(owned.release(&mut journal).unwrap());
     assert!(journal.launch(&key).unwrap().unwrap().released());
@@ -289,7 +289,10 @@ fn native_mutation_channel_retains_exact_intent_before_effects_and_recovers_owne
         .reserve_launch(&key, 2, intent.resources.clone())
         .is_err());
       let mut changed = record.clone();
-      changed.intent.guard_fingerprint = "b".repeat(64);
+      let crate::mutation::Intent::Rename(changed_intent) = &mut changed.intent else {
+        panic!("expected rename intent");
+      };
+      changed_intent.guard_fingerprint = "b".repeat(64);
       assert!(journal
         .reserve_mutation_recovery(&key, 2, &changed)
         .is_err());
@@ -406,7 +409,7 @@ fn mutation_metadata_cannot_create_a_new_worker_or_helper() {
   let requests = [
     Task::StageMutation {
       sequence: 1,
-      intent: intent.clone(),
+      intent: intent.clone().into(),
     },
     Task::ObserveMutation {
       nonce: "b".repeat(32),

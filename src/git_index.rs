@@ -274,6 +274,52 @@ impl Tracking {
     }
     Ok(())
   }
+
+  /// Retire only dependencies inside an observed removed unit. The caller has proved the exact
+  /// remaining names and native identity of its parent. External Git dependencies stay unchanged.
+  pub(crate) fn remember_removal(
+    &mut self,
+    removed: &Path,
+    parent: &Path,
+    directory: &File,
+  ) -> io::Result<()> {
+    self
+      .absent_markers
+      .retain(|path| !path.starts_with(removed));
+    let Some(resources) = &self.resources else {
+      return Ok(());
+    };
+    let current = directory.metadata()?;
+    let identity = granted(directory, resources)?;
+    for repository in self.repositories.values_mut() {
+      let repository = repository.as_mut().map_err(|reason| invalid(reason))?;
+      repository
+        .sources
+        .retain(|source| !source.path.starts_with(removed));
+      for source in repository
+        .sources
+        .iter_mut()
+        .filter(|source| source.path == parent)
+      {
+        let prior = source
+          .metadata
+          .as_ref()
+          .ok_or_else(|| invalid("removed unit parent has no prior Git binding"))?;
+        if !current.is_dir()
+          || prior.dev() != current.dev()
+          || prior.ino() != current.ino()
+          || prior.mode() != current.mode()
+          || prior.uid() != current.uid()
+          || prior.gid() != current.gid()
+          || source.identity.as_ref() != Some(&identity)
+        {
+          return Err(invalid("removed unit parent differs from its Git binding"));
+        }
+        source.metadata = Some(current.clone());
+      }
+    }
+    Ok(())
+  }
 }
 
 impl Repository {
@@ -1153,6 +1199,36 @@ mod tests {
     fixture.git(&["config", "--unset", "core.worktree"]);
     fixture.git(&["config", "core.bare", "true"]);
     assert!(lookup().is_err());
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn native_owned_removal_retires_only_exact_git_dependencies() {
+    let fixture = Fixture::new("sha1");
+    let tracked = fixture.0.join("tracked");
+    fs::write(&tracked, b"tracked source survives").unwrap();
+    fixture.git(&["add", "--", "tracked"]);
+    let resources = Resources::Bulk {
+      physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+    };
+    let mut tracker = Tracking::new(Some(resources));
+    assert!(tracker.tracked(&tracked, &Cell::new(BUDGET)).unwrap());
+    tracker.revalidate().unwrap();
+    let removed = fixture.0.join(".git/index");
+    let parent = removed.parent().unwrap();
+    fs::remove_file(&removed).unwrap();
+    assert!(tracker.revalidate().is_err());
+    tracker
+      .remember_removal(&removed, parent, &File::open(parent).unwrap())
+      .unwrap();
+    tracker.revalidate().unwrap();
+    fs::write(
+      fixture.0.join(".git/config"),
+      b"[core]\nrepositoryformatversion = 0\n",
+    )
+    .unwrap();
+    assert!(tracker.revalidate().is_err());
+    assert_eq!(fs::read(tracked).unwrap(), b"tracked source survives");
   }
 
   #[cfg(target_os = "macos")]

@@ -64,7 +64,7 @@ pub enum Task {
   },
   StageMutation {
     sequence: u64,
-    intent: crate::mutation::Rename,
+    intent: crate::mutation::Intent,
   },
   ObserveMutation {
     nonce: String,
@@ -163,8 +163,8 @@ impl Task {
       } => Resources::Bulk {
         physical_volumes: physical_volumes.clone(),
       },
-      Self::StageMutation { intent, .. } => intent.resources.clone(),
-      Self::RecoverMutation { record } => record.intent.resources.clone(),
+      Self::StageMutation { intent, .. } => intent.resources().clone(),
+      Self::RecoverMutation { record } => record.intent.resources().clone(),
       #[cfg(all(test, target_os = "macos"))]
       Self::MutationFixture { intent, .. } => intent.resources.clone(),
       _ => Resources::Resolver,
@@ -263,7 +263,7 @@ impl Task {
     self.validate()?;
     if let Self::RecoverMutation { record } = self {
       if grant.key != record.worker.key
-        || grant.resources != record.intent.resources
+        || &grant.resources != record.intent.resources()
         || !record.worker.identity.exited()?
       {
         return Err(invalid(
@@ -500,9 +500,12 @@ impl Helpers<'_> {
   pub(crate) fn stage_mutation(
     &mut self,
     sequence: u64,
-    intent: crate::mutation::Rename,
+    intent: impl Into<crate::mutation::Intent>,
   ) -> io::Result<crate::mutation::Staged> {
-    match self.run(Task::StageMutation { sequence, intent })? {
+    match self.run(Task::StageMutation {
+      sequence,
+      intent: intent.into(),
+    })? {
       Report::MutationStaged { staged } => Ok(staged),
       _ => Err(invalid("unit writer returned another evidence kind")),
     }

@@ -588,7 +588,12 @@ impl Journal {
     sequence: u64,
     record: &crate::mutation::Record,
   ) -> io::Result<Option<Launch>> {
-    self.reserve_launch_for(key, sequence, record.intent.resources.clone(), Some(record))
+    self.reserve_launch_for(
+      key,
+      sequence,
+      record.intent.resources().clone(),
+      Some(record),
+    )
   }
 
   fn reserve_launch_for(
@@ -701,10 +706,11 @@ impl Journal {
     &mut self,
     key: &Key,
     sequence: u64,
-    intent: crate::mutation::Rename,
+    intent: impl Into<crate::mutation::Intent>,
   ) -> io::Result<crate::mutation::Staged> {
     use crate::mutation::{Phase, Record, Staged};
 
+    let intent = intent.into();
     intent.validate()?;
     self.bindings()?;
     let mut job = self
@@ -725,7 +731,7 @@ impl Journal {
       || job.view.cancel_requested_at.is_some()
       || launch.mutation_recovery.is_some()
       || launch.origin_boot() != Some(crate::launch::boot_id()?.as_str())
-      || launch.resources != intent.resources
+      || &launch.resources != intent.resources()
     {
       return Err(invalid(
         "mutation is completed, cancelled, or outside its current grant",
@@ -834,6 +840,9 @@ impl Journal {
     if job.view.result.is_some() || record.nonce != nonce {
       return Err(invalid("mutation observation differs from retained intent"));
     }
+    if !record.intent.accepts(phase) {
+      return Err(invalid("mutation outcome differs from its operation"));
+    }
     if record.phase == phase {
       return Ok(());
     }
@@ -858,7 +867,7 @@ impl Journal {
         "mutation observation lacks its original live grant",
       ));
     }
-    if phase == Phase::Moved {
+    if phase.completed() {
       ledger.completed_units = ledger
         .completed_units
         .checked_add(1)
@@ -1935,7 +1944,7 @@ impl Job {
         .is_none_or(|record| {
           launch.mutation_recovery.as_deref() != Some(record.nonce.as_str())
             || launch.sequence <= record.launch_sequence
-            || launch.resources != record.intent.resources
+            || &launch.resources != record.intent.resources()
         })
       {
         return Err(invalid(

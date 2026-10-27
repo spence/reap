@@ -1,5 +1,5 @@
 use super::*;
-use crate::mutation::{Ledger, Object, Phase, Rename, Staged};
+use crate::mutation::{Intent, Ledger, Object, Phase, Rename, Staged};
 use std::process::{Child, Command, Stdio};
 
 /// A real owned non-agent process supplies native liveness without any target effects.
@@ -77,6 +77,20 @@ fn new_record(staged: Staged) -> crate::mutation::Record {
   }
 }
 
+fn rename(record: &crate::mutation::Record) -> &Rename {
+  let Intent::Rename(intent) = &record.intent else {
+    panic!("expected rename intent")
+  };
+  intent
+}
+
+fn rename_mut(record: &mut crate::mutation::Record) -> &mut Rename {
+  let Intent::Rename(intent) = &mut record.intent else {
+    panic!("expected rename intent")
+  };
+  intent
+}
+
 #[test]
 fn durable_unit_intent_replays_as_observation_and_changed_intent_refuses() {
   let fixture = Fixture::new();
@@ -87,7 +101,7 @@ fn durable_unit_intent_replays_as_observation_and_changed_intent_refuses() {
   let worker = Worker::new();
   grant(&mut journal, &key, &worker, request.resources.clone());
   let record = new_record(journal.stage_mutation(&key, 1, request.clone()).unwrap());
-  assert_eq!(record.intent, request);
+  assert_eq!(record.intent, request.clone().into());
   let Staged::Retained(retained) = journal.stage_mutation(&key, 1, request.clone()).unwrap() else {
     panic!("replay granted fresh effects")
   };
@@ -96,6 +110,9 @@ fn durable_unit_intent_replays_as_observation_and_changed_intent_refuses() {
   changed.guard_fingerprint = "b".repeat(64);
   assert!(journal.stage_mutation(&key, 1, changed).is_err());
   assert!(journal.stage_mutation(&key, 2, request).is_err());
+  assert!(journal
+    .finish_mutation(&key, &record.nonce, Phase::Removed)
+    .is_err());
   assert!(journal
     .finish_mutation(&key, &"0".repeat(32), Phase::Moved)
     .is_err());
@@ -362,7 +379,7 @@ fn pending_unit_publication_recovers_without_new_permission_or_lost_effects() {
           identity: identity.clone(),
           resources: launch.resources.clone(),
         },
-        intent: request.clone(),
+        intent: request.clone().into(),
         phase: Phase::Intended,
       }
     };
@@ -426,17 +443,17 @@ fn oversized_recovery_record_refuses_before_intent_publication() {
       identity: identity.clone(),
       resources: launch.resources.clone(),
     },
-    intent: request,
+    intent: request.into(),
     phase: Phase::Intended,
   };
   let base = format!("/{}", vec!["x".repeat(100); 39].join("/"));
   let request = (1..=100)
     .find_map(|suffix| {
       let deep = PathBuf::from(format!("{base}/{}", "x".repeat(suffix)));
-      record.intent.source_parent.path = deep.clone();
-      record.intent.source.path = deep.join("source");
-      record.intent.destination_parent.path = deep.clone();
-      record.intent.destination = deep.join("destination");
+      rename_mut(&mut record).source_parent.path = deep.clone();
+      rename_mut(&mut record).source.path = deep.join("source");
+      rename_mut(&mut record).destination_parent.path = deep.clone();
+      rename_mut(&mut record).destination = deep.join("destination");
       record.intent.validate().unwrap();
       let stage = serde_json::to_vec(&serde_json::json!({ "request_id": u64::MAX,
       "task": crate::worker::Task::StageMutation { sequence: 1, intent: record.intent.clone() } }))
@@ -487,7 +504,13 @@ fn staged_native(
   fixture: &Fixture,
   held: crate::mutation::HeldRename,
 ) -> (Journal, Key, crate::mutation::HeldRename, Staged) {
-  let resources = held.intent().resources.clone();
+  let (journal, key, staged) = native_permission(fixture, held.intent().clone().into());
+  (journal, key, held, staged)
+}
+
+#[cfg(target_os = "macos")]
+fn native_permission(fixture: &Fixture, intent: Intent) -> (Journal, Key, Staged) {
+  let resources = intent.resources().clone();
   let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
   let key = key(&journal);
   journal.admit_mutation(key.clone(), input(), 1).unwrap();
@@ -500,10 +523,107 @@ fn staged_native(
       ProcessIdentity::read(std::process::id()).unwrap().unwrap(),
     )
     .unwrap();
-  let staged = journal
-    .stage_mutation(&key, 1, held.intent().clone())
-    .unwrap();
-  (journal, key, held, staged)
+  let staged = journal.stage_mutation(&key, 1, intent).unwrap();
+  (journal, key, staged)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_unlink_removes_only_prepared_entries_and_retained_permission_cannot_repeat() {
+  use crate::mutation::HeldUnlink;
+  use std::os::unix::fs::symlink;
+
+  for kind in ["file", "directory", "link", "dangling"] {
+    let fixture = Fixture::new();
+    let source = fixture.0.join("source");
+    let target = fixture.0.join("survivor");
+    fs::write(&target, b"unselected target survives").unwrap();
+    match kind {
+      "file" => fs::write(&source, b"selected bytes").unwrap(),
+      "directory" => fs::create_dir(&source).unwrap(),
+      "link" => symlink("survivor", &source).unwrap(),
+      "dangling" => symlink("missing", &source).unwrap(),
+      _ => unreachable!(),
+    }
+    let resources = Resources::Bulk {
+      physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+    };
+    let held = HeldUnlink::prepare(&source, &resources, "a".repeat(64)).unwrap();
+    let replay = HeldUnlink::prepare(&source, &resources, "a".repeat(64)).unwrap();
+    let intent: Intent = held.intent().clone().into();
+    let (mut journal, key, staged) = native_permission(&fixture, intent.clone());
+    let record = new_record(staged.clone());
+    assert!(journal
+      .finish_mutation(&key, &record.nonce, Phase::Moved)
+      .is_err());
+    let result = held
+      .commit(staged, &record.worker, || Ok("a".repeat(64)))
+      .unwrap();
+    assert_eq!(result.phase, Phase::Removed, "{kind}: {}", result.detail);
+    journal
+      .finish_mutation(&key, &record.nonce, result.phase)
+      .unwrap();
+    let retained = journal.stage_mutation(&key, 1, intent).unwrap();
+    assert!(matches!(retained, Staged::Retained(_)));
+    assert!(replay
+      .commit(retained, &record.worker, || panic!("replay reached guards"))
+      .is_err());
+    assert!(fs::symlink_metadata(&source).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"unselected target survives");
+    assert_eq!(crate::mutation::recover(&record).phase, Phase::Removed);
+    assert_eq!(journal.mutation(&key).unwrap().unwrap().completed_units, 1);
+    drop(journal);
+    let journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    assert_eq!(journal.mutation(&key).unwrap().unwrap().completed_units, 1);
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_unlink_refuses_replacements_nonempty_directories_and_changed_guards() {
+  use crate::mutation::HeldUnlink;
+
+  for change in ["replacement", "nonempty", "role", "fingerprint"] {
+    let fixture = Fixture::new();
+    let source = fixture.0.join("source");
+    fs::create_dir(&source).unwrap();
+    let resources = Resources::Bulk {
+      physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+    };
+    let held = HeldUnlink::prepare(&source, &resources, "a".repeat(64)).unwrap();
+    let (mut journal, key, staged) = native_permission(&fixture, held.intent().clone().into());
+    let record = new_record(staged.clone());
+    let result = held.commit(staged, &record.worker, || {
+      match change {
+        "replacement" => {
+          fs::rename(&source, fixture.0.join("retained-original")).unwrap();
+          fs::create_dir(&source).unwrap();
+          fs::write(source.join("valuable"), b"replacement survives").unwrap();
+        }
+        "nonempty" => fs::write(source.join("valuable"), b"new entry survives").unwrap(),
+        "role" => fs::write(source.join(".reap"), br#"{"version":2,"role":"permanent_archive","keep":{"reason":"retained history"},"seal":true}"#).unwrap(),
+        "fingerprint" => return Ok("b".repeat(64)),
+        _ => unreachable!(),
+      }
+      Ok("a".repeat(64))
+    }).unwrap();
+    assert_eq!(result.phase, Phase::Refused, "{change}: {}", result.detail);
+    journal
+      .finish_mutation(&key, &record.nonce, result.phase)
+      .unwrap();
+    assert_eq!(journal.mutation(&key).unwrap().unwrap().completed_units, 0);
+    assert!(source.is_dir());
+    if change == "replacement" {
+      assert_eq!(crate::mutation::recover(&record).phase, Phase::Uncertain);
+      assert_eq!(
+        fs::read(source.join("valuable")).unwrap(),
+        b"replacement survives"
+      );
+      assert!(fixture.0.join("retained-original").is_dir());
+    } else {
+      assert_eq!(crate::mutation::recover(&record).phase, Phase::Refused);
+    }
+  }
 }
 
 #[cfg(target_os = "macos")]
@@ -555,7 +675,7 @@ fn native_ordinary_rename_refuses_a_new_permanent_destination_role() {
   };
   let observed = held.commit(staged, &record.worker, || {
     fs::write(archive.join(".reap"), br#"{"version":2,"keep":{"reason":"permanent capture"},"role":"permanent_archive","seal":true}"#).unwrap();
-    Ok(record.intent.guard_fingerprint.clone())
+    Ok(rename(&record).guard_fingerprint.clone())
   }).unwrap();
   assert_eq!(observed.phase, Phase::Refused);
   journal
@@ -586,16 +706,16 @@ fn native_commit_refuses_retained_permissions_and_mismatched_new_bindings_withou
     let moves = matches!(case, "moved" | "lost_move_reply");
     let (held, rejected) = if moves {
       let second = crate::mutation::HeldRename::prepare(
-        &record.intent.source.path,
-        &record.intent.destination,
-        &record.intent.resources,
-        record.intent.guard_fingerprint.clone(),
+        &rename(&record).source.path,
+        &rename(&record).destination,
+        &rename(&record).resources,
+        rename(&record).guard_fingerprint.clone(),
       )
       .unwrap();
       assert_eq!(
         held
           .commit(staged, &record.worker, || Ok(
-            record.intent.guard_fingerprint.clone()
+            rename(&record).guard_fingerprint.clone()
           ))
           .unwrap()
           .phase,
@@ -623,7 +743,7 @@ fn native_commit_refuses_retained_permissions_and_mismatched_new_bindings_withou
       if case == "grant" {
         changed.worker.nonce = "b".repeat(32);
       } else {
-        changed.intent.destination = fixture.0.join("wrong-destination");
+        rename_mut(&mut changed).destination = fixture.0.join("wrong-destination");
       }
       (held, Staged::New(changed))
     };
@@ -665,7 +785,7 @@ fn native_rename_consumes_new_intent_and_preserves_survivors_and_retained_replay
   };
   let observed = held
     .commit(staged, &record.worker, || {
-      Ok(record.intent.guard_fingerprint.clone())
+      Ok(rename(&record).guard_fingerprint.clone())
     })
     .unwrap();
   assert_eq!(observed.phase, Phase::Moved);
@@ -733,7 +853,7 @@ fn native_commit_rereads_role_guards_and_never_overwrites_a_new_destination() {
           }
           _ => unreachable!(),
         }
-        Ok(record.intent.guard_fingerprint.clone())
+        Ok(rename(&record).guard_fingerprint.clone())
       })
       .unwrap();
     assert_eq!(observed.phase, Phase::Refused, "{change}");

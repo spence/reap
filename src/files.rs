@@ -1568,6 +1568,7 @@ fn validate_preview(scan: &Scan, boundary: PreviewBoundary<'_>) -> Result<(), St
     .as_ref()
     .ok_or("bounded inventory is absent")?;
   let (held, device) = (boundary.directory, boundary.device);
+  let remaining = preview.remaining.get();
   let valid = (|| -> Result<(), String> {
     if preview.exhausted.get() || preview.guard_incomplete.get() || scan.incomplete {
       return Err("preview coverage is incomplete".into());
@@ -1608,6 +1609,8 @@ fn validate_preview(scan: &Scan, boundary: PreviewBoundary<'_>) -> Result<(), St
     }
     Ok(())
   })();
+  // validation retains no new inventory; failed coverage remains latched after temporary reads
+  preview.remaining.set(remaining);
   valid
 }
 
@@ -2235,10 +2238,17 @@ fn execute_inner(
       let mut unknown_residual = true;
       let result = match r.disposition {
         Disposition::Delete => {
-          let res = if applying.is_some() {
-            Err(io::Error::other(
-              "coordinated direct deletion is not available",
-            ))
+          let res = if let Some(applying) = applying.as_deref_mut() {
+            applying.delete(
+              &mut scan,
+              r,
+              boundary.expect("coordinated apply has a held boundary"),
+              cfg,
+              &leases.leases,
+              helpers
+                .as_deref_mut()
+                .expect("coordinated apply has its helper channel"),
+            )
           } else {
             crate::preservation::remove(&r.path)
           };

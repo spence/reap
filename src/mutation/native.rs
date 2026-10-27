@@ -1,4 +1,4 @@
-//! Held-parent same-volume rename and read-only recovery of its exact objects.
+//! Held-parent native mutations and read-only recovery of their exact objects.
 
 use std::ffi::CString;
 use std::fs::File;
@@ -7,7 +7,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path};
 
-use super::{invalid, Object, Observation, Phase, Record, Rename, Staged};
+use super::{invalid, Intent, Object, Observation, Phase, Record, Rename, Staged, Unlink};
 use crate::identity::ObjectIdentity;
 use crate::launch::{Grant, ProcessIdentity, Resources};
 
@@ -62,6 +62,11 @@ impl HeldRename {
     &self.intent
   }
 
+  /// Keep an independent descriptor for exact post-effect inode observation.
+  pub(crate) fn source(&self) -> &File {
+    &self.source
+  }
+
   /// Consume one newly synchronized intent. The caller rereads all policy and recovery guards
   /// and returns their current fingerprint. A failure before the syscall has no target effects.
   /// External edits after final validation are not serialized; supported edits use the writer.
@@ -77,7 +82,10 @@ impl HeldRename {
       ));
     };
     record.validate(&grant.key)?;
-    if record.phase != Phase::Intended || record.intent != self.intent || &record.worker != grant {
+    if record.phase != Phase::Intended
+      || record.intent != Intent::Rename(self.intent.clone())
+      || &record.worker != grant
+    {
       return Err(invalid(
         "rename permission differs from its prepared unit or grant",
       ));
@@ -134,20 +142,157 @@ impl HeldRename {
   }
 }
 
+/// One held entry and its real parent. No recursive pathname traversal occurs at commit.
+pub(crate) struct HeldUnlink {
+  intent: Unlink,
+  source: File,
+  source_parent: File,
+}
+
+impl HeldUnlink {
+  /// Capture the exact entry, its type, and complete physical resources before durable intent.
+  pub(crate) fn prepare(
+    source: &Path,
+    resources: &Resources,
+    guard_fingerprint: String,
+  ) -> io::Result<Self> {
+    super::path(source)?;
+    let parent_path = source
+      .parent()
+      .ok_or_else(|| invalid("source has no parent"))?;
+    let source_parent = directory(parent_path)?;
+    let source_file = open_child(&source_parent, source)?;
+    let intent = Unlink {
+      source: object(source, &source_file)?,
+      source_parent: object(parent_path, &source_parent)?,
+      directory: source_file.metadata()?.is_dir(),
+      resources: resources.clone(),
+      guard_fingerprint,
+    };
+    intent.validate()?;
+    physical(&source_parent, &source_parent, resources)?;
+    Ok(Self {
+      intent,
+      source: source_file,
+      source_parent,
+    })
+  }
+
+  pub(crate) fn intent(&self) -> &Unlink {
+    &self.intent
+  }
+
+  /// Keep an independent descriptor for exact post-effect inode observation.
+  pub(crate) fn source(&self) -> &File {
+    &self.source
+  }
+
+  /// Issue only a newly retained exact unlink after fresh caller guards. A directory must be
+  /// empty at the syscall. A replacement detected before the syscall or failed guards refuse it.
+  /// External edits after final validation are not serialized; supported edits use the writer.
+  pub(crate) fn commit(
+    self,
+    staged: Staged,
+    grant: &Grant,
+    guards: impl FnOnce() -> io::Result<String>,
+  ) -> io::Result<Observation> {
+    let Staged::New(record) = staged else {
+      return Err(invalid(
+        "retained intent requires observation, not another unlink",
+      ));
+    };
+    record.validate(&grant.key)?;
+    if record.phase != Phase::Intended
+      || record.intent != Intent::Unlink(self.intent.clone())
+      || &record.worker != grant
+    {
+      return Err(invalid(
+        "unlink permission differs from its prepared unit or grant",
+      ));
+    }
+    let validation = (|| {
+      if ProcessIdentity::read(std::process::id())?.as_ref() != Some(&grant.identity) {
+        return Err(invalid("unlink grant belongs to another native process"));
+      }
+      if guards()? != self.intent.guard_fingerprint {
+        return Err(invalid("unlink guard evidence changed before commit"));
+      }
+      crate::preservation::check(&self.intent.source.path).map_err(io::Error::other)?;
+      same_path(&self.intent.source_parent, &self.source_parent)?;
+      if ObjectIdentity::read_entry(&self.source)? != self.intent.source.identity
+        || identity_at(&self.source_parent, &self.intent.source.path)?.as_ref()
+          != Some(&self.intent.source.identity)
+        || self.source.metadata()?.is_dir() != self.intent.directory
+      {
+        return Err(invalid("unlink source was replaced"));
+      }
+      physical(
+        &self.source_parent,
+        &self.source_parent,
+        &self.intent.resources,
+      )
+    })();
+    if let Err(reason) = validation {
+      return Ok(observation(Phase::Refused, reason.to_string()));
+    }
+
+    let name = CString::new(name(&self.intent.source.path)?)?;
+    let flags = if self.intent.directory {
+      libc::AT_REMOVEDIR
+    } else {
+      0
+    };
+    // SAFETY: the held real parent and terminated direct name are valid; symlink targets stay closed.
+    let result = unsafe { libc::unlinkat(self.source_parent.as_raw_fd(), name.as_ptr(), flags) };
+    let error = (result != 0).then(io::Error::last_os_error);
+    Ok(
+      match (error, observe_unlink(&self.intent, &self.source_parent)) {
+        (None, Ok(Phase::Removed)) => observation(Phase::Removed, "entry removal is durable"),
+        (Some(reason), Ok(phase)) => observation(phase, reason.to_string()),
+        (_, Err(reason)) => observation(Phase::Uncertain, reason.to_string()),
+        _ => observation(
+          Phase::Uncertain,
+          "unlink result differs from its retained object",
+        ),
+      },
+    )
+  }
+}
+
 /// Inspect and synchronize the original parents without changing either pathname.
 /// Call only under retained exclusion after all original workers and helpers have exited.
 /// Unknown objects, duplicate names, and replacements retain uncertainty; none is repaired here.
 pub(crate) fn recover(record: &Record) -> Observation {
   let result = (|| {
     record.validate(&record.worker.key)?;
-    let source_parent = directory(&record.intent.source_parent.path)?;
-    let destination_parent = directory(&record.intent.destination_parent.path)?;
-    observe(&record.intent, &source_parent, &destination_parent)
+    match &record.intent {
+      Intent::Rename(intent) => {
+        let source_parent = directory(&intent.source_parent.path)?;
+        let destination_parent = directory(&intent.destination_parent.path)?;
+        observe(intent, &source_parent, &destination_parent)
+      }
+      Intent::Unlink(intent) => {
+        let source_parent = directory(&intent.source_parent.path)?;
+        observe_unlink(intent, &source_parent)
+      }
+    }
   })();
   match result {
     Ok(phase) => observation(phase, "fresh native recovery observation"),
     Err(reason) => observation(Phase::Uncertain, reason.to_string()),
   }
+}
+
+fn observe_unlink(intent: &Unlink, source_parent: &File) -> io::Result<Phase> {
+  same_path(&intent.source_parent, source_parent)?;
+  physical(source_parent, source_parent, &intent.resources)?;
+  let source = identity_at(source_parent, &intent.source.path)?;
+  source_parent.sync_all()?;
+  Ok(match source.as_ref() {
+    None => Phase::Removed,
+    Some(source) if source == &intent.source.identity => Phase::Refused,
+    _ => Phase::Uncertain,
+  })
 }
 
 fn observe(intent: &Rename, source_parent: &File, destination_parent: &File) -> io::Result<Phase> {
