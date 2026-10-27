@@ -230,10 +230,13 @@ pub(crate) fn assess(
     reports.push(report);
     index += 1;
     if remaining == 0 && index < context.selections.len() {
-      writer.row(&JobRow::BetweenRoots)?;
-      crate::files::checkpoint_observations(&mut writer, helpers.observed())
-        .map_err(io::Error::other)?;
-      return Ok(FilesBatch::Yielded(writer.finish()?));
+      if helpers.yield_requested()? {
+        writer.row(&JobRow::BetweenRoots)?;
+        crate::files::checkpoint_observations(&mut writer, helpers.observed())
+          .map_err(io::Error::other)?;
+        return Ok(FilesBatch::Yielded(writer.finish()?));
+      }
+      remaining = crate::files::DISCOVERY_QUANTUM;
     }
   }
   context.inspector.revalidate()?;

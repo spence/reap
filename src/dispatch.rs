@@ -186,6 +186,39 @@ impl Scheduler {
 
   /// Poll each owned child once; only the writer performs durable metadata I/O.
   pub(crate) fn tick(&mut self, journal: &mut Journal, now: u64) -> io::Result<()> {
+    // latch handoff requests only for ready, uncancelled bulk conflicts
+    let waiting_resources: Vec<_> = self
+      .jobs
+      .iter()
+      .filter(|job| {
+        job.owned.is_none()
+          && job.launch.as_ref().is_none_or(Launch::released)
+          && !journal.cancel_requested(&job.key)
+      })
+      .filter_map(|job| match &job.progress {
+        Progress::Resolved { scope }
+        | Progress::FilesResolved { scope }
+        | Progress::Checking { scope }
+        | Progress::PreviewingFiles { scope }
+        | Progress::FilesYielded { scope, .. } => Some(Resources::Bulk {
+          physical_volumes: scope.physical_volumes.clone(),
+        }),
+        _ => None,
+      })
+      .collect();
+    for job in &mut self.jobs {
+      if job.files
+        && job.launch.as_ref().is_some_and(|launch| {
+          waiting_resources
+            .iter()
+            .any(|resource| launch.resources.conflicts(resource))
+        })
+      {
+        if let Some(owned) = &mut job.owned {
+          owned.request_yield();
+        }
+      }
+    }
     let count = self.jobs.len();
     let mut waiting = VecDeque::new();
     let mut yielded = VecDeque::new();

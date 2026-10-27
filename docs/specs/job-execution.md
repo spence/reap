@@ -174,7 +174,7 @@ One item inspects at most one directory's policy and enumerates at most that sam
 The cursor retains ancestor, retention, and subtree work between quanta; partial work is not complete coverage.
 A failed cursor cannot resume as a successful discovery.
 Initial root/ancestor bindings and final revalidation remain separate whole-worker phases.
-An unfinished quantum publishes durable continuation data before native exit can release its reservation.
+An unfinished handoff publishes durable continuation data before native exit can release its reservation.
 Yielded jobs move behind waiting jobs, including after writer recovery.
 The scheduler collects all predecessor exits before FIFO ready jobs can reserve the released resources.
 Binding: `files::tests::discovery_cursor_yields_and_retains_complete_scoped_retention_inputs` and
@@ -195,6 +195,16 @@ Bindings: `native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_
 `unpublished_working_output_is_not_adopted_repeated_or_forgotten_by_compaction`,
 and `recovery_bounds_unknown_working_directories_without_adopting_or_deleting_them`.
 
+**C16** — After each unfinished 64-item quantum, a granted Files worker asks its coordinator whether to yield.
+A pending conflicting bulk job latches a yield request. Without a request, the worker continues in memory under the same grant and reservation.
+The query creates no process, durable metadata, source change, or cleanup authority.
+Cancellation or a changed physical grant refuses the query.
+A requested handoff retains C15; a scheduling hint cannot release a live worker.
+Bindings: `native_files_uncontended_scan_uses_one_bulk_worker`,
+`files_quantum_is_a_latched_nonpublishing_query_not_a_process_launch`,
+`native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_completion`,
+and `native_files_checkpoint_restart_corruption_cancellation_and_replaced_data_fail_closed`.
+
 The shared engine supplies the current foreground CLI and internal native preview.
 Its report separates planned, blocked, completed, and unknown-residual units, known bytes, and coverage completeness.
 The native preview has zero effects. Unknown residual effects remain explicit in failed legacy applying reports.
@@ -207,7 +217,7 @@ Configured root aliases remain resolver dependencies; this profile does not narr
 Incomplete evidence still protects the whole request; independent partial progress is not yet supported.
 Native activity, bounded index tracking, and native Git recovery supply their separate evidence.
 Unsupported recovery profiles protect the selection.
-Complete snapshots currently rewrite retained state and rebuild Git caches between workers.
+Contended handoffs rewrite retained state and rebuild Git caches between workers.
 Efficient continuation, shared maintenance discovery, independent partial progress,
 legacy bridge/old-reader barriers, and caller/operator migration remain required before public activation.
 A durable resolved scope can advance only after resolver absence. A durable result can publish only after child absence.

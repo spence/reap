@@ -1239,42 +1239,102 @@ fn invalid_first_seen_pages_refuse_without_partial_credit_or_repeated_requests()
 
 #[cfg(target_os = "macos")]
 #[test]
-fn first_seen_requests_require_the_files_profile_and_an_uncancelled_grant() {
-  for cancelled in [false, true] {
-    let (fixture, mut journal, mut owned, mut peer, resume) = granted_private_peer();
-    // isolate the profile/cancellation gate after the request's resource comparison
-    owned.launch.resources = Resources::Bulk {
-      physical_volumes: vec!["fixture-physical".into()],
-    };
-    if cancelled {
-      owned.output_allowed = true;
-      journal.request_cancel(&owned.key, 2).unwrap();
+fn files_quantum_is_a_latched_nonpublishing_query_not_a_process_launch() {
+  let (fixture, mut journal, mut owned, mut peer, resume) = granted_private_peer();
+  // isolate the metadata query after grant validation; the pipeline covers native bulk grants
+  owned.launch.resources = Resources::Bulk {
+    physical_volumes: vec!["fixture-physical".into()],
+  };
+  owned.output_allowed = true;
+  let task = Task::FilesQuantum {
+    physical_volumes: vec!["fixture-physical".into()],
+  };
+  let before = journal.launch(&owned.key).unwrap();
+  assert!(matches!(
+    start(&mut journal, &owned.key, 2, task.clone()).unwrap(),
+    Start::Rejected(_)
+  ));
+  assert!(matches!(
+    owned
+      .start_helper(&mut journal, 0, 1, &random_token().unwrap(), task.clone())
+      .unwrap(),
+    Start::Rejected(_)
+  ));
+  for (request_id, requested) in [(1, false), (2, true), (3, false)] {
+    if requested {
+      owned.request_yield();
     }
-    let before = journal.launch(&owned.key).unwrap();
     inject_private(
       &mut owned,
       &HelperRequest {
-        request_id: 1,
-        task: Task::FirstSeen {
-          keys: vec!["a".repeat(64)],
-          after: None,
-          physical_volumes: vec!["fixture-physical".into()],
-        },
+        request_id,
+        task: task.clone(),
       },
       &mut journal,
     );
     let reply: HelperReply = serde_json::from_slice(&receive_packet(&mut peer).unwrap()).unwrap();
-    assert!(reply.result.is_err());
-    assert!(owned.observations.is_empty());
-    assert!(owned.helper.is_none());
-    assert_eq!(journal.launch(&owned.key).unwrap(), before);
-    drop(peer);
-    drop(resume);
-    assert!(complete(&mut owned, &mut journal).report.is_err());
-    assert_eq!(
-      fs::read(fixture.0.join("valuable")).unwrap(),
-      b"private helper survivor"
+    assert!(
+      matches!(reply.result, Ok(Report::FilesQuantum { yield_now }) if yield_now == requested)
     );
+    assert!(owned.helper.is_none());
+    assert!(owned.observations.is_empty());
+    assert_eq!(journal.launch(&owned.key).unwrap(), before);
+  }
+  drop(peer);
+  drop(resume);
+  assert!(complete(&mut owned, &mut journal).report.is_err());
+  assert_eq!(
+    fs::read(fixture.0.join("valuable")).unwrap(),
+    b"private helper survivor"
+  );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn first_seen_requests_require_the_files_profile_and_an_uncancelled_grant() {
+  for quantum in [false, true] {
+    for cancelled in [false, true] {
+      let (fixture, mut journal, mut owned, mut peer, resume) = granted_private_peer();
+      // isolate the profile/cancellation gate after the request's resource comparison
+      owned.launch.resources = Resources::Bulk {
+        physical_volumes: vec!["fixture-physical".into()],
+      };
+      if cancelled {
+        owned.output_allowed = true;
+        journal.request_cancel(&owned.key, 2).unwrap();
+      }
+      let before = journal.launch(&owned.key).unwrap();
+      inject_private(
+        &mut owned,
+        &HelperRequest {
+          request_id: 1,
+          task: if quantum {
+            Task::FilesQuantum {
+              physical_volumes: vec!["fixture-physical".into()],
+            }
+          } else {
+            Task::FirstSeen {
+              keys: vec!["a".repeat(64)],
+              after: None,
+              physical_volumes: vec!["fixture-physical".into()],
+            }
+          },
+        },
+        &mut journal,
+      );
+      let reply: HelperReply = serde_json::from_slice(&receive_packet(&mut peer).unwrap()).unwrap();
+      assert!(reply.result.is_err());
+      assert!(owned.observations.is_empty());
+      assert!(owned.helper.is_none());
+      assert_eq!(journal.launch(&owned.key).unwrap(), before);
+      drop(peer);
+      drop(resume);
+      assert!(complete(&mut owned, &mut journal).report.is_err());
+      assert_eq!(
+        fs::read(fixture.0.join("valuable")).unwrap(),
+        b"private helper survivor"
+      );
+    }
   }
 }
 

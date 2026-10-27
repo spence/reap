@@ -56,6 +56,9 @@ pub enum Task {
     after: Option<String>,
     physical_volumes: Vec<String>,
   },
+  FilesQuantum {
+    physical_volumes: Vec<String>,
+  },
 }
 
 impl Task {
@@ -75,6 +78,7 @@ impl Task {
         | (Self::Check { .. }, Report::Checked { .. })
         | (Self::PreviewFiles { .. }, Report::FilesPreviewed { .. })
         | (Self::PreviewFiles { .. }, Report::FilesCheckpointed { .. })
+        | (Self::FilesQuantum { .. }, Report::FilesQuantum { .. })
     )
   }
 
@@ -87,6 +91,7 @@ impl Task {
       Self::FirstSeen {
         physical_volumes, ..
       }
+      | Self::FilesQuantum { physical_volumes }
       | Self::Probe {
         physical_volumes, ..
       } => Resources::Bulk {
@@ -99,6 +104,9 @@ impl Task {
   fn validate(&self) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
 
+    if matches!(self, Self::FilesQuantum { .. }) {
+      return self.resources().validate();
+    }
     if let Self::FirstSeen { keys, after, .. } = self {
       if keys.len() > crate::observations::BATCH_KEYS
         || keys.iter().any(|key| !crate::observations::valid_key(key))
@@ -124,7 +132,9 @@ impl Task {
         probe.validate()?;
         return self.resources().validate();
       }
-      Self::FirstSeen { .. } => unreachable!("first-seen request validated above"),
+      Self::FirstSeen { .. } | Self::FilesQuantum { .. } => {
+        unreachable!("metadata request validated above")
+      }
     };
     if !directory.is_absolute()
       || directory.as_os_str().len() > 4096
@@ -258,6 +268,9 @@ pub enum Report {
     values: BTreeMap<String, u64>,
     next: Option<String>,
   },
+  FilesQuantum {
+    yield_now: bool,
+  },
   Resolved {
     directory: ObjectIdentity,
     physical_volumes: Vec<String>,
@@ -337,6 +350,20 @@ impl Helpers<'_> {
       return Err(invalid("checkpoint grace observations exceed capacity"));
     }
     Ok(())
+  }
+
+  /// Ask whether this completed discovery quantum must yield to a conflicting bulk waiter.
+  /// A reply is a scheduling hint, not publication or permission to release the grant.
+  pub(crate) fn yield_requested(&mut self) -> io::Result<bool> {
+    let Resources::Bulk { physical_volumes } = self.resources else {
+      return Err(invalid("discovery quantum requires a bulk grant"));
+    };
+    match self.run(Task::FilesQuantum {
+      physical_volumes: physical_volumes.clone(),
+    })? {
+      Report::FilesQuantum { yield_now } => Ok(yield_now),
+      _ => Err(invalid("discovery quantum returned another operation")),
+    }
   }
   /// Read cached durable credit. Only bounded pages and observed-key batches cross the channel.
   pub(crate) fn first_seen(&mut self, key: String) -> io::Result<Option<u64>> {
@@ -526,6 +553,7 @@ pub struct Owned {
   page_bytes: usize,
   observations: BTreeSet<String>,
   output_allowed: bool,
+  yield_requested: bool,
   probe: Option<crate::activity::Capture>,
   stderr: Option<UnixStream>,
   stderr_eof: bool,
@@ -548,6 +576,11 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, mut task: Task) ->
   if matches!(task, Task::Probe { .. }) {
     return Ok(Start::Rejected(
       "native probes require a granted helper".into(),
+    ));
+  }
+  if matches!(task, Task::FilesQuantum { .. }) {
+    return Ok(Start::Rejected(
+      "quantum queries require a granted Files worker".into(),
     ));
   }
   if let Err(error) = task.validate().and_then(|()| {
@@ -647,6 +680,7 @@ fn spawn(
     page_bytes: 0,
     observations: BTreeSet::new(),
     output_allowed,
+    yield_requested: false,
     probe: probe.map(crate::activity::Capture::new),
     stderr,
     stderr_eof: probe.is_none(),
@@ -659,6 +693,11 @@ fn spawn(
 }
 
 impl Owned {
+  /// Latch a request until the granted Files worker reaches its next discovery boundary.
+  pub(crate) fn request_yield(&mut self) {
+    self.yield_requested = true;
+  }
+
   #[cfg(test)]
   pub(crate) fn needs_poll(&self) -> bool {
     wait_for_activity([self], Duration::ZERO).unwrap_or(false)
@@ -707,6 +746,11 @@ impl Owned {
     token: &str,
     task: Task,
   ) -> io::Result<Start> {
+    if matches!(task, Task::FilesQuantum { .. }) {
+      return Ok(Start::Rejected(
+        "quantum queries cannot create a helper".into(),
+      ));
+    }
     if self.process != self.launch.worker.token || self.finished || slot >= 2 {
       return Ok(Start::Rejected(
         "helper requires an owned worker and a direct slot".into(),
@@ -987,6 +1031,16 @@ impl Owned {
         request.request_id,
         Err("helper request is cancelled or changes physical resources".into()),
       );
+    }
+    if matches!(request.task, Task::FilesQuantum { .. }) {
+      if !self.output_allowed {
+        return self.reply(
+          request.request_id,
+          Err("quantum query is outside the Files profile".into()),
+        );
+      }
+      let yield_now = std::mem::take(&mut self.yield_requested);
+      return self.reply(request.request_id, Ok(Report::FilesQuantum { yield_now }));
     }
     if let Task::FirstSeen { keys, after, .. } = &request.task {
       let additional: BTreeSet<_> = keys

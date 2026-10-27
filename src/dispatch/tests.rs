@@ -359,6 +359,72 @@ fn native_files_pipeline_retains_operation_results_and_sources_without_cache_wri
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_files_uncontended_scan_uses_one_bulk_worker() {
+  let fixture = Fixture::new();
+  let project = fixture.0.join("project");
+  for index in 0..192 {
+    let child = project.join(format!("work-{index:03}"));
+    fs::create_dir(&child).unwrap();
+    fs::write(child.join("valuable"), b"unfinished work").unwrap();
+    fs::write(
+      child.join(".reap"),
+      br#"{"version":1,"keep":{"reason":"unfinished"}}"#,
+    )
+    .unwrap();
+  }
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({"governed_roots":[project],"reap_file_grace_hours":24}))
+      .unwrap(),
+  )
+  .unwrap();
+  let before = fixture.survivors();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec!["files".into()];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal.admit_execution(key.clone(), input, 1).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let deadline = Instant::now() + Duration::from_secs(10);
+  while scheduler.pending() {
+    scheduler.tick(&mut journal, 2).unwrap();
+    assert!(
+      !scheduler
+        .jobs
+        .iter()
+        .any(|job| matches!(job.progress, Progress::FilesYielded { .. })),
+      "an uncontended scan must retain its in-memory cursor"
+    );
+    assert!(Instant::now() < deadline);
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  let Decision::Present { job } = journal.lookup(&key).unwrap() else {
+    panic!("retained result required")
+  };
+  let terminal = job.result.unwrap();
+  assert_eq!(terminal.exit_code, 0, "{}", terminal.detail);
+  assert_eq!(terminal.effects, 0);
+  let report: serde_json::Value = serde_json::from_str(&terminal.detail).unwrap();
+  assert_eq!(report["reports"][0]["declarations"], 192);
+  assert_eq!(report["reports"][0]["coverage_complete"], true);
+  assert_eq!(journal.observation_page(None).unwrap().0.len(), 192);
+  let launch = journal.launch(&key).unwrap().unwrap();
+  assert_eq!(launch.sequence, 2, "one resolver and one bulk worker");
+  assert!(launch.released());
+  assert!(launch.helpers.iter().all(Option::is_none));
+  assert_eq!(fixture.survivors(), before);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_completion() {
   let fixture = Fixture::new();
   let large = fixture.0.join("project");
@@ -402,7 +468,13 @@ fn native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_compl
   };
   let large_key = admit_files(&large);
   let small_key = admit_files(&small);
-  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let mut scheduler = Scheduler {
+    jobs: VecDeque::new(),
+  };
+  scheduler.enqueue(&mut journal, large_key.clone()).unwrap();
+  scheduler.enqueue(&mut journal, small_key.clone()).unwrap();
+  let mut held_large = None;
+  let mut contention_established = false;
   let mut late = None;
   let mut yielded = 0;
   let mut last_sequence = 1;
@@ -410,6 +482,34 @@ fn native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_compl
   let deadline = Instant::now() + Duration::from_secs(10);
   loop {
     scheduler.tick(&mut journal, 2).unwrap();
+    if !contention_established {
+      // retain the live owner without polling its private channel until the waiter is ready
+      if held_large.is_none() {
+        if let Some(index) = scheduler.jobs.iter().position(|job| {
+          job.key == large_key
+            && job.owned.is_some()
+            && matches!(job.progress, Progress::PreviewingFiles { .. })
+        }) {
+          held_large = scheduler.jobs.remove(index);
+        }
+      }
+      if let Some(large_job) = &held_large {
+        let ready = scheduler.jobs.iter().any(|job| {
+          job.key == small_key
+            && job.owned.is_none()
+            && job.launch.as_ref().is_none_or(Launch::released)
+            && matches!(
+              job.progress,
+              Progress::FilesResolved { .. } | Progress::PreviewingFiles { .. }
+            )
+        });
+        if ready {
+          assert!(!large_job.launch.as_ref().unwrap().released());
+          scheduler.jobs.push_front(held_large.take().unwrap());
+          contention_established = true;
+        }
+      }
+    }
     if let Some(launch) = journal.launch(&large_key).unwrap() {
       assert!(launch.sequence >= last_sequence);
       last_sequence = launch.sequence;
@@ -450,6 +550,7 @@ fn native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_compl
     "{:?}",
     job.result
   );
+  assert!(contention_established);
   assert!(yielded > 0);
   assert!(last_sequence > 2);
   assert!(small_finished_first);
@@ -475,6 +576,14 @@ fn native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_compl
       .to_string_lossy()
       .starts_with("work-")));
   assert_eq!(fixture.survivors(), before);
+  let detail: serde_json::Value =
+    serde_json::from_str(&job.result.as_ref().unwrap().detail).unwrap();
+  println!(
+    "handoff_evidence={}",
+    serde_json::json!({"launch_sequence":last_sequence,"reports":detail["reports"],
+      "first_seen_keys":journal.observation_page(None).unwrap().0.len(),
+      "effects":job.result.as_ref().unwrap().effects})
+  );
 }
 
 #[cfg(target_os = "macos")]
@@ -619,6 +728,15 @@ fn native_files_checkpoint_restart_corruption_cancellation_and_replaced_data_fai
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
       scheduler.tick(&mut journal, 2).unwrap();
+      // each recovery case needs a real checkpoint, independent of a competing job's timing
+      if let Some(owned) = scheduler
+        .jobs
+        .iter_mut()
+        .find(|job| job.key == key && matches!(job.progress, Progress::PreviewingFiles { .. }))
+        .and_then(|job| job.owned.as_mut())
+      {
+        owned.request_yield();
+      }
       if matches!(case, "published" | "unpublished") {
         if let Some(job) = scheduler
           .jobs

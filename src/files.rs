@@ -1068,10 +1068,27 @@ impl<'a, 'h, 'p> PreviewState<'a, 'h, 'p> {
     })
   }
 
+  /// Return true on complete discovery, or false when the coordinator requests a checkpoint handoff.
+  /// Uncontended quanta continue with the same in-memory cursor. This publishes no result.
   pub(crate) fn advance(&mut self, remaining: &mut usize) -> Result<bool, String> {
-    let (complete, used) = self.cursor.advance_count(&mut self.discovery, *remaining)?;
-    *remaining -= used;
-    Ok(complete)
+    loop {
+      let (complete, used) = self.cursor.advance_count(&mut self.discovery, *remaining)?;
+      *remaining -= used;
+      if complete {
+        return Ok(true);
+      }
+      if self
+        .discovery
+        .helpers
+        .as_deref_mut()
+        .expect("owned helper channel")
+        .yield_requested()
+        .map_err(|e| e.to_string())?
+      {
+        return Ok(false);
+      }
+      *remaining = DISCOVERY_QUANTUM;
+    }
   }
 
   pub(crate) fn checkpoint(&self, writer: &mut crate::checkpoint::Writer) -> Result<(), String> {
