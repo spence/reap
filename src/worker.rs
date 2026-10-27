@@ -59,6 +59,9 @@ pub enum Task {
   FilesQuantum {
     physical_volumes: Vec<String>,
   },
+  NextMutationSequence {
+    physical_volumes: Vec<String>,
+  },
   StageMutation {
     sequence: u64,
     intent: crate::mutation::Rename,
@@ -81,6 +84,16 @@ pub enum Task {
 impl Task {
   /// Require the result kind belonging to this exact operation.
   fn accepts(&self, report: &Report) -> bool {
+    if let (Self::PreviewFiles { input, .. }, Report::FilesPreviewed { terminal, .. }) =
+      (self, report)
+    {
+      return serde_json::from_str::<crate::invocation::Intent>(&input.request)
+        .ok()
+        .and_then(|intent| crate::invocation::summary(&intent))
+        .is_some_and(|summary| {
+          summary.operation == "files" && (summary.mode == "apply" || terminal.effects == 0)
+        });
+    }
     if let (Self::RecoverMutation { record }, Report::MutationRecovered { nonce, .. }) =
       (self, report)
     {
@@ -122,9 +135,12 @@ impl Task {
         | (Self::ResolveCheck { .. }, Report::CheckResolved { .. })
         | (Self::ResolveFiles { .. }, Report::FilesResolved { .. })
         | (Self::Check { .. }, Report::Checked { .. })
-        | (Self::PreviewFiles { .. }, Report::FilesPreviewed { .. })
         | (Self::PreviewFiles { .. }, Report::FilesCheckpointed { .. })
         | (Self::FilesQuantum { .. }, Report::FilesQuantum { .. })
+        | (
+          Self::NextMutationSequence { .. },
+          Report::NextMutationSequence { .. }
+        )
     )
   }
 
@@ -138,6 +154,7 @@ impl Task {
         physical_volumes, ..
       }
       | Self::FilesQuantum { physical_volumes }
+      | Self::NextMutationSequence { physical_volumes }
       | Self::ObserveMutation {
         physical_volumes, ..
       }
@@ -188,7 +205,10 @@ impl Task {
       }
       return self.resources().validate();
     }
-    if matches!(self, Self::FilesQuantum { .. }) {
+    if matches!(
+      self,
+      Self::FilesQuantum { .. } | Self::NextMutationSequence { .. }
+    ) {
       return self.resources().validate();
     }
     if let Self::FirstSeen { keys, after, .. } = self {
@@ -218,6 +238,7 @@ impl Task {
       }
       Self::FirstSeen { .. }
       | Self::FilesQuantum { .. }
+      | Self::NextMutationSequence { .. }
       | Self::StageMutation { .. }
       | Self::ObserveMutation { .. }
       | Self::RecoverMutation { .. } => {
@@ -297,14 +318,20 @@ impl Task {
             "checkpoint preview requires its owned private channel",
           ));
         };
-        let mut terminal =
-          match crate::dispatch::assess_files(input, scope, work, &grant.key, helpers)? {
-            crate::dispatch::FilesBatch::Yielded(manifest) => {
-              return Ok(Report::FilesCheckpointed { manifest })
-            }
-            crate::dispatch::FilesBatch::Complete(terminal) => terminal,
-          };
-        if terminal.exit_code == 0 {
+        let mut terminal = match crate::dispatch::assess_files(
+          input,
+          scope,
+          work,
+          &grant.key,
+          helpers,
+          Some(grant),
+        )? {
+          crate::dispatch::FilesBatch::Yielded(manifest) => {
+            return Ok(Report::FilesCheckpointed { manifest })
+          }
+          crate::dispatch::FilesBatch::Complete(terminal) => terminal,
+        };
+        if terminal.exit_code == 0 && terminal.effects == 0 {
           helpers.flush_observations()?;
         }
         let (detail, pages) = crate::result_pages::prepare(terminal.detail)?;
@@ -379,6 +406,10 @@ pub enum Report {
   FilesQuantum {
     yield_now: bool,
   },
+  NextMutationSequence {
+    sequence: u64,
+    completed_units: u64,
+  },
   MutationStaged {
     staged: crate::mutation::Staged,
   },
@@ -447,6 +478,24 @@ pub(crate) struct Helpers<'a> {
 }
 
 impl Helpers<'_> {
+  /// Read this job's next unit number. This response grants no mutation permission.
+  pub(crate) fn next_mutation_sequence(&mut self) -> io::Result<(u64, u64)> {
+    let Resources::Bulk { physical_volumes } = self.resources else {
+      return Err(invalid("mutation sequence requires a bulk grant"));
+    };
+    match self.run(Task::NextMutationSequence {
+      physical_volumes: physical_volumes.clone(),
+    })? {
+      Report::NextMutationSequence {
+        sequence,
+        completed_units,
+      } if sequence > 0 => Ok((sequence, completed_units)),
+      _ => Err(invalid(
+        "unit writer returned an invalid sequence observation",
+      )),
+    }
+  }
+
   /// Synchronize exact unit intent. A retained response has no repeat permission.
   pub(crate) fn stage_mutation(
     &mut self,
@@ -732,7 +781,10 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, mut task: Task) ->
   }
   if matches!(
     task,
-    Task::FilesQuantum { .. } | Task::StageMutation { .. } | Task::ObserveMutation { .. }
+    Task::FilesQuantum { .. }
+      | Task::NextMutationSequence { .. }
+      | Task::StageMutation { .. }
+      | Task::ObserveMutation { .. }
   ) {
     return Ok(Start::Rejected(
       "metadata requests require an existing granted worker".into(),
@@ -814,6 +866,14 @@ fn spawn(
   #[cfg(test)]
   if let Some(gate) = std::env::var_os("REAP_NATIVE_EXECUTION_GATE") {
     command.env("REAP_NATIVE_EXECUTION_GATE", gate);
+  }
+  #[cfg(test)]
+  if let Some(stop) = std::env::var_os("REAP_NATIVE_FILES_UNIT_STOP") {
+    command.env("REAP_NATIVE_FILES_UNIT_STOP", stop);
+  }
+  #[cfg(test)]
+  if let Some(gate) = std::env::var_os("REAP_NATIVE_FILES_ACTIVITY_GATE") {
+    command.env("REAP_NATIVE_FILES_ACTIVITY_GATE", gate);
   }
   let child = command
     .current_dir("/")
@@ -903,11 +963,12 @@ impl Owned {
     slot: usize,
     sequence: u64,
     token: &str,
-    task: Task,
+    mut task: Task,
   ) -> io::Result<Start> {
     if matches!(
       task,
       Task::FilesQuantum { .. }
+        | Task::NextMutationSequence { .. }
         | Task::StageMutation { .. }
         | Task::ObserveMutation { .. }
         | Task::RecoverMutation { .. }
@@ -916,30 +977,22 @@ impl Owned {
         "metadata and recovery requests cannot create a helper".into(),
       ));
     }
+    if matches!(
+      task,
+      Task::Probe {
+        probe: crate::activity::Probe::HandlesForWorker { .. },
+        ..
+      }
+    ) {
+      return Ok(Start::Rejected(
+        "activity exclusions belong to the coordinator".into(),
+      ));
+    }
     if self.process != self.launch.worker.token || self.finished || slot >= 2 {
       return Ok(Start::Rejected(
         "helper requires an owned worker and a direct slot".into(),
       ));
     }
-    let bytes = match task.validate().and_then(|()| {
-      if task.resources() != self.launch.resources {
-        return Err(invalid(
-          "helper task changes its worker's physical reservation",
-        ));
-      }
-      let bytes = serde_json::to_vec(&task)?;
-      if bytes.len() > MAX_PACKET {
-        return Err(invalid("helper task exceeds its bound"));
-      }
-      Ok(bytes)
-    }) {
-      Ok(bytes) => bytes,
-      Err(reason) => {
-        return Ok(Start::Rejected(
-          reason.to_string().chars().take(2048).collect(),
-        ))
-      }
-    };
     let current = journal
       .launch(&self.key)?
       .ok_or_else(|| invalid("helper worker has no retained launch"))?;
@@ -966,6 +1019,43 @@ impl Owned {
     {
       return Err(invalid("helper worker has no matching native grant"));
     }
+    // only this granted, fixed-purpose applying worker can be absent from its activity scan
+    let applying =
+      journal.mutation(&self.key)?.is_some() && journal.execution(&self.key)?.is_some();
+    if applying {
+      if let Task::Probe {
+        probe: crate::activity::Probe::Handles { directories },
+        physical_volumes,
+      } = &task
+      {
+        task = Task::Probe {
+          probe: crate::activity::Probe::HandlesForWorker {
+            directories: directories.clone(),
+            worker: identity,
+          },
+          physical_volumes: physical_volumes.clone(),
+        };
+      }
+    }
+    let bytes = match task.validate().and_then(|()| {
+      if task.resources() != self.launch.resources {
+        return Err(invalid(
+          "helper task changes its worker's physical reservation",
+        ));
+      }
+      let bytes = serde_json::to_vec(&task)?;
+      if bytes.len() > MAX_PACKET {
+        return Err(invalid("helper task exceeds its bound"));
+      }
+      Ok(bytes)
+    }) {
+      Ok(bytes) => bytes,
+      Err(reason) => {
+        return Ok(Start::Rejected(
+          reason.to_string().chars().take(2048).collect(),
+        ))
+      }
+    };
     journal.reserve_helper(&self.key, &current.token, slot, sequence, token)?;
     let probe = match &task {
       Task::Probe { probe, .. } => Some(probe),
@@ -1207,6 +1297,16 @@ impl Owned {
         request.request_id,
         Err("helper request is cancelled or changes physical resources".into()),
       );
+    }
+    if matches!(request.task, Task::NextMutationSequence { .. }) {
+      let result = journal
+        .next_mutation_sequence(&self.key)
+        .map(|(sequence, completed_units)| Report::NextMutationSequence {
+          sequence,
+          completed_units,
+        })
+        .map_err(|reason| reason.to_string());
+      return self.reply(request.request_id, result);
     }
     if let Task::StageMutation { sequence, intent } = request.task {
       let result = journal
@@ -1527,6 +1627,9 @@ fn receive_packet(pipe: &mut UnixStream) -> io::Result<Vec<u8>> {
 
 fn validate_report(report: &Report) -> io::Result<()> {
   match report {
+    Report::NextMutationSequence { sequence: 0, .. } => {
+      return Err(invalid("invalid unit sequence observation"))
+    }
     Report::MutationStaged { staged } => {
       let (crate::mutation::Staged::New(record) | crate::mutation::Staged::Retained(record)) =
         staged;
@@ -1576,9 +1679,9 @@ fn validate_report(report: &Report) -> io::Result<()> {
       return Err(invalid("invalid read-only check result"));
     }
     Report::FilesPreviewed { terminal, .. }
-      if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code == 75 =>
+      if terminal.detail.len() > 4096 || terminal.exit_code == 75 =>
     {
-      return Err(invalid("invalid read-only files result"));
+      return Err(invalid("invalid files result"));
     }
     _ => {}
   }

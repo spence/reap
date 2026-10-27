@@ -468,7 +468,13 @@ impl Journal {
     now: u64,
   ) -> io::Result<Decision> {
     match self.replay(&key, &input)? {
-      Decision::NotAccepted => self.insert(key, input, now, true, false),
+      Decision::NotAccepted => {
+        let mutating = serde_json::from_str::<crate::invocation::Intent>(&input.request)
+          .ok()
+          .and_then(|intent| crate::invocation::summary(&intent))
+          .is_some_and(|summary| summary.mode == "apply");
+        self.insert(key, input, now, true, mutating)
+      }
       decision => Ok(decision),
     }
   }
@@ -764,6 +770,22 @@ impl Journal {
     Ok(Staged::New(record))
   }
 
+  /// Read the next unit number without issuing permission or replacing unresolved intent.
+  pub(crate) fn next_mutation_sequence(&self, key: &Key) -> io::Result<(u64, u64)> {
+    let ledger = self
+      .mutation(key)?
+      .ok_or_else(|| invalid("job has no mutation profile"))?;
+    let next = match ledger.current {
+      Some(record) if record.phase.unresolved() => Err(invalid("unit outcome remains unresolved")),
+      Some(record) => record
+        .sequence
+        .checked_add(1)
+        .ok_or_else(|| invalid("unit sequence overflow")),
+      None => Ok(1),
+    }?;
+    Ok((next, ledger.completed_units))
+  }
+
   /// Publish the original worker's observation; uncertain effects require separate recovery.
   pub(crate) fn finish_mutation(
     &mut self,
@@ -843,6 +865,11 @@ impl Journal {
         .ok_or_else(|| invalid("mutation counter overflow"))?;
     }
     record.phase = phase;
+    if recovery {
+      if let Some(crate::dispatch::Progress::Result { terminal }) = &mut job.execution {
+        terminal.effects = ledger.completed_units;
+      }
+    }
     self.update(job)
   }
 
@@ -874,11 +901,9 @@ impl Journal {
         .view
         .invocation
         .as_ref()
-        .is_none_or(|v| v.operation != "files" || v.mode != "read")
+        .is_none_or(|v| v.operation != "files" || !matches!(v.mode.as_str(), "read" | "apply"))
     {
-      return Err(invalid(
-        "working storage requires an active read-only Files job",
-      ));
+      return Err(invalid("working storage requires an active Files job"));
     }
     if let Some(work) = &job.working {
       return Ok(work.directory.clone());
@@ -1769,10 +1794,16 @@ impl Journal {
           || (previous.observations.is_none()
             && phase
             && matches!(next.execution, Some(crate::dispatch::Progress::Result { ref terminal }) if terminal.exit_code == 0));
+        let recovery_count = matches!((&previous.execution, &next.execution),
+          (Some(crate::dispatch::Progress::Result { terminal: old }),
+           Some(crate::dispatch::Progress::Result { terminal: new }))
+            if old.exit_code != 0 && new.exit_code == old.exit_code
+              && new.detail == old.detail && new.effects >= old.effects
+              && next.mutation.as_ref().is_some_and(|ledger| new.effects == ledger.completed_units));
         let mutation = next.mutation != previous.mutation
           && next.view == previous.view
           && next.launch == previous.launch
-          && next.execution == previous.execution
+          && (next.execution == previous.execution || recovery_count)
           && matches!((&previous.mutation, &next.mutation), (Some(old), Some(new))
             if old.successor(new));
         if next.view.key != previous.view.key
@@ -1914,9 +1945,14 @@ impl Job {
     }
     if let Some(ledger) = &self.mutation {
       ledger.validate(&self.view.key)?;
-      if self.execution.is_some()
-        || self.working.is_some()
-        || self.view.invocation.is_some()
+      let applying = self.execution.is_some()
+        && self
+          .view
+          .invocation
+          .as_ref()
+          .is_some_and(|summary| summary.operation == "files" && summary.mode == "apply");
+      if (!applying
+        && (self.execution.is_some() || self.working.is_some() || self.view.invocation.is_some()))
         || (self.view.result.is_some() && ledger.unresolved_resources().is_some())
         || self
           .view
@@ -1946,7 +1982,7 @@ impl Job {
           .view
           .invocation
           .as_ref()
-          .is_none_or(|v| v.operation != "files" || v.mode != "read")
+          .is_none_or(|v| v.operation != "files" || !matches!(v.mode.as_str(), "read" | "apply"))
         || work
           .directory
           .path()
@@ -1984,6 +2020,9 @@ impl Job {
       return Err(invalid("result pages have no retained execution result"));
     }
     if let Some(summary) = &self.view.invocation {
+      if summary.mode == "apply" && self.mutation.is_none() {
+        return Err(invalid("applying execution has no mutation ledger"));
+      }
       let input = serde_json::from_str::<crate::invocation::Intent>(&self.input.request)
         .map_err(|_| invalid("job invocation summary has invalid request evidence"))?;
       if crate::invocation::summary(&input).as_ref() != Some(summary) {
@@ -2034,7 +2073,19 @@ impl Job {
           }
         }
         Progress::Result { terminal }
-          if terminal.detail.len() > 4096 || terminal.exit_code == 75 || terminal.effects != 0 =>
+          if terminal.detail.len() > 4096
+            || terminal.exit_code == 75
+            || terminal.effects
+              > self
+                .mutation
+                .as_ref()
+                .map_or(0, |ledger| ledger.completed_units)
+            || (terminal.exit_code == 0
+              && terminal.effects
+                != self
+                  .mutation
+                  .as_ref()
+                  .map_or(0, |ledger| ledger.completed_units)) =>
         {
           return Err(invalid("invalid execution terminal evidence"));
         }

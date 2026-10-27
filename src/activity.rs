@@ -17,7 +17,13 @@ const HEALTH_BYTES: usize = 512 * 1024;
 /// Fixed native operations; callers cannot supply an executable or arguments.
 pub enum Probe {
   Health,
-  Handles { directories: Vec<PathBuf> },
+  Handles {
+    directories: Vec<PathBuf>,
+  },
+  HandlesForWorker {
+    directories: Vec<PathBuf>,
+    worker: crate::launch::ProcessIdentity,
+  },
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -31,7 +37,10 @@ pub enum Evidence {
 impl Probe {
   pub(crate) fn validate(&self) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
-    if let Self::Handles { directories } = self {
+    if let Self::HandlesForWorker { worker, .. } = self {
+      worker.validate()?;
+    }
+    if let Self::Handles { directories } | Self::HandlesForWorker { directories, .. } = self {
       if directories.is_empty()
         || directories.len() > MAX_TARGETS
         || directories.iter().any(|p| {
@@ -52,9 +61,10 @@ impl Probe {
   pub(crate) fn accepts(&self, evidence: &Evidence) -> bool {
     match (self, evidence) {
       (Self::Health, Evidence::Healthy) => true,
-      (Self::Handles { directories }, Evidence::Handles { active }) => {
-        directories.len() == active.len()
-      }
+      (
+        Self::Handles { directories } | Self::HandlesForWorker { directories, .. },
+        Evidence::Handles { active },
+      ) => directories.len() == active.len(),
       _ => false,
     }
   }
@@ -68,14 +78,24 @@ impl Probe {
 
     let (program, arguments): (_, &[&str]) = match self {
       Self::Health => ("/bin/ps", &["-axo", "state=,etime=,comm="]),
-      Self::Handles { .. } => ("/usr/sbin/lsof", &["-n", "-P", "-F0tn"]),
+      Self::Handles { .. } | Self::HandlesForWorker { .. } => {
+        ("/usr/sbin/lsof", &["-n", "-P", "-F0tn"])
+      }
     };
     let output = match pipe.try_clone() {
       Ok(output) => output,
       Err(reason) => return reason,
     };
-    Command::new(program)
-      .args(arguments)
+    let mut command = Command::new(program);
+    command.args(arguments);
+    if let Self::HandlesForWorker { worker, .. } = self {
+      if !matches!(crate::launch::ProcessIdentity::read(worker.pid), Ok(Some(current)) if current == *worker)
+      {
+        return io::Error::other("activity exclusion has no original native worker");
+      }
+      command.arg(format!("-p^{}", worker.pid));
+    }
+    command
       .env_clear()
       .env("LC_ALL", "C")
       .env("LANG", "C")
@@ -101,9 +121,11 @@ impl Capture {
   pub(crate) fn new(probe: &Probe) -> Self {
     match probe {
       Probe::Health => Self::Health(Vec::new()),
-      Probe::Handles { directories } => Self::Handles(crate::quarantine::ActivityFields::multiple(
-        directories.clone(),
-      )),
+      Probe::Handles { directories } | Probe::HandlesForWorker { directories, .. } => {
+        Self::Handles(crate::quarantine::ActivityFields::multiple(
+          directories.clone(),
+        ))
+      }
     }
   }
 

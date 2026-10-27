@@ -542,7 +542,9 @@ const PREVIEW_BUDGET: usize = 32 * 1024 * 1024;
 const STATE_BYTES: usize = 1024 * 1024;
 pub(crate) const DISCOVERY_QUANTUM: usize = 64;
 
+mod applying;
 mod checkpoint;
+pub(crate) use applying::Applying;
 
 struct Preview {
   anchor: PathBuf,
@@ -718,6 +720,7 @@ pub(crate) fn preview(
       scope,
     }),
     helpers,
+    None,
     None,
   )
 }
@@ -1108,23 +1111,44 @@ impl<'a, 'h, 'p> PreviewState<'a, 'h, 'p> {
   }
 
   pub(crate) fn finish(
+    self,
+    cfg: &Config,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+  ) -> Result<Report, String> {
+    self.finish_inner(cfg, stdout, stderr, None)
+  }
+
+  pub(crate) fn finish_applying(
+    self,
+    cfg: &Config,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+    applying: &mut Applying<'_>,
+  ) -> Result<Report, String> {
+    self.finish_inner(cfg, stdout, stderr, Some(applying))
+  }
+
+  fn finish_inner(
     mut self,
     cfg: &Config,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
+    applying: Option<&mut Applying<'_>>,
   ) -> Result<Report, String> {
     let helpers = self.discovery.helpers.take();
     let scan = finish_discovery(self.discovery, self.boundary.scope)?;
     let path = self.root.to_str().ok_or("preview root is not UTF-8")?;
     Ok(execute_inner(
       Some(path.into()),
-      false,
+      applying.is_some(),
       cfg,
       stdout,
       stderr,
       Some(self.boundary),
       helpers,
       Some(scan),
+      applying,
     ))
   }
 }
@@ -1537,14 +1561,12 @@ fn preview_ancestors(
   Ok((veto, git, stamps))
 }
 
-fn finish_preview(
-  scan: &Scan,
-  boundary: Option<PreviewBoundary<'_>>,
-  report: &mut Report,
-) -> Option<String> {
-  let (Some(boundary), Some(preview)) = (boundary, &scan.view.preview) else {
-    return None;
-  };
+fn validate_preview(scan: &Scan, boundary: PreviewBoundary<'_>) -> Result<(), String> {
+  let preview = scan
+    .view
+    .preview
+    .as_ref()
+    .ok_or("bounded inventory is absent")?;
   let (held, device) = (boundary.directory, boundary.device);
   let valid = (|| -> Result<(), String> {
     if preview.exhausted.get() || preview.guard_incomplete.get() || scan.incomplete {
@@ -1586,11 +1608,23 @@ fn finish_preview(
     }
     Ok(())
   })();
-  if let Err(reason) = valid {
+  valid
+}
+
+fn finish_preview(
+  scan: &Scan,
+  boundary: Option<PreviewBoundary<'_>>,
+  report: &mut Report,
+) -> Option<String> {
+  let boundary = boundary?;
+  scan.view.preview.as_ref()?;
+  if let Err(reason) = validate_preview(scan, boundary) {
     report.coverage_complete = false;
-    report.blocked_units = report.blocked_units.saturating_add(report.planned_units);
-    report.planned_units = 0;
-    report.planned_bytes = 0;
+    report.blocked_units = report
+      .blocked_units
+      .saturating_add(report.planned_units.saturating_sub(report.completed_units));
+    report.planned_units = report.completed_units;
+    report.planned_bytes = report.completed_bytes;
     return Some(reason);
   }
   None
@@ -1898,7 +1932,7 @@ pub(crate) fn execute(
   stdout: &mut dyn Write,
   stderr: &mut dyn Write,
 ) -> Report {
-  execute_inner(path, apply, cfg, stdout, stderr, None, None, None)
+  execute_inner(path, apply, cfg, stdout, stderr, None, None, None, None)
 }
 
 fn execute_inner(
@@ -1910,6 +1944,7 @@ fn execute_inner(
   boundary: Option<PreviewBoundary<'_>>,
   mut helpers: Option<&mut crate::worker::Helpers<'_>>,
   mut prepared: Option<Scan>,
+  mut applying: Option<&mut Applying<'_>>,
 ) -> Report {
   let roots: Vec<PathBuf> = match path {
     Some(p) => vec![PathBuf::from(p)],
@@ -2124,6 +2159,12 @@ fn execute_inner(
     }
     let (mut moved, mut bytes) = (0u64, 0u64);
     for r in &ev.removals {
+      if applying
+        .as_ref()
+        .is_some_and(|applying| applying.unknown_effects)
+      {
+        break;
+      }
       if leases.overlaps_creation(&r.path) {
         report.blocked_units += 1;
         let _ = writeln!(
@@ -2164,6 +2205,14 @@ fn execute_inner(
           &scan.view,
         )
       }) {
+        if let Some(applying) = applying.as_deref_mut() {
+          applying.last_blocked = Some(
+            format!("{}: {why}", r.path.display())
+              .chars()
+              .take(1024)
+              .collect(),
+          );
+        }
         let _ = writeln!(stdout, "  blocked    {}  ({why})", r.path.display());
         report.blocked_units += 1;
         failed |= apply && preservation_refused;
@@ -2186,7 +2235,13 @@ fn execute_inner(
       let mut unknown_residual = true;
       let result = match r.disposition {
         Disposition::Delete => {
-          let res = crate::preservation::remove(&r.path);
+          let res = if applying.is_some() {
+            Err(io::Error::other(
+              "coordinated direct deletion is not available",
+            ))
+          } else {
+            crate::preservation::remove(&r.path)
+          };
           res.map_err(|e| e.to_string())
         }
         Disposition::Quarantine => {
@@ -2218,22 +2273,58 @@ fn execute_inner(
               format!("; {purpose}")
             }
           );
-          match execute_path_retire(
-            &r.path,
-            size,
-            &qdir,
-            &hostname(),
-            now as i64,
-            owner,
-            purpose,
-            origin,
-          ) {
+          let retired = if let Some(applying) = applying.as_deref_mut() {
+            let boundary = boundary.expect("coordinated apply has a held boundary");
+            let helpers = helpers
+              .as_deref_mut()
+              .expect("coordinated apply has its helper channel");
+            crate::quarantine::execute_path_retire_with(
+              &r.path,
+              size,
+              &qdir,
+              &hostname(),
+              now as i64,
+              owner,
+              purpose,
+              origin,
+              &mut |source, destination| {
+                if source != r.path {
+                  return Err(io::Error::other("payload differs from its selected unit"));
+                }
+                applying.rename(
+                  &mut scan,
+                  r,
+                  destination,
+                  boundary,
+                  cfg,
+                  &leases.leases,
+                  helpers,
+                )
+              },
+            )
+          } else {
+            execute_path_retire(
+              &r.path,
+              size,
+              &qdir,
+              &hostname(),
+              now as i64,
+              owner,
+              purpose,
+              origin,
+            )
+          };
+          match retired {
             Ok(retired) => {
               let idx = index.as_mut().expect("loaded");
               idx.entries.push(retired.entry.clone());
               if let Err(e) = save_index(&qdir, idx) {
                 idx.entries.pop();
-                let rollback = move_unit(&retired.dest, &r.path).map_err(|err| err.to_string());
+                let rollback = if applying.is_some() {
+                  Err("coordinated payload remains in its evidenced quarantine slot".into())
+                } else {
+                  move_unit(&retired.dest, &r.path).map_err(|err| err.to_string())
+                };
                 let rollback = rollback.and_then(|_| finalize_restore(&qdir, &retired.entry));
                 unknown_residual = rollback.is_err();
                 Err(format!(
@@ -2247,6 +2338,12 @@ fn execute_inner(
           }
         }
       };
+      if let Some(applying) = applying.as_deref_mut() {
+        unknown_residual = applying.unknown_effects;
+        if let Err(reason) = &result {
+          applying.last_error = Some(reason.chars().take(2048).collect());
+        }
+      }
       match result {
         Ok(()) => {
           let _ = writeln!(

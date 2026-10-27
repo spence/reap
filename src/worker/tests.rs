@@ -383,6 +383,19 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
     // SAFETY: this exact child was created here and its guard resumes it on every exit.
     assert_eq!(unsafe { libc::kill(identity.pid as i32, libc::SIGSTOP) }, 0);
     parent.deliver(&mut journal).unwrap();
+    let excluded = Task::Probe {
+      probe: crate::activity::Probe::HandlesForWorker {
+        directories: vec![fixture.0.clone()],
+        worker: ProcessIdentity::read(std::process::id()).unwrap().unwrap(),
+      },
+      physical_volumes: physical_volumes.clone(),
+    };
+    let before = journal.launch(&key).unwrap();
+    assert!(
+      matches!(parent.start_helper(&mut journal, 0, 1, &random_token().unwrap(), excluded).unwrap(),
+      Start::Rejected(reason) if reason.contains("coordinator"))
+    );
+    assert_eq!(journal.launch(&key).unwrap(), before);
     let mut helper = spawned(
       parent
         .start_helper(&mut journal, 0, 1, &random_token().unwrap(), probe)

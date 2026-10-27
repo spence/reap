@@ -1,6 +1,7 @@
-//! Durable read-only Cargo exception-manifest execution in bounded owned phases.
+//! Durable Cargo validation and declaration phases in bounded owned workers.
 //!
-//! The fixed state writer owns this scheduler. Applying operations remain separate.
+//! The fixed writer coordinates read jobs and the private declaration-quarantine adapter.
+//! Other applying adapters and public CLI cutover remain separate.
 //! Unknown process ownership never becomes replacement capacity.
 
 use std::collections::{BTreeSet, VecDeque};
@@ -245,7 +246,12 @@ impl Scheduler {
 }
 
 impl Job {
-  fn persist(&mut self, journal: &mut Journal, progress: Progress) -> io::Result<()> {
+  fn persist(&mut self, journal: &mut Journal, mut progress: Progress) -> io::Result<()> {
+    if let Progress::Result { terminal } = &mut progress {
+      if let Some(ledger) = journal.mutation(&self.key)? {
+        terminal.effects = ledger.completed_units;
+      }
+    }
     journal.execution_progress(&self.key, progress.clone())?;
     self.progress = progress;
     Ok(())
@@ -264,7 +270,23 @@ impl Job {
       // only a durable `Result` outranks cancellation; this worker result has not been staged
       let mut pages = vec![];
       let mut observations = vec![];
-      let next = if journal.cancel_requested(&self.key) {
+      let recovering = self
+        .launch
+        .as_ref()
+        .is_some_and(|launch| launch.mutation_recovery.is_some());
+      let mut next = if recovering {
+        if !owned.release(journal)? {
+          return Ok(Step::Pending);
+        }
+        if let (0, Ok(Report::MutationRecovered { nonce, observation })) =
+          (done.exit_code, done.report)
+        {
+          if !observation.phase.unresolved() {
+            journal.recover_mutation(&self.key, &nonce, observation.phase)?;
+          }
+        }
+        self.progress.clone()
+      } else if journal.cancel_requested(&self.key) {
         Progress::Result {
           terminal: cancelled(),
         }
@@ -322,7 +344,19 @@ impl Job {
           },
         }
       };
-      if !yielded {
+      if let (Some(ledger), Progress::Result { terminal }) =
+        (journal.mutation(&self.key)?, &mut next)
+      {
+        if terminal.exit_code == 0
+          && (terminal.effects != ledger.completed_units || ledger.unresolved_resources().is_some())
+        {
+          *terminal = refused("worker result differs from its retained unit effects");
+          pages.clear();
+          observations.clear();
+        }
+        terminal.effects = ledger.completed_units;
+      }
+      if !yielded && !recovering {
         journal.execution_result(&self.key, next.clone(), pages, &observations)?;
       }
       self.progress = next;
@@ -358,7 +392,35 @@ impl Job {
       return Ok(Step::Pending);
     }
     let task = match self.progress.clone() {
-      Progress::Result { terminal } => {
+      Progress::Result { mut terminal } => {
+        if let Some(ledger) = journal.mutation(&self.key)? {
+          if let Some(record) = ledger.current.filter(|record| record.phase.unresolved()) {
+            if self
+              .launch
+              .as_ref()
+              .is_some_and(|launch| launch.mutation_recovery.is_some())
+            {
+              return Ok(Step::Pending);
+            }
+            let sequence = self.launch.as_ref().map_or(1, |launch| launch.sequence + 1);
+            match worker::start(
+              journal,
+              &self.key,
+              sequence,
+              Task::RecoverMutation { record },
+            )? {
+              Start::Spawned(mut owned) => {
+                let _delivery = owned.deliver(journal);
+                self.launch = journal.launch(&self.key)?;
+                self.owned = Some(owned);
+              }
+              Start::Retained(launch) => self.launch = Some(launch),
+              Start::Busy | Start::Rejected(_) => {}
+            }
+            return Ok(Step::Pending);
+          }
+          terminal.effects = ledger.completed_units;
+        }
         // terminal evidence does not depend on successful disposal of private working data
         let _ = journal.cleanup_files(&self.key, true);
         journal.complete(&self.key, terminal, now)?;
@@ -446,7 +508,7 @@ impl Job {
           journal,
           Progress::Result {
             terminal: refused(
-              "incomplete read-only phase after exact child absence; no result survived",
+              "incomplete execution phase after exact child absence; no result survived",
             ),
           },
         )?;

@@ -44,26 +44,27 @@ pub struct Summary {
 impl Summary {
   /// Validate supported presentation metadata without treating it as execution permission.
   pub fn valid(&self) -> bool {
-    matches!(self.operation.as_str(), "check" | "files")
-      && self.mode == "read"
+    (self.operation == "check" && self.mode == "read"
+      || self.operation == "files" && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
   }
 }
 
-/// Summarize the supported read-only request without filesystem access.
+/// Summarize a supported request without filesystem access or cleanup permission.
 pub fn summary(input: &Intent) -> Option<Summary> {
-  if !valid_intent(input)
-    || !matches!(input.argv.first()?.as_str(), "check" | "files")
-    || input.argv.len() > 2
-    || (input.argv[0] == "files" && input.argv.get(1).is_some_and(|arg| arg.starts_with('-')))
-  {
+  if !valid_intent(input) {
     return None;
   }
+  let (path, applying) = match input.argv.first()?.as_str() {
+    "files" => files_request(input)?,
+    "check" if input.argv.len() <= 2 => (input.argv.get(1).map(String::as_str), false),
+    _ => return None,
+  };
   Some(Summary {
     operation: input.argv[0].clone(),
-    mode: "read".into(),
-    requested_scope: input.argv.get(1).cloned().unwrap_or_else(|| {
+    mode: if applying { "apply" } else { "read" }.into(),
+    requested_scope: path.map(str::to_owned).unwrap_or_else(|| {
       if input.argv[0] == "files" {
         "configured".into()
       } else {
@@ -71,6 +72,22 @@ pub fn summary(input: &Intent) -> Option<Summary> {
       }
     }),
   })
+}
+
+/// Parse only the supported Files arguments. Duplicate flags and unknown options refuse.
+pub(crate) fn files_request(input: &Intent) -> Option<(Option<&str>, bool)> {
+  if input.argv.first()?.as_str() != "files" {
+    return None;
+  }
+  let (mut path, mut apply) = (None, false);
+  for argument in &input.argv[1..] {
+    match argument.as_str() {
+      "--apply" if !apply => apply = true,
+      value if !value.starts_with('-') && path.is_none() => path = Some(value),
+      _ => return None,
+    }
+  }
+  Some((path, apply))
 }
 
 /// A resolver receipt is valid for new admission only while its original ticket is retained.

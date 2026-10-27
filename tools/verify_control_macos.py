@@ -76,10 +76,17 @@ def main():
         selection = [str(executable), arguments.filter, "--test-threads=1", "--nocapture"]
         receipt["skipped_test_driver_cases"] = []
         if arguments.worker_binary and arguments.filter == "dispatch::tests":
-            # the production executable has no test-driver stall gate
-            case = "dispatch::tests::restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches"
-            selection.extend(["--skip", case])
-            receipt["skipped_test_driver_cases"].append(case)
+            # these fault gates exist only in the separate native test-driver proof
+            cases = [
+                "restarted_files_preview_keeps_its_live_bulk_slot_and_never_relaunches",
+                "native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+                "native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+                "native_files_apply_refuses_configuration_revoked_during_final_activity",
+            ]
+            for name in cases:
+                case = "dispatch::tests::" + name
+                selection.extend(["--skip", case])
+                receipt["skipped_test_driver_cases"].append(case)
         if arguments.fault_library:
             library = runtime / "fault_fullsync.dylib"
             shutil.copyfile(arguments.fault_library.resolve(strict=True), library)
@@ -91,7 +98,8 @@ def main():
             run = subprocess.run(
                 selection, env=environment,
                 cwd=output if arguments.filter == "archive::tests" else runtime,
-                stdout=log, stderr=subprocess.STDOUT, timeout=60,
+                stdout=log, stderr=subprocess.STDOUT,
+                timeout=180 if arguments.filter in {"dispatch::tests", "journal::tests"} else 60,
             )
         receipt["native_exit"] = run.returncode
         result = run.returncode
@@ -192,6 +200,11 @@ def main():
                           "unknown_virtual_raid_and_incomplete_topologies_refuse",
                           "external_tunneled_nvme_requires_exact_endpoint"],
             "dispatch::tests": ["native_files_uncontended_scan_uses_one_bulk_worker",
+                                "native_files_apply_retires_the_authorized_unit_and_preserves_kept_work",
+                                "native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+                                "native_files_apply_advances_unit_permissions_and_recomputes_remaining_caps",
+                                "native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost",
+                                "native_files_apply_refuses_configuration_revoked_during_final_activity",
                                 "native_files_handoff_yields_to_waiting_jobs_and_publishes_grace_only_at_completion",
                                 "native_fifo_waiter_precedes_later_jobs_when_an_owned_predecessor_releases_mid_tick",
                                 "native_files_checkpoint_restart_corruption_cancellation_and_replaced_data_fail_closed",
@@ -220,6 +233,8 @@ def main():
                                     "a_declaration_lost_after_entry_observation_is_not_absence_evidence",
                                     "metadata_guards_refuse_role_aliases_without_retaining_unrelated_containers"],
         }[arguments.filter]
+        skipped = {case.rsplit("::", 1)[-1] for case in receipt["skipped_test_driver_cases"]}
+        required = [case for case in required if case not in skipped]
         if not all(case in content for case in required) or "test result: ok." not in content:
             result = 1
         if arguments.fault_library:

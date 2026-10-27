@@ -69,6 +69,30 @@ impl Fixture {
     }
   }
 
+  fn files_apply_input(&self) -> Prepared {
+    let project = self.0.join("project");
+    fs::create_dir_all(self.0.join("state/reap/quarantine")).unwrap();
+    fs::create_dir_all(self.0.join("home/.config/reap")).unwrap();
+    fs::write(
+      self.0.join("home/.config/reap/config.json"),
+      serde_json::to_vec(&serde_json::json!({
+        "governed_roots": [project], "reap_file_grace_hours": 0,
+        "reap_file_min_age_minutes": 0, "quarantine": {"auto_purge": false},
+      }))
+      .unwrap(),
+    )
+    .unwrap();
+    let mut input = self.input();
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec![
+      "files".into(),
+      project.to_str().unwrap().into(),
+      "--apply".into(),
+    ];
+    input.request = serde_json::to_string(&intent).unwrap();
+    input
+  }
+
   fn admit(&self, journal: &mut Journal) -> (Key, Prepared) {
     let input = self.input();
     let epoch = journal.epoch();
@@ -160,7 +184,16 @@ impl Fixture {
 }
 
 fn terminal(journal: &mut Journal, scheduler: &mut Scheduler, key: &Key) -> Terminal {
-  let deadline = Instant::now() + Duration::from_secs(10);
+  terminal_with_timeout(journal, scheduler, key, Duration::from_secs(10))
+}
+
+fn terminal_with_timeout(
+  journal: &mut Journal,
+  scheduler: &mut Scheduler,
+  key: &Key,
+  timeout: Duration,
+) -> Terminal {
+  let deadline = Instant::now() + timeout;
   loop {
     scheduler.tick(journal, 2).unwrap();
     if let Decision::Present { job } = journal.lookup(key).unwrap() {
@@ -170,7 +203,10 @@ fn terminal(journal: &mut Journal, scheduler: &mut Scheduler, key: &Key) -> Term
     }
     assert!(
       Instant::now() < deadline,
-      "execution did not reach a durable terminal result"
+      "execution did not reach a durable terminal result: {:?}; launch: {:?}; unit: {:?}",
+      journal.execution(key).unwrap(),
+      journal.launch(key).unwrap(),
+      journal.mutation(key).unwrap()
     );
     std::thread::sleep(Duration::from_millis(10));
   }
@@ -301,6 +337,467 @@ fn native_files_multiroot_result_preserves_every_report_beyond_the_inline_limit(
       page
     );
   }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost() {
+  const CHILD: &str = "REAP_FILES_APPLY_RESTART_FIXTURE";
+  if std::env::var_os(CHILD).is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", "dispatch::tests::native_files_apply_restart_keeps_recorded_effects_when_final_output_is_lost", "--nocapture"])
+      .env(CHILD, "1").output().unwrap();
+    assert!(
+      output.status.success(),
+      "{}{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  std::env::set_var("REAP_NATIVE_FILES_UNIT_STOP", "observed");
+  for cancel in [false, true] {
+    let fixture = Fixture::new();
+    let source = fixture.0.join("project/disposable");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("payload"), b"recorded payload survives").unwrap();
+    fs::write(
+      source.join(".reap"),
+      br#"{"version":1,"expires":"2020-01-01T00:00:00Z","scratch":true}"#,
+    )
+    .unwrap();
+    let input = fixture.files_apply_input();
+    let root = fixture.0.join("journal");
+    let mut journal = Journal::open(&root).unwrap();
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal
+      .admit_execution(key.clone(), input.clone(), 1)
+      .unwrap();
+    let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !fixture.0.join("project/unit-observed").exists() {
+      scheduler.tick(&mut journal, 2).unwrap();
+      assert!(
+        Instant::now() < deadline,
+        "recorded-outcome gate was not reached"
+      );
+      std::thread::sleep(Duration::from_millis(5));
+    }
+    let record = journal.mutation(&key).unwrap().unwrap().current.unwrap();
+    assert_eq!(record.phase, crate::mutation::Phase::Moved);
+    assert!(!source.exists());
+    drop(scheduler);
+    drop(journal);
+    fs::write(
+      fixture.0.join("project/unit-release"),
+      b"owned gate release",
+    )
+    .unwrap();
+    let mut journal = Journal::open(&root).unwrap();
+    if cancel {
+      journal.request_cancel(&key, 3).unwrap();
+    }
+    let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+    let result = terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30));
+    assert_ne!(result.exit_code, 0);
+    assert_eq!(result.effects, 1);
+    assert_eq!(
+      journal.mutation(&key).unwrap().unwrap().current.unwrap(),
+      record
+    );
+    assert_eq!(journal.launch(&key).unwrap().unwrap().sequence, 2);
+    assert_eq!(
+      fs::read(record.intent.destination.join("payload")).unwrap(),
+      b"recorded payload survives"
+    );
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"protected survivor"
+    );
+    let first = journal.lookup(&key).unwrap();
+    assert_eq!(
+      journal.admit_execution(key.clone(), input, 10).unwrap(),
+      first
+    );
+    assert!(!scheduler.pending());
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_apply_refuses_configuration_revoked_during_final_activity() {
+  const CHILD: &str = "REAP_FILES_APPLY_CONFIG_FIXTURE";
+  if std::env::var_os(CHILD).is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args([
+        "--exact",
+        "dispatch::tests::native_files_apply_refuses_configuration_revoked_during_final_activity",
+        "--nocapture",
+      ])
+      .env(CHILD, "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  let fixture = Fixture::new();
+  let source = fixture.0.join("project/disposable");
+  fs::create_dir(&source).unwrap();
+  fs::write(source.join("payload"), b"revoked work survives").unwrap();
+  fs::write(
+    source.join(".reap"),
+    br#"{"version":1,"expires":"2020-01-01T00:00:00Z","scratch":true}"#,
+  )
+  .unwrap();
+  let input = fixture.files_apply_input();
+  let gate = fixture.0.join("activity-gate");
+  fs::create_dir(&gate).unwrap();
+  std::env::set_var("REAP_NATIVE_FILES_ACTIVITY_GATE", &gate);
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal.admit_execution(key.clone(), input, 1).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let deadline = Instant::now() + Duration::from_secs(30);
+  let mut revoked = false;
+  let result = loop {
+    scheduler.tick(&mut journal, 2).unwrap();
+    if !revoked && gate.join("entered").exists() {
+      fs::write(
+        fixture.0.join("home/.config/reap/config.json"),
+        br#"{"governed_roots":[]}"#,
+      )
+      .unwrap();
+      fs::write(gate.join("release"), b"owned gate release").unwrap();
+      revoked = true;
+    }
+    if let Decision::Present { job } = journal.lookup(&key).unwrap() {
+      if let Some(result) = job.result {
+        break result;
+      }
+    }
+    assert!(
+      Instant::now() < deadline,
+      "configuration-race fixture did not finish"
+    );
+    std::thread::sleep(Duration::from_millis(5));
+  };
+  assert!(revoked);
+  assert!(source.exists(), "revoked source moved: {result:?}");
+  assert_ne!(result.exit_code, 0);
+  assert_eq!(result.effects, 0);
+  assert_eq!(
+    fs::read(source.join("payload")).unwrap(),
+    b"revoked work survives"
+  );
+  assert_eq!(
+    fs::read(fixture.0.join("project/valuable")).unwrap(),
+    b"protected survivor"
+  );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_apply_advances_unit_permissions_and_recomputes_remaining_caps() {
+  let fixture = Fixture::new();
+  let project = fixture.0.join("project");
+  fs::write(project.join(".reap"), br#"{"version":1,"keep":{"reason":"retained series"},"scratch":true,"children":[{"pattern":"run-*","keep_newest":1,"max_count":1}]}"#).unwrap();
+  for (offset, name) in ["run-a", "run-b", "run-c"].iter().enumerate() {
+    let unit = project.join(name);
+    fs::create_dir(&unit).unwrap();
+    fs::write(unit.join("payload"), name.as_bytes()).unwrap();
+    let time = filetime::FileTime::from_unix_time(1_650_000_000 + offset as i64 * 86400, 0);
+    filetime::set_file_mtime(unit.join("payload"), time).unwrap();
+    filetime::set_file_mtime(&unit, time).unwrap();
+  }
+  let input = fixture.files_apply_input();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal.admit_execution(key.clone(), input, 1).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let result = terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30));
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 2, "{}", result.detail);
+  assert!(!project.join("run-a").exists());
+  assert!(!project.join("run-b").exists());
+  assert_eq!(fs::read(project.join("run-c/payload")).unwrap(), b"run-c");
+  let ledger = journal.mutation(&key).unwrap().unwrap();
+  assert_eq!(ledger.completed_units, 2);
+  assert_eq!(ledger.current.unwrap().sequence, 2);
+  let qdir = fixture.0.join("state/reap/quarantine");
+  let index = crate::quarantine::load_index(&qdir).unwrap();
+  assert_eq!(index.entries.len(), 2);
+  for entry in &index.entries {
+    assert_eq!(
+      fs::read(
+        qdir
+          .join("entries")
+          .join(&entry.id)
+          .join(&entry.name)
+          .join("payload")
+      )
+      .unwrap(),
+      entry.name.as_bytes()
+    );
+  }
+  assert_eq!(
+    fs::read(project.join("valuable")).unwrap(),
+    b"protected survivor"
+  );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_apply_recovers_interrupted_units_without_repeating_a_move() {
+  const CHILD: &str = "REAP_FILES_APPLY_RECOVERY_FIXTURE";
+  if std::env::var_os(CHILD).is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args([
+        "--exact",
+        "dispatch::tests::native_files_apply_recovers_interrupted_units_without_repeating_a_move",
+        "--nocapture",
+      ])
+      .env(CHILD, "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  struct RestoreStop(Option<std::ffi::OsString>);
+  impl Drop for RestoreStop {
+    fn drop(&mut self) {
+      match &self.0 {
+        Some(value) => std::env::set_var("REAP_NATIVE_FILES_UNIT_STOP", value),
+        None => std::env::remove_var("REAP_NATIVE_FILES_UNIT_STOP"),
+      }
+    }
+  }
+  let _restore = RestoreStop(std::env::var_os("REAP_NATIVE_FILES_UNIT_STOP"));
+  for stop in ["intended", "renamed", "renamed-cancel"] {
+    let fixture = Fixture::new();
+    let source = fixture.0.join("project/disposable");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("payload"), b"interrupted payload survives").unwrap();
+    fs::write(
+      source.join(".reap"),
+      br#"{"version":1,"expires":"2020-01-01T00:00:00Z","scratch":true}"#,
+    )
+    .unwrap();
+    let input = fixture.files_apply_input();
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let epoch = journal.epoch();
+    let key = Key {
+      generation: epoch.generation,
+      epoch: epoch.current,
+      nonce: random_token().unwrap(),
+    };
+    journal
+      .admit_execution(key.clone(), input.clone(), 1)
+      .unwrap();
+    std::env::set_var("REAP_NATIVE_FILES_UNIT_STOP", stop);
+    let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+    let result = if stop == "renamed-cancel" {
+      let deadline = Instant::now() + Duration::from_secs(30);
+      let mut cancelled = false;
+      loop {
+        scheduler.tick(&mut journal, 2).unwrap();
+        if !cancelled && fixture.0.join("project/unit-renamed").exists() {
+          journal.request_cancel(&key, 3).unwrap();
+          fs::write(
+            fixture.0.join("project/unit-release"),
+            b"owned gate release",
+          )
+          .unwrap();
+          cancelled = true;
+        }
+        if let Decision::Present { job } = journal.lookup(&key).unwrap() {
+          if let Some(result) = job.result {
+            assert!(cancelled);
+            break result;
+          }
+        }
+        assert!(
+          Instant::now() < deadline,
+          "cancelled unit recovery did not finish"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+      }
+    } else {
+      terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30))
+    };
+    assert_ne!(result.exit_code, 0, "{stop}: {}", result.detail);
+    let moved = stop != "intended";
+    assert_eq!(result.effects, u64::from(moved));
+    assert_eq!(source.exists(), !moved);
+    let ledger = journal.mutation(&key).unwrap().unwrap();
+    assert_eq!(ledger.completed_units, u64::from(moved));
+    let record = ledger.current.unwrap();
+    assert_eq!(record.sequence, 1);
+    assert_eq!(
+      record.phase,
+      if moved {
+        crate::mutation::Phase::Moved
+      } else {
+        crate::mutation::Phase::Refused
+      }
+    );
+    assert_eq!(
+      fs::read(if moved {
+        record.intent.destination.join("payload")
+      } else {
+        source.join("payload")
+      })
+      .unwrap(),
+      b"interrupted payload survives"
+    );
+    let launch = journal.launch(&key).unwrap().unwrap();
+    assert_eq!(launch.sequence, 3);
+    assert!(launch.released());
+    assert_eq!(
+      launch.mutation_recovery.as_deref(),
+      Some(record.nonce.as_str())
+    );
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"protected survivor"
+    );
+    let first = journal.lookup(&key).unwrap();
+    drop(journal);
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    assert_eq!(
+      journal.admit_execution(key.clone(), input, 10).unwrap(),
+      first
+    );
+    assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+    assert_eq!(
+      journal.mutation(&key).unwrap().unwrap().current.unwrap(),
+      record
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_files_apply_retires_the_authorized_unit_and_preserves_kept_work() {
+  let fixture = Fixture::new();
+  let project = fixture.0.join("project");
+  let disposable = project.join("disposable");
+  fs::create_dir(&disposable).unwrap();
+  fs::write(disposable.join("payload"), b"authorized quarantine bytes").unwrap();
+  fs::write(
+    disposable.join(".reap"),
+    br#"{"version":1,"expires":"2020-01-01T00:00:00Z","scratch":true}"#,
+  )
+  .unwrap();
+  let busy = project.join("busy");
+  fs::create_dir(&busy).unwrap();
+  fs::write(busy.join("payload"), b"open work bytes").unwrap();
+  fs::write(
+    busy.join(".reap"),
+    br#"{"version":1,"expires":"2020-01-01T00:00:00Z","scratch":true}"#,
+  )
+  .unwrap();
+  let _busy_open = File::open(busy.join("payload")).unwrap();
+  let kept = project.join("kept");
+  fs::create_dir(&kept).unwrap();
+  fs::write(kept.join("payload"), b"retained work bytes").unwrap();
+  fs::write(
+    kept.join(".reap"),
+    br#"{"version":1,"keep":{"reason":"retained work"}}"#,
+  )
+  .unwrap();
+  let qdir = fixture.0.join("state/reap/quarantine");
+  fs::create_dir_all(&qdir).unwrap();
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({
+      "governed_roots": [project], "reap_file_grace_hours": 0,
+      "reap_file_min_age_minutes": 0, "quarantine": {"auto_purge": false},
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec![
+    "files".into(),
+    project.to_str().unwrap().into(),
+    "--apply".into(),
+  ];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal
+    .admit_execution(key.clone(), input.clone(), 1)
+    .unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let result = terminal(&mut journal, &mut scheduler, &key);
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 1);
+  assert!(!disposable.exists());
+  assert_eq!(fs::read(busy.join("payload")).unwrap(), b"open work bytes");
+  assert_eq!(
+    fs::read(kept.join("payload")).unwrap(),
+    b"retained work bytes"
+  );
+  assert_eq!(
+    fs::read(project.join("valuable")).unwrap(),
+    b"protected survivor"
+  );
+  let index = crate::quarantine::load_index(&qdir).unwrap();
+  assert_eq!(index.entries.len(), 1);
+  let entry = &index.entries[0];
+  assert_eq!(Path::new(&entry.original_path), disposable);
+  let payload = qdir.join("entries").join(&entry.id).join(&entry.name);
+  assert_eq!(
+    fs::read(payload.join("payload")).unwrap(),
+    b"authorized quarantine bytes"
+  );
+  let ledger = journal.mutation(&key).unwrap().unwrap();
+  assert_eq!(ledger.completed_units, 1);
+  assert_eq!(ledger.current.unwrap().phase, crate::mutation::Phase::Moved);
+  let first = journal.lookup(&key).unwrap();
+  drop(journal);
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  assert_eq!(
+    journal.admit_execution(key.clone(), input, 10).unwrap(),
+    first
+  );
+  assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+  assert_eq!(
+    crate::quarantine::load_index(&qdir).unwrap().entries.len(),
+    1
+  );
 }
 
 #[cfg(target_os = "macos")]
@@ -1041,11 +1538,11 @@ fn native_files_scoped_pipeline_honors_outer_policy_and_skips_unrelated_subtrees
 
 #[cfg(target_os = "macos")]
 #[test]
-fn native_files_rejects_applying_flags_without_poisoning_later_read_jobs() {
+fn native_files_rejects_duplicate_applying_flags_without_poisoning_later_read_jobs() {
   let fixture = Fixture::new();
   let mut input = fixture.input();
   let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
-  intent.argv = vec!["files".into(), "--apply".into()];
+  intent.argv = vec!["files".into(), "--apply".into(), "--apply".into()];
   input.request = serde_json::to_string(&intent).unwrap();
   let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
   let epoch = journal.epoch();
@@ -1797,14 +2294,14 @@ fn native_files_changed_configuration_and_namespace_refuse_before_assessment() {
   let (mut pipe, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
   let mut helpers = crate::worker::Helpers::fixture(&mut pipe, &resources);
   fs::write(&configuration, b"{\"governed_roots\":[]}").unwrap();
-  assert!(assess_files(&input, &scope, &work, &key, &mut helpers).is_err());
+  assert!(assess_files(&input, &scope, &work, &key, &mut helpers, None).is_err());
   fs::write(&configuration, bytes).unwrap();
   let mut changed = input.clone();
   let mut intent: Intent = serde_json::from_str(&changed.request).unwrap();
   intent.namespace.home = fixture.0.join("other-home");
   fs::create_dir(&intent.namespace.home).unwrap();
   changed.request = serde_json::to_string(&intent).unwrap();
-  assert!(assess_files(&changed, &scope, &work, &key, &mut helpers).is_err());
+  assert!(assess_files(&changed, &scope, &work, &key, &mut helpers, None).is_err());
   assert_eq!(
     fs::read(fixture.0.join("project/valuable")).unwrap(),
     b"protected survivor"

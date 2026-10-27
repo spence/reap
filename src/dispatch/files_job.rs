@@ -1,7 +1,7 @@
-//! Read-only declaration assessment under the existing owned resolver and bulk grants.
+//! Declaration assessment and private quarantine units under the existing owned grants.
 //!
-//! This path returns complete counters and bounded diagnostics. It grants no applying operation,
-//! lifetime conversion, or source release.
+//! Applying payloads require the unit ledger and fresh guards. Public CLI cutover, lifetime
+//! conversion, direct deletion, and source release remain outside this adapter.
 
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
@@ -48,6 +48,7 @@ struct Context<'a> {
   namespace: Namespace,
   caller: File,
   base: PathBuf,
+  applying: bool,
 }
 
 /// Ancestor policy applies from `governed_root`; removal selection stays inside `path`.
@@ -107,6 +108,7 @@ pub(crate) fn assess(
   work: &FilesWork,
   key: &Key,
   helpers: &mut crate::worker::Helpers<'_>,
+  grant: Option<&crate::launch::Grant>,
 ) -> io::Result<FilesBatch> {
   expected.validate()?;
   let binding = format!(
@@ -169,7 +171,7 @@ pub(crate) fn assess(
       }
     }
   }
-  let mut context = inspect(input, Some(&expected.physical_volumes), &work.directory)?;
+  let context = inspect(input, Some(&expected.physical_volumes), &work.directory)?;
   if context.scope()? != *expected
     || index > context.selections.len()
     || (resume && index == context.selections.len())
@@ -188,6 +190,21 @@ pub(crate) fn assess(
     return Err(io::Error::last_os_error());
   }
   let ancestor_devices = context.ancestor_devices()?;
+  let fresh = || context.inspector.revalidate();
+  let mut applying = if context.applying {
+    let grant = grant
+      .filter(|grant| &grant.key == key && &grant.resources == helpers.resources())
+      .ok_or_else(|| invalid("applying Files needs its exact owned grant"))?;
+    Some(crate::files::Applying::new(
+      input,
+      grant,
+      expected,
+      &fresh,
+      helpers.next_mutation_sequence()?,
+    ))
+  } else {
+    None
+  };
   let output = work
     .output
     .clone()
@@ -202,7 +219,7 @@ pub(crate) fn assess(
   let mut remaining = crate::files::DISCOVERY_QUANTUM;
   while index < context.selections.len() {
     let selection = &context.selections[index];
-    let directory = context.inspector.directory(&selection.governed_root)?;
+    let directory = crate::files::open_physical(&selection.governed_root)?;
     let mut state = crate::files::PreviewState::new(
       &selection.governed_root,
       &selection.path,
@@ -219,9 +236,13 @@ pub(crate) fn assess(
       state.checkpoint(&mut writer).map_err(io::Error::other)?;
       return Ok(FilesBatch::Yielded(writer.finish()?));
     }
-    let report = state
-      .finish(&context.configuration, &mut stdout, &mut stderr)
-      .map_err(io::Error::other)?;
+    let report = match applying.as_mut() {
+      Some(applying) => {
+        state.finish_applying(&context.configuration, &mut stdout, &mut stderr, applying)
+      }
+      None => state.finish(&context.configuration, &mut stdout, &mut stderr),
+    }
+    .map_err(io::Error::other)?;
     writer.row(&JobRow::Completed {
       report: report.clone(),
       stdout: stdout.clone(),
@@ -229,6 +250,12 @@ pub(crate) fn assess(
     })?;
     reports.push(report);
     index += 1;
+    if applying
+      .as_ref()
+      .is_some_and(|applying| applying.unknown_effects)
+    {
+      break;
+    }
     if remaining == 0 && index < context.selections.len() {
       if helpers.yield_requested()? {
         writer.row(&JobRow::BetweenRoots)?;
@@ -244,14 +271,23 @@ pub(crate) fn assess(
   let complete = reports
     .iter()
     .all(|report| report.exit_code == 0 && report.coverage_complete);
-  let detail = serde_json::to_string(&serde_json::json!({
-    "command": "files", "mode": "read", "reports": reports,
+  let mut detail = serde_json::json!({
+    "command": "files", "mode": if context.applying { "apply" } else { "read" }, "reports": reports,
     "requested_roots": context.requested_roots, "present_roots": context.selections.len(),
     "selections": context.selections,
     "stdout": String::from_utf8_lossy(&stdout.bytes),
     "stderr": String::from_utf8_lossy(&stderr.bytes),
     "diagnostics_truncated": stdout.truncated || stderr.truncated,
-  }))?;
+  });
+  if let Some(applying) = &applying {
+    detail["worker_observation"] = serde_json::json!({
+      "completed_units": applying.completed_units,
+      "last_error": applying.last_error,
+      "last_blocked": applying.last_blocked,
+      "unknown_effects": applying.unknown_effects,
+    });
+  }
+  let detail = serde_json::to_string(&detail)?;
   if detail.len() > crate::result_pages::MAX_BYTES {
     return Err(invalid(
       "capacity-incomplete: complete declaration report exceeds its bound",
@@ -259,7 +295,9 @@ pub(crate) fn assess(
   }
   Ok(FilesBatch::Complete(Terminal {
     exit_code: u8::from(!complete),
-    effects: 0,
+    effects: applying
+      .as_ref()
+      .map_or(0, |applying| applying.completed_units),
     detail,
   }))
 }
@@ -281,6 +319,9 @@ fn inspect<'a>(
       "unsupported declaration operation or applying flag",
     ));
   }
+  let (requested, applying) = crate::invocation::files_request(&intent)
+    .ok_or_else(|| invalid("unsupported declaration arguments"))?;
+  let requested = requested.map(str::to_owned);
   let held_working = working.open()?;
   let observed_working = inspector.directory(working.path())?;
   if crate::identity::ObjectIdentity::read(&held_working)?
@@ -330,7 +371,7 @@ fn inspect<'a>(
       configured.push(path);
     }
   }
-  let roots = if let Some(raw) = intent.argv.get(1) {
+  let roots = if let Some(raw) = requested.as_deref() {
     let raw = Path::new(raw);
     if raw
       .components()
@@ -399,6 +440,11 @@ fn inspect<'a>(
       .to_string_lossy()
       .into_owned(),
   );
+  if applying {
+    let quarantine = inspector.canonical_path(&configuration.quarantine_dir())?;
+    inspector.directory(&quarantine)?;
+    configuration.quarantine.dir = Some(quarantine.to_string_lossy().into_owned());
+  }
   inspector.revalidate()?;
   Ok(Context {
     inspector,
@@ -408,6 +454,7 @@ fn inspect<'a>(
     namespace: intent.namespace,
     caller: directory,
     base: caller.base,
+    applying,
   })
 }
 
