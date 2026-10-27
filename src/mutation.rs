@@ -13,10 +13,12 @@ use crate::journal::Key;
 use crate::launch::{Grant, Resources};
 
 mod native;
-pub(crate) use native::{recover, HeldRename, HeldUnlink};
+pub(crate) use native::{read_metadata, recover, stage_metadata};
+pub(crate) use native::{HeldPublish, HeldRename, HeldUnlink, Staging};
 
 // reserve 4 KiB of the private 64 KiB packet for task and reply envelopes
 const MAX_RECORD_BYTES: usize = 60 * 1024;
+pub(crate) const MAX_METADATA_BYTES: usize = 1024 * 1024;
 
 /// A freshly inspected native object, not a path-only mutation subject.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -102,6 +104,48 @@ impl Unlink {
   }
 }
 
+/// Exact content and native identity of one bounded regular metadata file.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileVersion {
+  pub object: Object,
+  pub sha256: String,
+}
+
+/// Atomic metadata publication, with either an exact prior file or a vacant destination.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Publish {
+  pub rename: Rename,
+  pub source_sha256: String,
+  pub previous: Option<FileVersion>,
+}
+
+impl Publish {
+  pub(crate) fn validate(&self) -> io::Result<()> {
+    self.rename.validate()?;
+    if let Some(previous) = &self.previous {
+      path(&previous.object.path)?;
+      crate::worker::validate_identity(&previous.object.identity)?;
+      if previous.object.path != self.rename.destination
+        || previous.object.identity.volume_uuid != self.rename.source.identity.volume_uuid
+      {
+        return Err(invalid(
+          "metadata destination differs from its prior binding",
+        ));
+      }
+    }
+    for digest in
+      std::iter::once(&self.source_sha256).chain(self.previous.iter().map(|p| &p.sha256))
+    {
+      if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(invalid("invalid metadata content digest"));
+      }
+    }
+    Ok(())
+  }
+}
+
 /// Typed effects share the same durable permission and physical exclusion protocol.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(
@@ -113,6 +157,7 @@ impl Unlink {
 pub enum Intent {
   Rename(Rename),
   Unlink(Unlink),
+  Publish(Publish),
 }
 
 impl Intent {
@@ -120,6 +165,7 @@ impl Intent {
     match self {
       Self::Rename(intent) => intent.validate(),
       Self::Unlink(intent) => intent.validate(),
+      Self::Publish(intent) => intent.validate(),
     }
   }
 
@@ -127,13 +173,14 @@ impl Intent {
     match self {
       Self::Rename(intent) => &intent.resources,
       Self::Unlink(intent) => &intent.resources,
+      Self::Publish(intent) => &intent.rename.resources,
     }
   }
 
   pub(crate) fn accepts(&self, phase: Phase) -> bool {
     !matches!(
       (self, phase),
-      (Self::Rename(_), Phase::Removed) | (Self::Unlink(_), Phase::Moved)
+      (Self::Rename(_) | Self::Publish(_), Phase::Removed) | (Self::Unlink(_), Phase::Moved)
     )
   }
 }
@@ -147,6 +194,12 @@ impl From<Rename> for Intent {
 impl From<Unlink> for Intent {
   fn from(intent: Unlink) -> Self {
     Self::Unlink(intent)
+  }
+}
+
+impl From<Publish> for Intent {
+  fn from(intent: Publish) -> Self {
+    Self::Publish(intent)
   }
 }
 

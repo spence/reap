@@ -85,6 +85,7 @@ def main():
                 "native_files_apply_refuses_configuration_revoked_during_final_activity",
                 "native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
                 "native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
+                "native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads",
             ]
             for name in cases:
                 case = "dispatch::tests::" + name
@@ -191,6 +192,10 @@ def main():
                                  "optional_cache_payloads_never_enter_the_recursive_extension_decoder",
                                  "native_sha256_tracking_and_worktree_settings_are_bound_to_the_checkout"],
             "journal::tests": ["unpublished_working_output_is_not_adopted_repeated_or_forgotten_by_compaction",
+                               "native_metadata_preparation_cleans_only_owned_unpublished_files",
+                               "native_metadata_publication_replaces_only_exact_prior_content_and_never_repeats",
+                               "native_metadata_publication_refuses_changed_inputs_and_preservation_roles",
+                               "native_metadata_capture_refuses_links_special_files_and_oversized_content",
                                "native_symlink_replacement_cannot_use_the_original_link_permission",
                                "native_unlink_removes_only_prepared_entries_and_retained_permission_cannot_repeat",
                                "native_unlink_refuses_replacements_nonempty_directories_and_changed_guards",
@@ -206,6 +211,8 @@ def main():
                           "unknown_virtual_raid_and_incomplete_topologies_refuse",
                           "external_tunneled_nvme_requires_exact_endpoint"],
             "dispatch::tests": ["native_files_uncontended_scan_uses_one_bulk_worker",
+                                "native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads",
+                                "native_files_apply_unknown_index_inputs_preserve_payloads_without_publication",
                                 "native_files_apply_deletes_the_permitted_tree_without_touching_link_targets",
                                 "native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
                                 "native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",

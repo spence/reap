@@ -2142,6 +2142,7 @@ fn execute_inner(
       }
     };
     let mut index = None;
+    let mut index_version = None;
     if !ev.removals.is_empty() {
       if let Some(preview) = &mut scan.view.preview {
         preview.assess_recovery(&ev.removals, &scan.view.decls);
@@ -2256,8 +2257,15 @@ fn execute_inner(
         }
         Disposition::Quarantine => {
           if index.is_none() {
-            index = match load_index(&qdir) {
-              Ok(i) => Some(i),
+            let loaded = match applying.as_ref() {
+              Some(applying) => applying.load_index(&qdir).map_err(|e| e.to_string()),
+              None => load_index(&qdir).map(|index| (index, None)),
+            };
+            index = match loaded {
+              Ok((i, version)) => {
+                index_version = version;
+                Some(i)
+              }
               Err(e) => {
                 let _ = writeln!(stderr, "  {e}");
                 failed = true;
@@ -2283,6 +2291,7 @@ fn execute_inner(
               format!("; {purpose}")
             }
           );
+          let mut prepared_index = None;
           let retired = if let Some(applying) = applying.as_deref_mut() {
             let boundary = boundary.expect("coordinated apply has a held boundary");
             let helpers = helpers
@@ -2297,10 +2306,15 @@ fn execute_inner(
               owner,
               purpose,
               origin,
-              &mut |source, destination| {
+              &mut |source, destination, entry| {
                 if source != r.path {
                   return Err(io::Error::other("payload differs from its selected unit"));
                 }
+                let idx = index.as_mut().expect("loaded");
+                idx.entries.push(entry.clone());
+                let prepared = applying.prepare_index(&qdir, idx, index_version.clone());
+                idx.entries.pop();
+                prepared_index = Some(prepared?);
                 applying.rename(
                   &mut scan,
                   r,
@@ -2328,7 +2342,22 @@ fn execute_inner(
             Ok(retired) => {
               let idx = index.as_mut().expect("loaded");
               idx.entries.push(retired.entry.clone());
-              if let Err(e) = save_index(&qdir, idx) {
+              let saved = match applying.as_deref_mut() {
+                Some(applying) => applying
+                  .publish_index(
+                    prepared_index
+                      .take()
+                      .expect("payload has its prepared index"),
+                    helpers
+                      .as_deref_mut()
+                      .expect("coordinated apply has its helper channel"),
+                  )
+                  .map(|version| {
+                    index_version = Some(version);
+                  }),
+                None => save_index(&qdir, idx),
+              };
+              if let Err(e) = saved {
                 idx.entries.pop();
                 let rollback = if applying.is_some() {
                   Err("coordinated payload remains in its evidenced quarantine slot".into())

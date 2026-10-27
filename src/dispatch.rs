@@ -1,6 +1,6 @@
 //! Durable Cargo validation and declaration phases in bounded owned workers.
 //!
-//! The fixed writer coordinates read jobs and the private declaration-quarantine adapter.
+//! The fixed writer coordinates read jobs and private declaration mutation adapters.
 //! Other applying adapters and public CLI cutover remain separate.
 //! Unknown process ownership never becomes replacement capacity.
 

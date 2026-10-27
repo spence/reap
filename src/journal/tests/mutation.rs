@@ -528,6 +528,253 @@ fn native_permission(fixture: &Fixture, intent: Intent) -> (Journal, Key, Staged
 }
 
 #[cfg(target_os = "macos")]
+fn native_publication(
+  fixture: &Fixture,
+  existing: bool,
+) -> (Journal, Key, crate::mutation::HeldPublish, Staged) {
+  let destination = fixture.0.join("index.json");
+  if existing {
+    fs::write(&destination, b"prior metadata\n").unwrap();
+  }
+  fs::write(fixture.0.join("survivor"), b"unrelated value").unwrap();
+  let resources = Resources::Bulk {
+    physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+  };
+  let previous = crate::mutation::read_metadata(&destination, &resources)
+    .unwrap()
+    .map(|v| v.0);
+  let bytes = b"published metadata\n";
+  let mut staging = crate::mutation::stage_metadata(&destination, bytes, &resources).unwrap();
+  let held = crate::mutation::HeldPublish::prepare(
+    staging.path(),
+    &destination,
+    format!("{:x}", Sha256::digest(bytes)),
+    previous,
+    &resources,
+    "a".repeat(64),
+  )
+  .unwrap();
+  staging.retain();
+  let (journal, key, staged) = native_permission(fixture, held.intent().clone().into());
+  (journal, key, held, staged)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_metadata_publication_replaces_only_exact_prior_content_and_never_repeats() {
+  for existing in [false, true] {
+    let fixture = Fixture::new();
+    let (mut journal, key, held, staged) = native_publication(&fixture, existing);
+    let intent = held.intent().clone();
+    let record = new_record(staged.clone());
+    let replay = crate::mutation::HeldPublish::prepare(
+      &intent.rename.source.path,
+      &intent.rename.destination,
+      intent.source_sha256.clone(),
+      intent.previous.clone(),
+      &intent.rename.resources,
+      intent.rename.guard_fingerprint.clone(),
+    )
+    .unwrap();
+    assert_eq!(crate::mutation::recover(&record).phase, Phase::Refused);
+    assert!(journal
+      .finish_mutation(&key, &record.nonce, Phase::Removed)
+      .is_err());
+    let result = held
+      .commit(staged, &record.worker, || Ok("a".repeat(64)))
+      .unwrap();
+    assert_eq!(result.phase, Phase::Moved, "{}", result.detail);
+    journal
+      .finish_mutation(&key, &record.nonce, result.phase)
+      .unwrap();
+    assert_eq!(
+      fs::read(&intent.rename.destination).unwrap(),
+      b"published metadata\n"
+    );
+    assert!(!intent.rename.source.path.exists());
+    assert_eq!(crate::mutation::recover(&record).phase, Phase::Moved);
+    let retained = journal.stage_mutation(&key, 1, intent).unwrap();
+    assert!(matches!(retained, Staged::Retained(_)));
+    assert!(replay
+      .commit(retained, &record.worker, || panic!("replay reached guards"))
+      .is_err());
+    assert_eq!(
+      fs::read(fixture.0.join("survivor")).unwrap(),
+      b"unrelated value"
+    );
+    drop(journal);
+    let journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    assert_eq!(journal.mutation(&key).unwrap().unwrap().completed_units, 1);
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_metadata_publication_refuses_changed_inputs_and_preservation_roles() {
+  for change in [
+    "destination",
+    "replacement",
+    "staging",
+    "role",
+    "fingerprint",
+  ] {
+    let fixture = Fixture::new();
+    let (mut journal, key, held, staged) = native_publication(&fixture, true);
+    let intent = held.intent().clone();
+    let record = new_record(staged.clone());
+    let result = held.commit(staged, &record.worker, || {
+      match change {
+        "destination" => fs::write(&intent.rename.destination, b"changed prior value").unwrap(),
+        "replacement" => {
+          fs::rename(&intent.rename.destination, fixture.0.join("retained-prior")).unwrap();
+          fs::write(&intent.rename.destination, b"replacement survives").unwrap();
+        }
+        "staging" => fs::write(&intent.rename.source.path, b"changed staging value").unwrap(),
+        "role" => fs::write(fixture.0.join(".reap"), br#"{"version":2,"role":"permanent_archive","keep":{"reason":"retained metadata"},"seal":true}"#).unwrap(),
+        "fingerprint" => return Ok("b".repeat(64)),
+        _ => unreachable!(),
+      }
+      Ok("a".repeat(64))
+    }).unwrap();
+    assert_eq!(result.phase, Phase::Refused, "{change}: {}", result.detail);
+    journal
+      .finish_mutation(&key, &record.nonce, result.phase)
+      .unwrap();
+    assert_eq!(journal.mutation(&key).unwrap().unwrap().completed_units, 0);
+    let expected: &[u8] = match change {
+      "destination" => b"changed prior value",
+      "replacement" => b"replacement survives",
+      _ => b"prior metadata\n",
+    };
+    assert_eq!(fs::read(&intent.rename.destination).unwrap(), expected);
+    assert!(intent.rename.source.path.exists());
+    assert_eq!(
+      fs::read(fixture.0.join("survivor")).unwrap(),
+      b"unrelated value"
+    );
+    if change == "replacement" {
+      assert_eq!(crate::mutation::recover(&record).phase, Phase::Uncertain);
+      assert_eq!(
+        fs::read(fixture.0.join("retained-prior")).unwrap(),
+        b"prior metadata\n"
+      );
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_metadata_preparation_cleans_only_owned_unpublished_files() {
+  for state in [
+    "dropped",
+    "prepare-error",
+    "replacement",
+    "parent",
+    "retained",
+    "role",
+  ] {
+    let fixture = Fixture::new();
+    let parent = fixture.0.join("metadata");
+    fs::create_dir(&parent).unwrap();
+    let destination = parent.join("index.json");
+    fs::write(&destination, b"prior metadata survives").unwrap();
+    let resources = Resources::Bulk {
+      physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+    };
+    let previous = crate::mutation::read_metadata(&destination, &resources)
+      .unwrap()
+      .unwrap()
+      .0;
+    let bytes = b"owned preparation";
+    let mut staging = crate::mutation::stage_metadata(&destination, bytes, &resources).unwrap();
+    let path = staging.path().to_path_buf();
+    match state {
+      "dropped" => {}
+      "prepare-error" => assert!(crate::mutation::HeldPublish::prepare(
+        &path, &destination, "b".repeat(64), Some(previous), &resources, "a".repeat(64),
+      ).is_err()),
+      "replacement" => {
+        fs::rename(&path, fixture.0.join("retained-original")).unwrap();
+        fs::write(&path, b"replacement survives").unwrap();
+      }
+      "parent" => {
+        fs::rename(&parent, fixture.0.join("retained-parent")).unwrap();
+        fs::create_dir(&parent).unwrap();
+        fs::write(&destination, b"replacement metadata survives").unwrap();
+        fs::write(&path, b"replacement survives").unwrap();
+      }
+      "retained" => staging.retain(),
+      "role" => fs::write(fixture.0.join(".reap"), br#"{"version":2,"role":"permanent_archive","keep":{"reason":"retained preparation"},"seal":true}"#).unwrap(),
+      _ => unreachable!(),
+    }
+    drop(staging);
+    if matches!(state, "dropped" | "prepare-error") {
+      assert!(!path.exists(), "unpublished preparation remains: {state}");
+    } else {
+      let expected: &[u8] = if matches!(state, "replacement" | "parent") {
+        b"replacement survives"
+      } else {
+        bytes
+      };
+      assert_eq!(fs::read(&path).unwrap(), expected);
+    }
+    if state == "replacement" {
+      assert_eq!(
+        fs::read(fixture.0.join("retained-original")).unwrap(),
+        bytes
+      );
+    }
+    if state == "parent" {
+      assert_eq!(
+        fs::read(
+          fixture
+            .0
+            .join("retained-parent")
+            .join(path.file_name().unwrap())
+        )
+        .unwrap(),
+        bytes
+      );
+      assert_eq!(
+        fs::read(destination).unwrap(),
+        b"replacement metadata survives"
+      );
+    } else {
+      assert_eq!(fs::read(destination).unwrap(), b"prior metadata survives");
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_metadata_capture_refuses_links_special_files_and_oversized_content() {
+  use std::os::unix::fs::symlink;
+  let fixture = Fixture::new();
+  let resources = Resources::Bulk {
+    physical_volumes: crate::volumes::resolve(&File::open(&fixture.0).unwrap()).unwrap(),
+  };
+  let path = fixture.0.join("metadata");
+  fs::write(&path, b"retained value").unwrap();
+  symlink("metadata", fixture.0.join("link")).unwrap();
+  assert!(crate::mutation::read_metadata(&fixture.0.join("link"), &resources).is_err());
+  fs::hard_link(&path, fixture.0.join("alias")).unwrap();
+  assert!(crate::mutation::read_metadata(&path, &resources).is_err());
+  let big = vec![b'x'; crate::mutation::MAX_METADATA_BYTES + 1];
+  fs::write(fixture.0.join("large"), &big).unwrap();
+  assert!(crate::mutation::read_metadata(&fixture.0.join("large"), &resources).is_err());
+  assert!(crate::mutation::stage_metadata(&fixture.0.join("absent"), &big, &resources).is_err());
+  assert!(!fixture.0.join("absent").exists());
+  assert!(crate::mutation::read_metadata(&fixture.0, &resources).is_err());
+  let fifo = fixture.0.join("fifo");
+  use std::os::unix::ffi::OsStrExt;
+  let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+  // SAFETY: the terminated path belongs to this fixture; no process opens the FIFO for writing.
+  assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+  assert!(crate::mutation::read_metadata(&fifo, &resources).is_err());
+  assert_eq!(fs::read(path).unwrap(), b"retained value");
+}
+
+#[cfg(target_os = "macos")]
 #[test]
 fn native_unlink_removes_only_prepared_entries_and_retained_permission_cannot_repeat() {
   use crate::mutation::HeldUnlink;

@@ -1,5 +1,8 @@
 //! Held-parent native mutations and read-only recovery of their exact objects.
 
+mod publish;
+pub(crate) use publish::{read_metadata, stage_metadata, HeldPublish, Staging};
+
 use std::ffi::CString;
 use std::fs::File;
 use std::io;
@@ -28,6 +31,17 @@ impl HeldRename {
     resources: &Resources,
     guard_fingerprint: String,
   ) -> io::Result<Self> {
+    let held = Self::capture(source, destination, resources, guard_fingerprint)?;
+    absent(&held.destination_parent, destination)?;
+    Ok(held)
+  }
+
+  fn capture(
+    source: &Path,
+    destination: &Path,
+    resources: &Resources,
+    guard_fingerprint: String,
+  ) -> io::Result<Self> {
     super::path(source)?;
     super::path(destination)?;
     let source_parent_path = source
@@ -49,7 +63,6 @@ impl HeldRename {
     };
     intent.validate()?;
     physical(&source_parent, &destination_parent, resources)?;
-    absent(&destination_parent, destination)?;
     Ok(Self {
       intent,
       source: source_file,
@@ -275,6 +288,7 @@ pub(crate) fn recover(record: &Record) -> Observation {
         let source_parent = directory(&intent.source_parent.path)?;
         observe_unlink(intent, &source_parent)
       }
+      Intent::Publish(intent) => publish::recover(intent),
     }
   })();
   match result {

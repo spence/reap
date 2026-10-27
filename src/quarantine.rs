@@ -899,7 +899,7 @@ pub fn execute_store_retire(
     purpose,
     provenance,
     Some(store),
-    &mut move_unit,
+    &mut |source, destination, _| move_unit(source, destination),
   )
 }
 
@@ -925,7 +925,7 @@ pub fn execute_path_retire(
     purpose,
     provenance,
     None,
-    &mut move_unit,
+    &mut |source, destination, _| move_unit(source, destination),
   )
 }
 
@@ -940,7 +940,7 @@ pub(crate) fn execute_path_retire_with(
   owner: String,
   purpose: String,
   provenance: Provenance,
-  mover: &mut dyn FnMut(&Path, &Path) -> io::Result<Moved>,
+  mover: &mut dyn FnMut(&Path, &Path, &Entry) -> io::Result<Moved>,
 ) -> Result<Retired, String> {
   retire_unit(
     source, bytes, qdir, machine, now, owner, purpose, provenance, None, mover,
@@ -958,7 +958,7 @@ fn retire_unit(
   purpose: String,
   provenance: Provenance,
   store: Option<StoreProvenance>,
-  mover: &mut dyn FnMut(&Path, &Path) -> io::Result<Moved>,
+  mover: &mut dyn FnMut(&Path, &Path, &Entry) -> io::Result<Moved>,
 ) -> Result<Retired, String> {
   let meta = fs::symlink_metadata(source).map_err(|e| format!("{}: {e}", source.display()))?;
   if !meta.is_file() && !meta.is_dir() && !meta.file_type().is_symlink() {
@@ -1014,7 +1014,7 @@ fn retire_unit(
   };
   write_json_atomic(&evidence_path(&slot), &evidence)
     .map_err(|e| format!("writing {}: {e}", evidence_path(&slot).display()))?;
-  let moved = mover(source, &dest).map_err(|e| {
+  let moved = mover(source, &dest, &entry).map_err(|e| {
     format!(
       "move {} -> {}: {e}; inspect {} before retrying",
       source.display(),

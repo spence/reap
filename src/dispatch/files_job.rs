@@ -1,7 +1,7 @@
-//! Declaration assessment and private quarantine units under the existing owned grants.
+//! Declaration assessment and private payload/index units under the existing owned grants.
 //!
 //! Applying payloads require the unit ledger and fresh guards. Public CLI cutover, lifetime
-//! conversion, direct deletion, and source release remain outside this adapter.
+//! conversion and source release remain outside this adapter.
 
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};

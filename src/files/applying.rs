@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::launch::Grant;
-use crate::mutation::{HeldRename, HeldUnlink, Phase, Staged};
+use crate::mutation::{FileVersion, HeldPublish, HeldRename, HeldUnlink, Phase, Staged};
 use crate::util::Moved;
 
 pub(crate) struct Applying<'a> {
@@ -15,6 +15,14 @@ pub(crate) struct Applying<'a> {
   pub(crate) unknown_effects: bool,
   pub(crate) last_error: Option<String>,
   pub(crate) last_blocked: Option<String>,
+}
+
+/// Prepared index bytes and held native bindings. This preparation has no publication permission.
+pub(super) struct PreparedIndex {
+  held: HeldPublish,
+  staging: crate::mutation::Staging,
+  next_version: FileVersion,
+  sequence: u64,
 }
 
 impl<'a> Applying<'a> {
@@ -36,6 +44,146 @@ impl<'a> Applying<'a> {
       last_error: None,
       last_blocked: None,
     }
+  }
+
+  /// Read recognized legacy index metadata before any payload effect. Unknown schemas and
+  /// incomplete regular-file evidence refuse this root without replacing its index.
+  pub(super) fn load_index(
+    &self,
+    qdir: &Path,
+  ) -> io::Result<(crate::quarantine::IndexFile, Option<FileVersion>)> {
+    let Some((version, bytes)) =
+      crate::mutation::read_metadata(&crate::quarantine::index_path(qdir), &self.grant.resources)?
+    else {
+      return Ok((crate::quarantine::IndexFile::default(), None));
+    };
+    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let recognized = value.as_object().is_some_and(|object| {
+      object.get("version").and_then(|v| v.as_u64()) == Some(1)
+        && object.get("entries").is_some_and(|v| v.is_array())
+        && object
+          .keys()
+          .all(|key| matches!(key.as_str(), "version" | "entries" | "held_ids"))
+    });
+    if !recognized {
+      return Err(io::Error::other("unrecognized quarantine index schema"));
+    }
+    Ok((serde_json::from_value(value)?, Some(version)))
+  }
+
+  /// Prepare bounded index bytes before the payload move. Its upcoming publication follows
+  /// exactly one payload rename and still needs a separate new synchronized intent.
+  pub(super) fn prepare_index(
+    &self,
+    qdir: &Path,
+    index: &crate::quarantine::IndexFile,
+    previous: Option<FileVersion>,
+  ) -> io::Result<PreparedIndex> {
+    (self.fresh)()?;
+    crate::invocation::fresh(self.input)?;
+    let mut bytes = serde_json::to_vec_pretty(index)?;
+    bytes.push(b'\n');
+    if bytes.len() > crate::mutation::MAX_METADATA_BYTES {
+      return Err(io::Error::other(
+        "quarantine index exceeds its publication bound",
+      ));
+    }
+    let sequence = self
+      .sequence
+      .checked_add(1)
+      .ok_or_else(|| io::Error::other("unit sequence overflow"))?;
+    let source_hash = format!("{:x}", sha2::Sha256::digest(&bytes));
+    let destination = crate::quarantine::index_path(qdir);
+    let fingerprint = format!(
+      "{:x}",
+      sha2::Sha256::digest(serde_json::to_vec(
+        &serde_json::json!({"input":self.input,"scope":self.scope,"sequence":sequence,
+        "index":destination,"source_sha256":source_hash,"previous":previous})
+      )?)
+    );
+    let staging = crate::mutation::stage_metadata(&destination, &bytes, &self.grant.resources)?;
+    let held = HeldPublish::prepare(
+      staging.path(),
+      &destination,
+      source_hash.clone(),
+      previous,
+      &self.grant.resources,
+      fingerprint,
+    )?;
+    let next_version = FileVersion {
+      object: crate::mutation::Object {
+        path: destination,
+        identity: held.intent().rename.source.identity.clone(),
+      },
+      sha256: source_hash,
+    };
+    Ok(PreparedIndex {
+      held,
+      staging,
+      next_version,
+      sequence,
+    })
+  }
+
+  /// Publish only after the payload's durable effect. Unknown publication stops further payloads
+  /// and stays under the same read-only recovery protocol.
+  pub(super) fn publish_index(
+    &mut self,
+    mut prepared: PreparedIndex,
+    helpers: &mut crate::worker::Helpers<'_>,
+  ) -> io::Result<FileVersion> {
+    if self.unknown_effects || prepared.sequence != self.sequence {
+      return Err(io::Error::other(
+        "index publication lacks its exact completed payload",
+      ));
+    }
+    let next = self
+      .sequence
+      .checked_add(1)
+      .ok_or_else(|| io::Error::other("unit sequence overflow"))?;
+    let fingerprint = prepared.held.intent().rename.guard_fingerprint.clone();
+    prepared.staging.retain();
+    let staged = helpers.stage_mutation(self.sequence, prepared.held.intent().clone())?;
+    let Staged::New(record) = &staged else {
+      return Err(io::Error::other(
+        "retained intent cannot repeat index publication",
+      ));
+    };
+    let nonce = record.nonce.clone();
+    #[cfg(test)]
+    if std::env::var("REAP_NATIVE_FILES_UNIT_STOP").as_deref() == Ok("publish-intended") {
+      return Err(io::Error::other(
+        "owned fixture exits after retained publication intent",
+      ));
+    }
+    let outcome = prepared.held.commit(staged, self.grant, || {
+      (self.fresh)()?;
+      crate::invocation::fresh(self.input)?;
+      Ok(fingerprint)
+    })?;
+    #[cfg(test)]
+    if outcome.phase == Phase::Moved {
+      publication_fault(&prepared.next_version.object.path, false)?;
+    }
+    self.sequence = next;
+    self.unknown_effects = outcome.phase == Phase::Uncertain;
+    if outcome.phase == Phase::Moved {
+      self.completed_units = self
+        .completed_units
+        .checked_add(1)
+        .ok_or_else(|| io::Error::other("unit count overflow"))?;
+    } else {
+      self.last_error = Some(outcome.detail.clone())
+    }
+    helpers.observe_mutation(nonce, outcome.phase)?;
+    #[cfg(test)]
+    if outcome.phase == Phase::Moved {
+      publication_fault(&prepared.next_version.object.path, true)?;
+    }
+    if outcome.phase != Phase::Moved {
+      return Err(io::Error::other(outcome.detail));
+    }
+    Ok(prepared.next_version)
   }
 
   pub(super) fn rename(
@@ -507,6 +655,33 @@ fn delete_fault(source: &Path, root: &Path, observed: bool) -> io::Result<()> {
   }
   Err(io::Error::other(
     "owned applying fixture loses its final unlink result",
+  ))
+}
+
+#[cfg(test)]
+fn publication_fault(destination: &Path, observed: bool) -> io::Result<()> {
+  let stop = std::env::var("REAP_NATIVE_FILES_UNIT_STOP").unwrap_or_default();
+  if !observed && stop == "published" {
+    return Err(io::Error::other(
+      "owned fixture loses its publication result",
+    ));
+  }
+  let marker = match (observed, stop.as_str()) {
+    (false, "published-cancel") => "unit-published",
+    (true, "publish-observed") => "unit-observed",
+    _ => return Ok(()),
+  };
+  let parent = destination.parent().expect("prepared index parent");
+  fs::write(parent.join(marker), b"owned publication gate")?;
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+  while !parent.join("unit-release").exists() {
+    if std::time::Instant::now() >= deadline {
+      return Err(io::Error::other("owned publication gate expired"));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(5));
+  }
+  Err(io::Error::other(
+    "owned fixture loses its final publication result",
   ))
 }
 

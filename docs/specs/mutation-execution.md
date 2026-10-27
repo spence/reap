@@ -59,6 +59,21 @@
   `journal::tests::mutation::native_unlink_refuses_replacements_nonempty_directories_and_changed_guards`;
   `dispatch::tests::native_files_apply_deletes_the_permitted_tree_without_touching_link_targets`;
   `files::applying::tests` for repeated guard capacity and persistent refusals.
+- **C11 — Guarded metadata publication.** A metadata replacement retains the staged file's native
+  identity and digest, the expected prior destination identity and digest or proven absence, both
+  parent identities, and its original worker grant. Only new synchronized intent permits publication.
+  Changed or unknown input preserves the destination. Read-only recovery never repeats publication.
+  A successful quarantine result requires its index publication, not only a moved payload.
+  Unpublished preparation removes only its original entry through the held parent on normal exit.
+  Replacements and preservation roles veto that removal. Before a publication request, preparation
+  becomes retained: a lost reply can conceal intent. That retained file remains for recovery even
+  if publication is later refused. Each such file has the same 1 MiB limit.
+  Binding: `dispatch::tests::native_files_apply_retires_the_authorized_unit_and_preserves_kept_work`;
+  `dispatch::tests::native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads`;
+  `dispatch::tests::native_files_apply_unknown_index_inputs_preserve_payloads_without_publication`;
+  `journal::tests::mutation::native_metadata_preparation_cleans_only_owned_unpublished_files`;
+  `journal::tests::mutation::native_metadata_publication_replaces_only_exact_prior_content_and_never_repeats`;
+  `journal::tests::mutation::native_metadata_publication_refuses_changed_inputs_and_preservation_roles`.
 
 ## Conformance boundary
 
@@ -84,7 +99,12 @@ parent: an absent name is a completed namespace removal, the original entry is a
 replacement retains uncertainty. Known owned removals retire only their captured dependencies;
 external Git evidence and every remaining namespace binding still require validation. Logical
 retention statistics remain stable within one partially removed tree.
-Cross-volume moves, policy publication, and public adapter activation remain outside this
+The private quarantine adapter also records its index publication as a separate unit after the
+payload rename. Before that rename, it prepares an index of at most 1 MiB. The input must be a
+recognized schema in a regular single-link file. Links, special files, unknown schemas, and
+oversized input refuse before payload removal. A lost publication result enters read-only recovery;
+neither recovery nor replay repeats the payload move or metadata publication.
+Cross-volume moves, lifetime-policy publication, and public adapter activation remain outside this
 implemented boundary. These private applying cases do not establish the full caller integration
 or performance requirements.
 
