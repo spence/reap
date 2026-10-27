@@ -4,6 +4,9 @@ use std::path::Path;
 
 use crate::journal::{random_token, Decision, Prepared};
 
+#[cfg(target_os = "macos")]
+pub(super) mod mutation;
+
 struct Fixture(PathBuf);
 
 impl Fixture {

@@ -59,11 +59,57 @@ pub enum Task {
   FilesQuantum {
     physical_volumes: Vec<String>,
   },
+  StageMutation {
+    sequence: u64,
+    intent: crate::mutation::Rename,
+  },
+  ObserveMutation {
+    nonce: String,
+    phase: crate::mutation::Phase,
+    physical_volumes: Vec<String>,
+  },
+  RecoverMutation {
+    record: crate::mutation::Record,
+  },
+  #[cfg(all(test, target_os = "macos"))]
+  MutationFixture {
+    intent: crate::mutation::Rename,
+    stop: u8,
+  },
 }
 
 impl Task {
   /// Require the result kind belonging to this exact operation.
   fn accepts(&self, report: &Report) -> bool {
+    if let (Self::RecoverMutation { record }, Report::MutationRecovered { nonce, .. }) =
+      (self, report)
+    {
+      return nonce == &record.nonce;
+    }
+    #[cfg(all(test, target_os = "macos"))]
+    if matches!(
+      (self, report),
+      (Self::MutationFixture { .. }, Report::MutationFixture { .. })
+    ) {
+      return true;
+    }
+    if let (Self::StageMutation { sequence, intent }, Report::MutationStaged { staged }) =
+      (self, report)
+    {
+      let (crate::mutation::Staged::New(record) | crate::mutation::Staged::Retained(record)) =
+        staged;
+      return record.sequence == *sequence && record.intent == *intent;
+    }
+    if let (
+      Self::ObserveMutation { nonce, phase, .. },
+      Report::MutationObserved {
+        nonce: observed_nonce,
+        phase: observed_phase,
+      },
+    ) = (self, report)
+    {
+      return nonce == observed_nonce && phase == observed_phase;
+    }
     if let (Self::Probe { probe, .. }, Report::Probed { evidence }) = (self, report) {
       return probe.accepts(evidence);
     }
@@ -92,11 +138,18 @@ impl Task {
         physical_volumes, ..
       }
       | Self::FilesQuantum { physical_volumes }
+      | Self::ObserveMutation {
+        physical_volumes, ..
+      }
       | Self::Probe {
         physical_volumes, ..
       } => Resources::Bulk {
         physical_volumes: physical_volumes.clone(),
       },
+      Self::StageMutation { intent, .. } => intent.resources.clone(),
+      Self::RecoverMutation { record } => record.intent.resources.clone(),
+      #[cfg(all(test, target_os = "macos"))]
+      Self::MutationFixture { intent, .. } => intent.resources.clone(),
       _ => Resources::Resolver,
     }
   }
@@ -104,6 +157,37 @@ impl Task {
   fn validate(&self) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
 
+    if let Self::RecoverMutation { record } = self {
+      record.validate(&record.worker.key)?;
+      if !record.phase.unresolved() {
+        return Err(invalid("recovery unit is already resolved"));
+      }
+      return Ok(());
+    }
+
+    #[cfg(all(test, target_os = "macos"))]
+    if let Self::MutationFixture { intent, stop } = self {
+      if *stop > 3 {
+        return Err(invalid("invalid owned mutation fixture phase"));
+      }
+      return intent.validate();
+    }
+
+    if let Self::StageMutation { sequence, intent } = self {
+      if *sequence == 0 {
+        return Err(invalid("mutation sequence is zero"));
+      }
+      return intent.validate();
+    }
+    if let Self::ObserveMutation { nonce, phase, .. } = self {
+      if nonce.len() != 32
+        || !nonce.bytes().all(|b| b.is_ascii_hexdigit())
+        || *phase == crate::mutation::Phase::Intended
+      {
+        return Err(invalid("invalid mutation observation"));
+      }
+      return self.resources().validate();
+    }
     if matches!(self, Self::FilesQuantum { .. }) {
       return self.resources().validate();
     }
@@ -132,9 +216,15 @@ impl Task {
         probe.validate()?;
         return self.resources().validate();
       }
-      Self::FirstSeen { .. } | Self::FilesQuantum { .. } => {
+      Self::FirstSeen { .. }
+      | Self::FilesQuantum { .. }
+      | Self::StageMutation { .. }
+      | Self::ObserveMutation { .. }
+      | Self::RecoverMutation { .. } => {
         unreachable!("metadata request validated above")
       }
+      #[cfg(all(test, target_os = "macos"))]
+      Self::MutationFixture { .. } => unreachable!("owned fixture validated above"),
     };
     if !directory.is_absolute()
       || directory.as_os_str().len() > 4096
@@ -150,6 +240,24 @@ impl Task {
 
   fn execute(&self, grant: &Grant, helpers: Option<&mut Helpers<'_>>) -> io::Result<Report> {
     self.validate()?;
+    if let Self::RecoverMutation { record } = self {
+      if grant.key != record.worker.key
+        || grant.resources != record.intent.resources
+        || !record.worker.identity.exited()?
+      {
+        return Err(invalid(
+          "recovery differs from its retained unit or original native absence",
+        ));
+      }
+      return Ok(Report::MutationRecovered {
+        nonce: record.nonce.clone(),
+        observation: crate::mutation::recover(record),
+      });
+    }
+    #[cfg(all(test, target_os = "macos"))]
+    if let Self::MutationFixture { intent, stop } = self {
+      return tests::mutation::execute(intent, *stop, grant, helpers);
+    }
     if matches!(self, Self::Resolve { .. }) {
       if let Some(helpers) = helpers {
         return helpers.run(self.clone());
@@ -271,6 +379,21 @@ pub enum Report {
   FilesQuantum {
     yield_now: bool,
   },
+  MutationStaged {
+    staged: crate::mutation::Staged,
+  },
+  MutationObserved {
+    nonce: String,
+    phase: crate::mutation::Phase,
+  },
+  MutationRecovered {
+    nonce: String,
+    observation: crate::mutation::Observation,
+  },
+  #[cfg(all(test, target_os = "macos"))]
+  MutationFixture {
+    phase: crate::mutation::Phase,
+  },
   Resolved {
     directory: ObjectIdentity,
     physical_volumes: Vec<String>,
@@ -324,6 +447,35 @@ pub(crate) struct Helpers<'a> {
 }
 
 impl Helpers<'_> {
+  /// Synchronize exact unit intent. A retained response has no repeat permission.
+  pub(crate) fn stage_mutation(
+    &mut self,
+    sequence: u64,
+    intent: crate::mutation::Rename,
+  ) -> io::Result<crate::mutation::Staged> {
+    match self.run(Task::StageMutation { sequence, intent })? {
+      Report::MutationStaged { staged } => Ok(staged),
+      _ => Err(invalid("unit writer returned another evidence kind")),
+    }
+  }
+
+  /// Retain the issued unit's outcome even when cancellation prevents the next unit.
+  pub(crate) fn observe_mutation(
+    &mut self,
+    nonce: String,
+    phase: crate::mutation::Phase,
+  ) -> io::Result<()> {
+    let Resources::Bulk { physical_volumes } = self.resources else {
+      return Err(invalid("mutation observation requires a bulk grant"));
+    };
+    self.run(Task::ObserveMutation {
+      nonce,
+      phase,
+      physical_volumes: physical_volumes.clone(),
+    })?;
+    Ok(())
+  }
+
   #[cfg(test)]
   pub(crate) fn fixture<'a>(pipe: &'a mut UnixStream, resources: &'a Resources) -> Helpers<'a> {
     Helpers {
@@ -578,9 +730,12 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, mut task: Task) ->
       "native probes require a granted helper".into(),
     ));
   }
-  if matches!(task, Task::FilesQuantum { .. }) {
+  if matches!(
+    task,
+    Task::FilesQuantum { .. } | Task::StageMutation { .. } | Task::ObserveMutation { .. }
+  ) {
     return Ok(Start::Rejected(
-      "quantum queries require a granted Files worker".into(),
+      "metadata requests require an existing granted worker".into(),
     ));
   }
   if let Err(error) = task.validate().and_then(|()| {
@@ -626,7 +781,11 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, mut task: Task) ->
     }
   };
   let resources = task.resources();
-  let Some(launch) = journal.reserve_launch(key, sequence, resources)? else {
+  let reserved = match &task {
+    Task::RecoverMutation { record } => journal.reserve_mutation_recovery(key, sequence, record),
+    _ => journal.reserve_launch(key, sequence, resources),
+  };
+  let Some(launch) = reserved? else {
     return Ok(Start::Busy);
   };
   let process = launch.worker.token.clone();
@@ -746,9 +905,15 @@ impl Owned {
     token: &str,
     task: Task,
   ) -> io::Result<Start> {
-    if matches!(task, Task::FilesQuantum { .. }) {
+    if matches!(
+      task,
+      Task::FilesQuantum { .. }
+        | Task::StageMutation { .. }
+        | Task::ObserveMutation { .. }
+        | Task::RecoverMutation { .. }
+    ) {
       return Ok(Start::Rejected(
-        "quantum queries cannot create a helper".into(),
+        "metadata and recovery requests cannot create a helper".into(),
       ));
     }
     if self.process != self.launch.worker.token || self.finished || slot >= 2 {
@@ -1026,11 +1191,36 @@ impl Owned {
     if let Err(reason) = request.task.validate() {
       return self.reply(request.request_id, Err(reason.to_string()));
     }
-    if request.task.resources() != self.launch.resources || journal.cancel_requested(&self.key) {
+    if matches!(request.task, Task::RecoverMutation { .. })
+      || self.launch.mutation_recovery.is_some()
+    {
+      return self.reply(
+        request.request_id,
+        Err("recovery cannot request helpers or unit effects".into()),
+      );
+    }
+    if request.task.resources() != self.launch.resources
+      || (journal.cancel_requested(&self.key)
+        && !matches!(request.task, Task::ObserveMutation { .. }))
+    {
       return self.reply(
         request.request_id,
         Err("helper request is cancelled or changes physical resources".into()),
       );
+    }
+    if let Task::StageMutation { sequence, intent } = request.task {
+      let result = journal
+        .stage_mutation(&self.key, sequence, intent)
+        .map(|staged| Report::MutationStaged { staged })
+        .map_err(|reason| reason.to_string());
+      return self.reply(request.request_id, result);
+    }
+    if let Task::ObserveMutation { nonce, phase, .. } = request.task {
+      let result = journal
+        .finish_mutation(&self.key, &nonce, phase)
+        .map(|()| Report::MutationObserved { nonce, phase })
+        .map_err(|reason| reason.to_string());
+      return self.reply(request.request_id, result);
     }
     if matches!(request.task, Task::FilesQuantum { .. }) {
       if !self.output_allowed {
@@ -1336,6 +1526,36 @@ fn receive_packet(pipe: &mut UnixStream) -> io::Result<Vec<u8>> {
 }
 
 fn validate_report(report: &Report) -> io::Result<()> {
+  match report {
+    Report::MutationStaged { staged } => {
+      let (crate::mutation::Staged::New(record) | crate::mutation::Staged::Retained(record)) =
+        staged;
+      record.validate(&record.worker.key)?;
+      if matches!(staged, crate::mutation::Staged::New(_))
+        && record.phase != crate::mutation::Phase::Intended
+      {
+        return Err(invalid("new mutation reply has no initial intent"));
+      }
+    }
+    Report::MutationObserved { nonce, phase } => {
+      if nonce.len() != 32
+        || !nonce.bytes().all(|b| b.is_ascii_hexdigit())
+        || *phase == crate::mutation::Phase::Intended
+      {
+        return Err(invalid("invalid mutation acknowledgement"));
+      }
+    }
+    Report::MutationRecovered { nonce, observation } => {
+      if nonce.len() != 32
+        || !nonce.bytes().all(|b| b.is_ascii_hexdigit())
+        || observation.phase == crate::mutation::Phase::Intended
+        || observation.detail.len() > 8192
+      {
+        return Err(invalid("invalid mutation recovery observation"));
+      }
+    }
+    _ => {}
+  }
   match report {
     Report::FirstSeen { values, next }
       if values.len() > crate::observations::BATCH_KEYS

@@ -457,7 +457,7 @@ impl Journal {
       Decision::NotAccepted => {}
       decision => return Ok(decision),
     }
-    self.insert(key, input, now, false)
+    self.insert(key, input, now, false, false)
   }
 
   /// Admit native prepared intent and its queued execution phase in the same transaction.
@@ -468,7 +468,21 @@ impl Journal {
     now: u64,
   ) -> io::Result<Decision> {
     match self.replay(&key, &input)? {
-      Decision::NotAccepted => self.insert(key, input, now, true),
+      Decision::NotAccepted => self.insert(key, input, now, true, false),
+      decision => Ok(decision),
+    }
+  }
+
+  /// Admit an internal mutation job without a public applying route or target permission.
+  /// Its unit ledger shares the existing transaction, capacity, and stable writer ownership.
+  pub(crate) fn admit_mutation(
+    &mut self,
+    key: Key,
+    input: Prepared,
+    now: u64,
+  ) -> io::Result<Decision> {
+    match self.replay(&key, &input)? {
+      Decision::NotAccepted => self.insert(key, input, now, false, true),
       decision => Ok(decision),
     }
   }
@@ -497,6 +511,7 @@ impl Journal {
     input: Prepared,
     now: u64,
     executing: bool,
+    mutating: bool,
   ) -> io::Result<Decision> {
     let volume_set = if input.volumes.is_empty() {
       vec!["<unresolved>".to_string()]
@@ -540,6 +555,7 @@ impl Journal {
       pages: vec![],
       observations: None,
       working: None,
+      mutation: mutating.then(crate::mutation::Ledger::default),
     };
     self.persist(Document::Job(job.clone()))?;
     self.install(job.clone())?;
@@ -555,6 +571,27 @@ impl Journal {
     sequence: u64,
     resources: Resources,
   ) -> io::Result<Option<Launch>> {
+    self.reserve_launch_for(key, sequence, resources, None)
+  }
+
+  /// Reserve a read-only observer of one exact unresolved unit after original native absence.
+  /// This exception to cancellation permits no new unit, helper, or target mutation.
+  pub(crate) fn reserve_mutation_recovery(
+    &mut self,
+    key: &Key,
+    sequence: u64,
+    record: &crate::mutation::Record,
+  ) -> io::Result<Option<Launch>> {
+    self.reserve_launch_for(key, sequence, record.intent.resources.clone(), Some(record))
+  }
+
+  fn reserve_launch_for(
+    &mut self,
+    key: &Key,
+    sequence: u64,
+    resources: Resources,
+    recovery: Option<&crate::mutation::Record>,
+  ) -> io::Result<Option<Launch>> {
     resources.validate()?;
     self.bindings()?;
     let mut job = self
@@ -563,9 +600,30 @@ impl Journal {
     if job.view.result.is_some() {
       return Err(invalid("completed job cannot launch"));
     }
+    let unresolved = job
+      .mutation
+      .as_ref()
+      .and_then(|ledger| ledger.current.as_ref())
+      .filter(|record| record.phase.unresolved());
+    if let Some(record) = recovery {
+      if unresolved != Some(record)
+        || record.worker.key != *key
+        || !record.worker.identity.exited()?
+      {
+        return Err(invalid(
+          "recovery lacks exact retained intent or original process absence",
+        ));
+      }
+    } else if unresolved.is_some() {
+      return Err(invalid(
+        "unresolved mutation permits only its read-only recovery launch",
+      ));
+    }
     if let Some(launch) = &job.launch {
       if launch.sequence == sequence {
-        return if launch.resources == resources {
+        return if launch.resources == resources
+          && launch.mutation_recovery.as_deref() == recovery.map(|record| record.nonce.as_str())
+        {
           Ok(Some(launch.clone()))
         } else {
           Err(invalid("retained launch has different resources"))
@@ -579,18 +637,34 @@ impl Journal {
     } else if sequence != 1 {
       return Err(invalid("initial launch sequence must be one"));
     }
-    if self
-      .index
-      .values()
-      .filter_map(|entry| entry.launch.as_ref())
-      .any(|launch| !launch.released() && launch.resources.conflicts(&resources))
+    if job
+      .mutation
+      .as_ref()
+      .and_then(|ledger| ledger.unresolved_resources())
+      .is_some_and(|held| held != &resources)
     {
+      return Err(invalid(
+        "mutation recovery changes its retained physical resources",
+      ));
+    }
+    if self.index.iter().any(|(owner, entry)| {
+      entry
+        .launch
+        .as_ref()
+        .is_some_and(|launch| !launch.released() && launch.resources.conflicts(&resources))
+        || (owner != key
+          && entry
+            .mutation_resources
+            .as_ref()
+            .is_some_and(|held| held.conflicts(&resources)))
+    }) {
       return Ok(None);
     }
-    if job.view.cancel_requested_at.is_some() {
+    if job.view.cancel_requested_at.is_some() && recovery.is_none() {
       return Err(invalid("cancelled job cannot create a launch intent"));
     }
-    let launch = Launch::new(sequence, resources)?;
+    let mut launch = Launch::new(sequence, resources)?;
+    launch.mutation_recovery = recovery.map(|record| record.nonce.clone());
     if let Some(crate::dispatch::Progress::FilesYielded { scope, .. }) = &job.execution {
       if job
         .working
@@ -613,6 +687,169 @@ impl Journal {
   pub fn launch(&self, key: &Key) -> io::Result<Option<Launch>> {
     self.bindings()?;
     Ok(self.job(key)?.and_then(|job| job.launch))
+  }
+
+  /// Retain exact unit intent before effects. A retained response never permits repetition.
+  /// The caller must use an owned mutation profile and supply fresh target commit guards.
+  pub(crate) fn stage_mutation(
+    &mut self,
+    key: &Key,
+    sequence: u64,
+    intent: crate::mutation::Rename,
+  ) -> io::Result<crate::mutation::Staged> {
+    use crate::mutation::{Phase, Record, Staged};
+
+    intent.validate()?;
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("mutation job is not retained"))?;
+    let ledger = job
+      .mutation
+      .as_mut()
+      .ok_or_else(|| invalid("job has no mutation profile"))?;
+    let launch = job
+      .launch
+      .as_ref()
+      .ok_or_else(|| invalid("mutation has no worker launch"))?;
+    let ProcessState::Granted { identity, grant } = &launch.worker.state else {
+      return Err(invalid("mutation requires its original granted worker"));
+    };
+    if job.view.result.is_some()
+      || job.view.cancel_requested_at.is_some()
+      || launch.mutation_recovery.is_some()
+      || launch.origin_boot() != Some(crate::launch::boot_id()?.as_str())
+      || launch.resources != intent.resources
+    {
+      return Err(invalid(
+        "mutation is completed, cancelled, or outside its current grant",
+      ));
+    }
+    let worker = Grant {
+      key: key.clone(),
+      launch: launch.token.clone(),
+      process: launch.worker.token.clone(),
+      nonce: grant.clone(),
+      identity: identity.clone(),
+      resources: launch.resources.clone(),
+    };
+    if let Some(record) = &ledger.current {
+      if record.sequence == sequence {
+        return if record.intent == intent && record.worker == worker {
+          Ok(Staged::Retained(record.clone()))
+        } else {
+          Err(invalid(
+            "retained mutation has different intent or ownership",
+          ))
+        };
+      }
+      if record.phase.unresolved() || record.sequence.checked_add(1) != Some(sequence) {
+        return Err(invalid(
+          "mutation predecessor is uncertain or sequence is retired",
+        ));
+      }
+    } else if sequence != 1 {
+      return Err(invalid("initial mutation sequence must be one"));
+    }
+    let record = Record {
+      sequence,
+      nonce: random_token()?,
+      launch_sequence: launch.sequence,
+      worker,
+      intent,
+      phase: Phase::Intended,
+    };
+    ledger.current = Some(record.clone());
+    self.update(job)?;
+    Ok(Staged::New(record))
+  }
+
+  /// Publish the original worker's observation; uncertain effects require separate recovery.
+  pub(crate) fn finish_mutation(
+    &mut self,
+    key: &Key,
+    nonce: &str,
+    phase: crate::mutation::Phase,
+  ) -> io::Result<()> {
+    self.mutation_observation(key, nonce, phase, false)
+  }
+
+  /// Resolve retained uncertainty only after exact original worker and helper absence.
+  /// The recovery executor must first establish fresh source/destination identity evidence.
+  pub(crate) fn recover_mutation(
+    &mut self,
+    key: &Key,
+    nonce: &str,
+    phase: crate::mutation::Phase,
+  ) -> io::Result<()> {
+    self.mutation_observation(key, nonce, phase, true)
+  }
+
+  fn mutation_observation(
+    &mut self,
+    key: &Key,
+    nonce: &str,
+    phase: crate::mutation::Phase,
+    recovery: bool,
+  ) -> io::Result<()> {
+    use crate::mutation::Phase;
+
+    if phase == Phase::Intended || (recovery && phase == Phase::Uncertain) {
+      return Err(invalid("observation is not a resolved mutation outcome"));
+    }
+    self.bindings()?;
+    let mut job = self
+      .job(key)?
+      .ok_or_else(|| invalid("mutation job is not retained"))?;
+    let ledger = job
+      .mutation
+      .as_mut()
+      .ok_or_else(|| invalid("job has no mutation profile"))?;
+    let record = ledger
+      .current
+      .as_mut()
+      .ok_or_else(|| invalid("mutation has no retained unit"))?;
+    if job.view.result.is_some() || record.nonce != nonce {
+      return Err(invalid("mutation observation differs from retained intent"));
+    }
+    if record.phase == phase {
+      return Ok(());
+    }
+    let launch = job
+      .launch
+      .as_ref()
+      .ok_or_else(|| invalid("mutation launch is absent"))?;
+    if recovery {
+      if !record.phase.unresolved()
+        || !launch.released()
+        || !record.worker.identity.exited()?
+        || launch.mutation_recovery.as_deref() != Some(record.nonce.as_str())
+      {
+        return Err(invalid("mutation recovery lacks exact process absence"));
+      }
+    } else if record.phase != Phase::Intended
+      || launch.sequence != record.launch_sequence
+      || !matches!(&launch.worker.state, ProcessState::Granted { identity, grant }
+        if identity == &record.worker.identity && grant == &record.worker.nonce)
+    {
+      return Err(invalid(
+        "mutation observation lacks its original live grant",
+      ));
+    }
+    if phase == Phase::Moved {
+      ledger.completed_units = ledger
+        .completed_units
+        .checked_add(1)
+        .ok_or_else(|| invalid("mutation counter overflow"))?;
+    }
+    record.phase = phase;
+    self.update(job)
+  }
+
+  /// Read retained unit evidence. This does not grant recovery, repetition, or source effects.
+  pub(crate) fn mutation(&self, key: &Key) -> io::Result<Option<crate::mutation::Ledger>> {
+    self.bindings()?;
+    Ok(self.job(key)?.and_then(|job| job.mutation))
   }
 
   /// Return the bounded live execution index without filesystem enumeration.
@@ -976,6 +1213,7 @@ impl Journal {
       .ok_or_else(|| invalid("job has no launch intent"))?;
     if launch.token != launch_token
       || slot >= 2
+      || launch.mutation_recovery.is_some()
       || !matches!(launch.worker.state, ProcessState::Granted { .. })
     {
       return Err(invalid("helper has no current worker grant"));
@@ -1045,9 +1283,10 @@ impl Journal {
       return Err(invalid("process grant has another or unknown launch boot"));
     }
     let resources = launch.resources.clone();
+    let recovery = launch.mutation_recovery.is_some();
     let process = find_process(launch, process_token)?;
     let nonce = match &process.state {
-      ProcessState::Intent if job.view.cancel_requested_at.is_none() => random_token()?,
+      ProcessState::Intent if job.view.cancel_requested_at.is_none() || recovery => random_token()?,
       ProcessState::Granted {
         identity: previous,
         grant,
@@ -1155,6 +1394,13 @@ impl Journal {
     }
     if job.launch.as_ref().is_some_and(|launch| !launch.released()) {
       return Err(invalid("job retains an unresolved process reservation"));
+    }
+    if let Some(ledger) = &job.mutation {
+      if ledger.unresolved_resources().is_some() || result.effects != ledger.completed_units {
+        return Err(invalid(
+          "terminal result does not resolve retained mutation effects",
+        ));
+      }
     }
     job.revision = job
       .revision
@@ -1297,6 +1543,11 @@ impl Journal {
         launch: job.launch,
         executing: job.execution.is_some(),
         working: job.working.is_some(),
+        mutation_resources: job
+          .mutation
+          .as_ref()
+          .and_then(|ledger| ledger.unresolved_resources())
+          .cloned(),
       },
     );
     self.healthy = true;
@@ -1518,11 +1769,18 @@ impl Journal {
           || (previous.observations.is_none()
             && phase
             && matches!(next.execution, Some(crate::dispatch::Progress::Result { ref terminal }) if terminal.exit_code == 0));
+        let mutation = next.mutation != previous.mutation
+          && next.view == previous.view
+          && next.launch == previous.launch
+          && next.execution == previous.execution
+          && matches!((&previous.mutation, &next.mutation), (Some(old), Some(new))
+            if old.successor(new));
         if next.view.key != previous.view.key
           || next.input != previous.input
           || Some(next.revision) != previous.revision.checked_add(1)
           || (previous.view.result.is_some() && !(working && next.working.is_none()))
-          || (!completion && !execution && !phase && !cancellation && !working)
+          || (!completion && !execution && !phase && !cancellation && !working && !mutation)
+          || (next.mutation != previous.mutation && !mutation)
           || !working_valid
           || !output
           || !observations
@@ -1622,6 +1880,8 @@ struct Job {
   observations: Option<crate::observations::Observations>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   working: Option<FilesWork>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  mutation: Option<crate::mutation::Ledger>,
 }
 
 impl Job {
@@ -1632,6 +1892,53 @@ impl Job {
   fn validate(&self) -> io::Result<()> {
     validate_key(&self.view.key)?;
     validate_input(&self.input)?;
+    if let Some(launch) = self
+      .launch
+      .as_ref()
+      .filter(|launch| launch.mutation_recovery.is_some())
+    {
+      if self
+        .mutation
+        .as_ref()
+        .and_then(|ledger| ledger.current.as_ref())
+        .is_none_or(|record| {
+          launch.mutation_recovery.as_deref() != Some(record.nonce.as_str())
+            || launch.sequence <= record.launch_sequence
+            || launch.resources != record.intent.resources
+        })
+      {
+        return Err(invalid(
+          "read-only recovery launch differs from its retained mutation",
+        ));
+      }
+    }
+    if let Some(ledger) = &self.mutation {
+      ledger.validate(&self.view.key)?;
+      if self.execution.is_some()
+        || self.working.is_some()
+        || self.view.invocation.is_some()
+        || (self.view.result.is_some() && ledger.unresolved_resources().is_some())
+        || self
+          .view
+          .result
+          .as_ref()
+          .is_some_and(|result| result.effects != ledger.completed_units)
+        || ledger.current.as_ref().is_some_and(|record| {
+          self.launch.as_ref().is_none_or(|launch| {
+            record.launch_sequence > launch.sequence
+              || (record.launch_sequence == launch.sequence
+                && (record.worker.launch != launch.token
+                  || record.worker.process != launch.worker.token
+                    || record.worker.resources != launch.resources
+                    || !matches!(&launch.worker.state,
+                      ProcessState::Granted { identity, grant } | ProcessState::Exited { identity, grant }
+                        if identity == &record.worker.identity && grant == &record.worker.nonce)))
+          })
+        })
+      {
+        return Err(invalid("mutation evidence differs from its owning job"));
+      }
+    }
     if let Some(work) = &self.working {
       work.validate()?;
       if self.execution.is_none()
@@ -1824,6 +2131,7 @@ struct Entry {
   launch: Option<Launch>,
   executing: bool,
   working: bool,
+  mutation_resources: Option<Resources>,
 }
 
 fn working_name(key: &Key) -> String {

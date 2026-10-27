@@ -50,7 +50,7 @@ impl ProcessIdentity {
     Ok(Self::read(self.pid)?.as_ref() != Some(self))
   }
 
-  fn validate(&self) -> io::Result<()> {
+  pub(crate) fn validate(&self) -> io::Result<()> {
     if self.pid == 0
       || self.pid > i32::MAX as u32
       || self.boot.is_empty()
@@ -121,6 +121,9 @@ pub struct Launch {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub boot: Option<String>,
   pub resources: Resources,
+  /// Exact unresolved unit observed by this read-only launch, including after cancellation.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub mutation_recovery: Option<String>,
   pub worker: Process,
   pub helpers: [Option<Process>; 2],
 }
@@ -133,6 +136,7 @@ impl Launch {
       token: random_token()?,
       boot: Some(boot_id()?),
       resources,
+      mutation_recovery: None,
       worker: Process::new()?,
       helpers: [None, None],
     })
@@ -160,6 +164,16 @@ impl Launch {
       valid_boot(boot)?;
     }
     self.resources.validate()?;
+    if let Some(nonce) = &self.mutation_recovery {
+      valid_token(nonce)?;
+      if !matches!(self.resources, Resources::Bulk { .. })
+        || self.helpers.iter().any(Option::is_some)
+      {
+        return Err(invalid(
+          "mutation recovery requires bulk resources without helpers",
+        ));
+      }
+    }
     self.worker.validate()?;
     for process in std::iter::once(&self.worker).chain(self.helpers.iter().flatten()) {
       let process_boot = match &process.state {
@@ -211,6 +225,7 @@ impl Launch {
       || self.token != next.token
       || self.boot != next.boot
       || self.resources != next.resources
+      || self.mutation_recovery != next.mutation_recovery
       || next.validate().is_err()
     {
       return false;

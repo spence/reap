@@ -1,6 +1,9 @@
 use super::*;
 use std::os::unix::fs::symlink;
 
+#[cfg(target_os = "macos")]
+mod mutation;
+
 struct Fixture(PathBuf);
 
 impl Fixture {
@@ -800,6 +803,7 @@ fn pending_durable_admission_is_recovered_without_a_second_identity() {
     pages: vec![],
     observations: None,
     working: None,
+    mutation: None,
     view: View {
       key: key.clone(),
       created_at: 1,
