@@ -15,6 +15,9 @@ Scope: applying Cargo plans, including `plan`, `clean`, `sweep`, and maintenance
   regular-file type, device, inode, and link-count fields. Unknown evidence refuses the target.
   The health and vnode probes each have five-second deadlines and 512 KiB output limits.
   No per-candidate host-wide process scan or target discovery supplies this guard.
+  A granted worker uses its owned helper channel for the missing-name batch, without another untracked process.
+  The helper retains its granted PID through `exec`. Timeout refuses evidence without releasing unresolved ownership.
+  The private request and evidence bounds are defined by [SPEC-WORKER-GRANTS C9](worker-grants.md).
 - **C2 — Protected survivor and independent progress.** A candidate survives when an executable
   in the snapshot equals its physical path or is inside its removal directory. Unrelated inactive
   candidates remain reclaimable. Actual removed counts exclude protected survivors; incomplete
@@ -42,6 +45,12 @@ directory that contains the image, and release the old image after native exit. 
 the verified Data alias, including independent removal and exact partial counts. It also covers
 intermediate aliases, unlinked images, remaining hard links, and symlink leaves.
 A refuse-all implementation cannot pass.
+
+`process_scoped_vnodes_require_complete_coverage_and_bounded_evidence` covers complete, truncated,
+missing-PID and oversized captures. `native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence`
+requires the caller image's actual device/inode from the granted helper and retains both EOF guards.
+`helper_probe_deadline_retains_sequence_after_a_partial_reply` covers a cumulative wait with partial framing.
+These helper bindings do not prove Cargo caller migration or per-unit freshness.
 
 `tests/native_activity_fault.c` supplies capacity, missing-caller, and denied-path faults to the
 owned CLI. Each must return failure with unchanged candidate bytes. Fault libraries and native

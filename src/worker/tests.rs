@@ -339,7 +339,7 @@ fn owned_helpers_use_their_own_tokens_and_keep_worker_reservations() {
 #[cfg(target_os = "macos")]
 #[test]
 fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
-  for case in ["complete", "stderr", "partial", "path_leak"] {
+  for case in ["complete", "vnodes", "stderr", "partial", "path_leak"] {
     let fixture = Fixture::new();
     fs::write(fixture.0.join("valuable"), b"activity survivor").unwrap();
     let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
@@ -347,7 +347,13 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
     let directory = File::open(&fixture.0).unwrap();
     let physical_volumes = crate::volumes::resolve(&directory).unwrap();
     let probe = Task::Probe {
-      probe: crate::activity::Probe::Health,
+      probe: if case == "vnodes" {
+        crate::activity::Probe::TextVnodes {
+          pids: vec![std::process::id() as i32],
+        }
+      } else {
+        crate::activity::Probe::Health
+      },
       physical_volumes: physical_volumes.clone(),
     };
     assert!(matches!(
@@ -472,6 +478,12 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
           evidence: crate::activity::Evidence::Healthy
         })
       ));
+    } else if case == "vnodes" {
+      use std::os::unix::fs::MetadataExt;
+      let metadata = fs::metadata(std::env::current_exe().unwrap()).unwrap();
+      assert!(matches!(done.report, Ok(Report::Probed {
+        evidence: crate::activity::Evidence::TextVnodes { identities }
+      }) if identities.contains(&(metadata.dev(),metadata.ino()))));
     } else {
       let error = done.report.unwrap_err();
       assert!(!error.contains("SECRET"));
@@ -965,6 +977,7 @@ fn private_helper_client_refuses_wrong_incomplete_and_mismatched_replies() {
       resources: &Resources::Resolver,
       request_id: 0,
       activity_failure: None,
+      channel_failure: None,
       first_seen_cache: None,
       observed: BTreeSet::new(),
     };
@@ -1139,17 +1152,74 @@ fn failed_activity_evidence_is_not_retried_for_later_selections() {
     resources: &resources,
     request_id: 0,
     activity_failure: None,
+    channel_failure: None,
     first_seen_cache: None,
     observed: BTreeSet::new(),
   };
   let first = helpers.activity(vec!["/first".into()]).unwrap_err();
   let second = helpers.activity(vec!["/second".into()]).unwrap_err();
+  let executable = helpers.executables(Path::new("/unread")).err().unwrap();
   assert_eq!(first.to_string(), second.to_string());
+  assert_eq!(first.to_string(), executable.to_string());
   assert!(first.to_string().contains("activity path is unavailable"));
   assert!(first.to_string().contains("name bytes 15"));
   assert!(!first.to_string().contains("SECRET"));
   assert_eq!(helpers.request_id, 1);
   thread.join().unwrap();
+}
+
+#[test]
+fn helper_probe_deadline_retains_sequence_after_a_partial_reply() {
+  let (mut client, mut server) = UnixStream::pair().unwrap();
+  let (release, released) = std::sync::mpsc::channel();
+  let thread = std::thread::spawn(move || {
+    let request: HelperRequest =
+      serde_json::from_slice(&receive_packet(&mut server).unwrap()).unwrap();
+    assert!(matches!(
+      request.task,
+      Task::Probe {
+        probe: crate::activity::Probe::Health,
+        ..
+      }
+    ));
+    server.write_all(&32_u32.to_be_bytes()).unwrap();
+    server.write_all(b"{").unwrap();
+    let _ = released.recv_timeout(Duration::from_secs(1));
+    server.set_nonblocking(true).unwrap();
+    match server.read(&mut [0_u8; 1]) {
+      Err(reason) if reason.kind() == io::ErrorKind::WouldBlock => false,
+      Ok(0) => false,
+      _ => true,
+    }
+  });
+  let resources = Resources::Bulk {
+    physical_volumes: vec!["fixture-physical".into()],
+  };
+  let mut helpers = Helpers::fixture(&mut client, &resources);
+  let started = Instant::now();
+  let result = helpers.request(
+    Task::Probe {
+      probe: crate::activity::Probe::Health,
+      physical_volumes: vec!["fixture-physical".into()],
+    },
+    Some(started + Duration::from_millis(100)),
+  );
+  let elapsed = started.elapsed();
+  let following = helpers.run(Task::Probe {
+    probe: crate::activity::Probe::Health,
+    physical_volumes: vec!["fixture-physical".into()],
+  });
+  let sequence = helpers.request_id;
+  let _ = release.send(());
+  let later_bytes = thread.join().unwrap();
+  assert!(matches!(
+    result.unwrap_err().kind(),
+    io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+  ));
+  assert!(elapsed < Duration::from_secs(1));
+  assert_eq!(sequence, 1);
+  assert!(following.is_err());
+  assert!(!later_bytes);
 }
 
 #[test]
@@ -1197,6 +1267,7 @@ fn first_seen_lookups_use_cache_pages_and_batches_not_one_round_trip_per_declara
     resources: &resources,
     request_id: 0,
     activity_failure: None,
+    channel_failure: None,
     first_seen_cache: None,
     observed: BTreeSet::new(),
   };
@@ -1244,6 +1315,7 @@ fn invalid_first_seen_pages_refuse_without_partial_credit_or_repeated_requests()
       resources: &resources,
       request_id: 0,
       activity_failure: None,
+      channel_failure: None,
       first_seen_cache: None,
       observed: BTreeSet::new(),
     };

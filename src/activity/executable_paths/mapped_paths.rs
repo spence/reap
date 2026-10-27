@@ -38,7 +38,10 @@ pub(super) fn observe(pids: &BTreeSet<i32>) -> io::Result<BTreeSet<(u64, u64)>> 
 }
 
 /// Require every selected PID, complete NUL framing, and known vnode type, identity, and links.
-fn decode(bytes: &[u8], pids: &BTreeSet<i32>) -> io::Result<BTreeSet<(u64, u64)>> {
+pub(in crate::activity) fn decode(
+  bytes: &[u8],
+  pids: &BTreeSet<i32>,
+) -> io::Result<BTreeSet<(u64, u64)>> {
   let body = bytes.strip_suffix(b"\0\n").ok_or_else(incomplete)?;
   let (mut headers, mut covered, mut identities) =
     (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());

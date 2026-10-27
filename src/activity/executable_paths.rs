@@ -1,13 +1,12 @@
 //! Bounded executable observations with explicit evidence for already unlinked images.
 
-#[cfg(target_os = "macos")]
-mod mapped_paths;
+pub(super) mod mapped_paths;
 
 use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};
 
-const MAX_PROCESSES: usize = 32768;
+pub(super) const MAX_PROCESSES: usize = 32768;
 const MAX_CANDIDATE_ENTRIES: usize = 131072;
 
 /// Native paths and mapped-vnode identities from processes without a resolvable executable name.
@@ -70,17 +69,37 @@ impl Snapshot {
 /// Missing processes are harmless. Unknown paths or incomplete enumeration refuse the snapshot.
 /// This observation does not serialize an external process start after the snapshot.
 pub(crate) fn snapshot(root: &Path) -> io::Result<Snapshot> {
+  snapshot_with(root, mapped_paths::observe)
+}
+
+/// Use the caller's supervised collector for unresolved executable names.
+/// The collector must return complete native vnode evidence or refuse the snapshot.
+pub(crate) fn snapshot_with(
+  root: &Path,
+  observe: impl FnOnce(&BTreeSet<i32>) -> io::Result<BTreeSet<(u64, u64)>>,
+) -> io::Result<Snapshot> {
   if !root.is_absolute() {
     return Err(io::Error::new(
       io::ErrorKind::InvalidInput,
       "activity root is not absolute",
     ));
   }
-  native(root)
+  #[cfg(target_os = "macos")]
+  {
+    native(root, observe)
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    let _ = observe;
+    native(root)
+  }
 }
 
 #[cfg(target_os = "macos")]
-fn native(root: &Path) -> io::Result<Snapshot> {
+fn native(
+  root: &Path,
+  observe: impl FnOnce(&BTreeSet<i32>) -> io::Result<BTreeSet<(u64, u64)>>,
+) -> io::Result<Snapshot> {
   use std::os::unix::ffi::OsStringExt;
   let roots = aliases(root)?;
 
@@ -133,7 +152,7 @@ fn native(root: &Path) -> io::Result<Snapshot> {
   let mapped = if unresolved.is_empty() {
     BTreeSet::new()
   } else {
-    mapped_paths::observe(&unresolved)?
+    observe(&unresolved)?
   };
   Ok(Snapshot {
     paths,

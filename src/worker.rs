@@ -473,6 +473,7 @@ pub(crate) struct Helpers<'a> {
   resources: &'a Resources,
   request_id: u64,
   activity_failure: Option<String>,
+  channel_failure: Option<String>,
   first_seen_cache: Option<Result<BTreeMap<String, u64>, String>>,
   observed: BTreeSet<String>,
 }
@@ -535,6 +536,7 @@ impl Helpers<'_> {
       resources,
       request_id: 0,
       activity_failure: None,
+      channel_failure: None,
       first_seen_cache: None,
       observed: BTreeSet::new(),
     }
@@ -648,6 +650,52 @@ impl Helpers<'_> {
     self.resources
   }
 
+  /// Preserve the native executable census and collect missing names through owned helpers.
+  /// A failed observation remains a veto for later selections in this worker.
+  pub(crate) fn executables(
+    &mut self,
+    root: &std::path::Path,
+  ) -> io::Result<crate::activity::ExecutableSnapshot> {
+    if let Some(reason) = &self.activity_failure {
+      return Err(invalid(reason));
+    }
+    if !matches!(self.resources, Resources::Bulk { .. }) {
+      return Err(invalid("executable inspection requires a bulk grant"));
+    }
+    let result = crate::activity::executables_with(root, |pids| {
+      let Resources::Bulk { physical_volumes } = self.resources else {
+        return Err(invalid("executable inspection requires a bulk grant"));
+      };
+      let task = Task::Probe {
+        probe: crate::activity::Probe::TextVnodes {
+          pids: pids.iter().copied().collect(),
+        },
+        physical_volumes: physical_volumes.clone(),
+      };
+      task.validate()?;
+      if serde_json::to_vec(&task)?.len() > MAX_PACKET {
+        return Err(invalid("executable process set exceeds its request bound"));
+      }
+      self.request(
+        Task::Probe {
+          probe: crate::activity::Probe::Health,
+          physical_volumes: physical_volumes.clone(),
+        },
+        Some(Instant::now() + Duration::from_secs(5)),
+      )?;
+      match self.request(task, Some(Instant::now() + Duration::from_secs(5)))? {
+        Report::Probed {
+          evidence: crate::activity::Evidence::TextVnodes { identities },
+        } => Ok(identities.into_iter().collect()),
+        _ => Err(invalid("executable helper returned another evidence kind")),
+      }
+    });
+    if let Err(reason) = &result {
+      self.activity_failure = Some(reason.to_string().chars().take(2048).collect());
+    }
+    result
+  }
+
   /// One complete host-wide scan for this candidate set; never one scan per candidate.
   pub(crate) fn activity(&mut self, directories: Vec<PathBuf>) -> io::Result<Vec<bool>> {
     if let Some(reason) = &self.activity_failure {
@@ -685,6 +733,14 @@ impl Helpers<'_> {
   }
 
   pub(crate) fn run(&mut self, task: Task) -> io::Result<Report> {
+    self.request(task, None)
+  }
+
+  /// A probe deadline bounds this worker's wait, not the native helper's lifetime or reservation.
+  fn request(&mut self, task: Task, deadline: Option<Instant>) -> io::Result<Report> {
+    if let Some(reason) = &self.channel_failure {
+      return Err(invalid(reason));
+    }
     task.validate()?;
     if task.resources() != *self.resources {
       return Err(invalid(
@@ -701,29 +757,57 @@ impl Helpers<'_> {
       return Err(invalid("helper request exceeds its bound"));
     }
     self.request_id = request_id;
-    send_packet(self.pipe, &bytes)?;
-    // only this worker waits; the fixed coordinator continues polling and serving control
-    self.pipe.set_read_timeout(None)?;
-    let mut length = [0; 4];
-    self.pipe.read_exact(&mut length)?;
-    let length = u32::from_be_bytes(length) as usize;
-    if length == 0 || length > MAX_PACKET {
-      return Err(invalid("invalid helper reply size"));
+    let reply = (|| -> io::Result<HelperReply> {
+      let send_deadline = Instant::now() + Duration::from_secs(1);
+      send_packet_until(
+        self.pipe,
+        &bytes,
+        deadline.map_or(send_deadline, |limit| limit.min(send_deadline)),
+      )?;
+      // only this worker waits; the fixed coordinator continues polling and serving control
+      self.pipe.set_read_timeout(None)?;
+      let mut length = [0; 4];
+      if let Some(deadline) = deadline {
+        crate::launch::read_frame(self.pipe, &mut length, deadline)?;
+      } else {
+        self.pipe.read_exact(&mut length)?;
+      }
+      let length = u32::from_be_bytes(length) as usize;
+      if length == 0 || length > MAX_PACKET {
+        return Err(invalid("invalid helper reply size"));
+      }
+      let mut bytes = vec![0; length];
+      if let Some(deadline) = deadline {
+        crate::launch::read_frame(self.pipe, &mut bytes, deadline)?;
+      } else {
+        self.pipe.read_exact(&mut bytes)?;
+      }
+      let reply: HelperReply = serde_json::from_slice(&bytes)?;
+      if reply.request_id != self.request_id {
+        return Err(invalid("helper reply belongs to another request"));
+      }
+      if let Ok(report) = &reply.result {
+        validate_report(report)?;
+        if !request.task.accepts(report) {
+          return Err(invalid(
+            "helper result does not match its requested operation",
+          ));
+        }
+      }
+      Ok(reply)
+    })();
+    match reply {
+      Ok(reply) => reply.result.map_err(|reason| invalid(&reason)),
+      Err(reason) => {
+        self.channel_failure = Some(
+          format!("helper channel is unavailable: {reason}")
+            .chars()
+            .take(2048)
+            .collect(),
+        );
+        Err(reason)
+      }
     }
-    let mut bytes = vec![0; length];
-    self.pipe.read_exact(&mut bytes)?;
-    let reply: HelperReply = serde_json::from_slice(&bytes)?;
-    if reply.request_id != self.request_id {
-      return Err(invalid("helper reply belongs to another request"));
-    }
-    let report = reply.result.map_err(|reason| invalid(&reason))?;
-    validate_report(&report)?;
-    if !request.task.accepts(&report) {
-      return Err(invalid(
-        "helper result does not match its requested operation",
-      ));
-    }
-    Ok(report)
   }
 }
 
@@ -1534,6 +1618,7 @@ pub fn run(launch: &str, process: &str) -> i32 {
         resources: &grant.resources,
         request_id: 0,
         activity_failure: None,
+        channel_failure: None,
         first_seen_cache: None,
         observed: BTreeSet::new(),
       };
@@ -1589,10 +1674,13 @@ fn command(launch: &Launch, process: &str) -> io::Result<Command> {
 }
 
 fn send_packet(pipe: &mut UnixStream, bytes: &[u8]) -> io::Result<()> {
+  send_packet_until(pipe, bytes, Instant::now() + Duration::from_secs(1))
+}
+
+fn send_packet_until(pipe: &mut UnixStream, bytes: &[u8], deadline: Instant) -> io::Result<()> {
   if bytes.is_empty() || bytes.len() > MAX_PACKET {
     return Err(invalid("invalid worker packet size"));
   }
-  let deadline = Instant::now() + Duration::from_secs(1);
   for mut part in [(bytes.len() as u32).to_be_bytes().as_slice(), bytes] {
     while !part.is_empty() {
       let remaining = deadline

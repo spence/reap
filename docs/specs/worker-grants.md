@@ -38,12 +38,20 @@
   A successful helper reply follows complete result framing or native parser completion, EOF, native exit, and durable exit observation.
   Cancellation, occupied slots, incomplete output, and uncertain ownership cannot become successful helper evidence.
   Coordinator loss closes the private channel; recovery never repeats uncertain work to reconstruct its reply.
-- **C9** — A native activity helper executes only fixed system health or open-handle probes.
+- **C9** — A native activity helper executes only fixed system health, open-handle, or process-scoped text-vnode probes.
   It replaces its executable without creating another process, after its exact identity-bound grant.
   Output uses a bounded health capture or streaming activity fields, separate from stderr.
   Nonempty stderr, invalid or incomplete output, missing EOF, unsuccessful exit, or uncertain release refuses evidence.
   A selection batches at most 1024 removal paths into one open-handle scan; excess capacity refuses the whole batch.
   The 64 KiB private-request bound also applies; long paths can require an earlier capacity refusal.
+  Text-vnode requests contain at most 32,768 unique positive PIDs and retain the same request bound.
+  Their 512 KiB capture requires complete coverage of every PID, regular-file type, device, inode, and link count.
+  Replies contain only sorted unique nonzero device/inode pairs, within 48 KiB of serialized evidence.
+  Unknown, oversized, or incomplete evidence refuses the snapshot; no truncated subset is successful evidence.
+  Each supervised executable health or vnode request has one cumulative five-second worker wait.
+  Expiry refuses the snapshot. It does not terminate the helper or release its native reservation.
+  A transport, reply-framing, or invalid-reply failure makes the worker's channel unusable for all later requests.
+  No later helper or unit request is sent on that channel. A complete semantic refusal does not desynchronize it.
   A pending native helper retains its process and physical slots; control observation does not wait for its exit.
 
 ## Boundary
@@ -107,6 +115,7 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 | Clauses | Executable binding |
 | --- | --- |
 | C9 | `native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence`; `native_files_batches_activity_helpers_and_preserves_open_and_retained_work`; `activity::tests` |
+| C9 | `process_scoped_vnodes_require_complete_coverage_and_bounded_evidence`; `helper_probe_deadline_retains_sequence_after_a_partial_reply` |
 | C1, C2, C5 | `unresolved_launch_reserves_all_volumes_across_restart_without_blocking_other_volumes` |
 | C2 | `resource_sets_require_sorted_unique_safe_keys`; `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |
 | C1, C3 | `ungranted_child_exits_without_effects_and_ambiguous_intent_is_not_replaced` |

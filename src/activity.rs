@@ -3,7 +3,10 @@
 mod executable_paths;
 
 pub(crate) use executable_paths::snapshot as executables;
+pub(crate) use executable_paths::snapshot_with as executables_with;
+pub(crate) use executable_paths::Snapshot as ExecutableSnapshot;
 
+use std::collections::BTreeSet;
 use std::io;
 use std::path::PathBuf;
 
@@ -11,12 +14,16 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_TARGETS: usize = 1024;
 const HEALTH_BYTES: usize = 512 * 1024;
+const MAX_VNODE_EVIDENCE_BYTES: usize = 48 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "probe", rename_all = "snake_case", deny_unknown_fields)]
 /// Fixed native operations; callers cannot supply an executable or arguments.
 pub enum Probe {
   Health,
+  TextVnodes {
+    pids: Vec<i32>,
+  },
   Handles {
     directories: Vec<PathBuf>,
   },
@@ -31,12 +38,22 @@ pub enum Probe {
 /// Complete health or positional activity flags; no host-wide paths leave the collector.
 pub enum Evidence {
   Healthy,
+  TextVnodes { identities: Vec<(u64, u64)> },
   Handles { active: Vec<bool> },
 }
 
 impl Probe {
   pub(crate) fn validate(&self) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
+    if let Self::TextVnodes { pids } = self {
+      if pids.is_empty()
+        || pids.len() > executable_paths::MAX_PROCESSES
+        || pids.iter().any(|pid| *pid <= 0)
+        || pids.iter().copied().collect::<BTreeSet<_>>().len() != pids.len()
+      {
+        return Err(io::Error::other("invalid executable vnode process set"));
+      }
+    }
     if let Self::HandlesForWorker { worker, .. } = self {
       worker.validate()?;
     }
@@ -61,6 +78,14 @@ impl Probe {
   pub(crate) fn accepts(&self, evidence: &Evidence) -> bool {
     match (self, evidence) {
       (Self::Health, Evidence::Healthy) => true,
+      (Self::TextVnodes { .. }, Evidence::TextVnodes { identities }) => {
+        !identities.is_empty()
+          && identities
+            .iter()
+            .all(|(device, inode)| *device != 0 && *inode != 0)
+          && identities.windows(2).all(|pair| pair[0] < pair[1])
+          && serde_json::to_vec(evidence).is_ok_and(|bytes| bytes.len() <= MAX_VNODE_EVIDENCE_BYTES)
+      }
       (
         Self::Handles { directories } | Self::HandlesForWorker { directories, .. },
         Evidence::Handles { active },
@@ -76,11 +101,31 @@ impl Probe {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    let (program, arguments): (_, &[&str]) = match self {
-      Self::Health => ("/bin/ps", &["-axo", "state=,etime=,comm="]),
-      Self::Handles { .. } | Self::HandlesForWorker { .. } => {
-        ("/usr/sbin/lsof", &["-n", "-P", "-F0tn"])
+    let (program, arguments): (_, Vec<String>) = match self {
+      Self::Health => ("/bin/ps", vec!["-axo".into(), "state=,etime=,comm=".into()]),
+      Self::TextVnodes { pids } => {
+        let selected = pids
+          .iter()
+          .map(i32::to_string)
+          .collect::<Vec<_>>()
+          .join(",");
+        (
+          "/usr/sbin/lsof",
+          vec![
+            "-nP".into(),
+            "-a".into(),
+            "-p".into(),
+            selected,
+            "-d".into(),
+            "txt".into(),
+            "-F0pftDik".into(),
+          ],
+        )
       }
+      Self::Handles { .. } | Self::HandlesForWorker { .. } => (
+        "/usr/sbin/lsof",
+        vec!["-n".into(), "-P".into(), "-F0tn".into()],
+      ),
     };
     let output = match pipe.try_clone() {
       Ok(output) => output,
@@ -114,6 +159,7 @@ impl Probe {
 /// Keep bounded health output or one activity field and one flag per requested directory.
 pub(crate) enum Capture {
   Health(Vec<u8>),
+  TextVnodes { pids: BTreeSet<i32>, bytes: Vec<u8> },
   Handles(crate::quarantine::ActivityFields),
 }
 
@@ -121,6 +167,10 @@ impl Capture {
   pub(crate) fn new(probe: &Probe) -> Self {
     match probe {
       Probe::Health => Self::Health(Vec::new()),
+      Probe::TextVnodes { pids } => Self::TextVnodes {
+        pids: pids.iter().copied().collect(),
+        bytes: Vec::new(),
+      },
       Probe::Handles { directories } | Probe::HandlesForWorker { directories, .. } => {
         Self::Handles(crate::quarantine::ActivityFields::multiple(
           directories.clone(),
@@ -131,9 +181,9 @@ impl Capture {
 
   pub(crate) fn push(&mut self, bytes: &[u8]) -> io::Result<()> {
     match self {
-      Self::Health(output) => {
+      Self::Health(output) | Self::TextVnodes { bytes: output, .. } => {
         if output.len().saturating_add(bytes.len()) > HEALTH_BYTES {
-          return Err(io::Error::other("activity health output exceeds its bound"));
+          return Err(io::Error::other("activity probe output exceeds its bound"));
         }
         output.extend_from_slice(bytes);
         Ok(())
@@ -149,6 +199,19 @@ impl Capture {
       Self::Health(output) => {
         health(&output)?;
         Ok(Evidence::Healthy)
+      }
+      Self::TextVnodes { pids, bytes } => {
+        let evidence = Evidence::TextVnodes {
+          identities: executable_paths::mapped_paths::decode(&bytes, &pids)?
+            .into_iter()
+            .collect(),
+        };
+        if serde_json::to_vec(&evidence)?.len() > MAX_VNODE_EVIDENCE_BYTES {
+          return Err(io::Error::other(
+            "executable vnode evidence exceeds its reply bound",
+          ));
+        }
+        Ok(evidence)
       }
       Self::Handles(fields) => fields
         .finish_all()
@@ -207,6 +270,53 @@ fn elapsed_seconds(elapsed: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn process_scoped_vnodes_require_complete_coverage_and_bounded_evidence() {
+    let probe: Probe = serde_json::from_value(serde_json::json!({
+      "probe":"text_vnodes","pids":[7,8]
+    }))
+    .unwrap();
+    probe.validate().unwrap();
+    let bytes = b"p7\0\nftxt\0tREG\0D0x1\0i12\0k0\0\np8\0\nftxt\0tREG\0D0x1\0i13\0k1\0\n";
+    let mut capture = Capture::new(&probe);
+    for chunk in bytes.chunks(3) {
+      capture.push(chunk).unwrap();
+    }
+    let evidence = capture.finish().unwrap();
+    assert!(probe.accepts(&evidence));
+    assert_eq!(
+      serde_json::to_value(&evidence).unwrap(),
+      serde_json::json!({
+        "evidence":"text_vnodes","identities":[[1,12],[1,13]]
+      })
+    );
+    for bad in [
+      bytes[..bytes.len() - 1].to_vec(),
+      b"p7\0\nftxt\0tREG\0D0x1\0i12\0k0\0\n".to_vec(),
+    ] {
+      let mut capture = Capture::new(&probe);
+      capture.push(&bad).unwrap();
+      assert!(capture.finish().is_err());
+    }
+    for pids in [vec![], vec![0], vec![-1], vec![7, 7], vec![1; 32769]] {
+      let invalid: Probe =
+        serde_json::from_value(serde_json::json!({"probe":"text_vnodes","pids":pids})).unwrap();
+      assert!(invalid.validate().is_err());
+    }
+    assert!(Capture::new(&probe)
+      .push(&vec![b'x'; HEALTH_BYTES + 1])
+      .is_err());
+    let mut large = b"p7\0\n".to_vec();
+    for inode in 1..=2000 {
+      large
+        .extend_from_slice(format!("ftxt\0tREG\0D0xffffffffffffffff\0i{inode}\0k1\0\n").as_bytes());
+    }
+    large.extend_from_slice(b"p8\0\nftxt\0tREG\0D0x1\0i1\0k1\0\n");
+    let mut capture = Capture::new(&probe);
+    capture.push(&large).unwrap();
+    assert!(capture.finish().is_err());
+  }
 
   #[cfg(target_os = "macos")]
   #[test]

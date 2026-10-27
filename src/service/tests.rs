@@ -594,14 +594,36 @@ mod native {
       project.to_str().unwrap().into(),
       "--apply".into(),
     ];
-    let key = key(&fixture);
+    let mut job_key = key(&fixture);
     let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
     fixture.call(Role::ContextResolver, Request::Ping);
-    let admitted = client.submit(input.clone(), Some(key.clone()));
-    assert_eq!(admitted.state, State::Pending, "{admitted:?}");
-    let done = client.wait(key.clone(), Duration::from_secs(30));
-    assert_eq!(done.state, State::Completed, "{done:?}");
-    assert_eq!(done.key.as_ref(), Some(&key));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let done = loop {
+      let admitted = client.submit(input.clone(), Some(job_key.clone()));
+      assert_eq!(admitted.state, State::Pending, "{admitted:?}");
+      let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .unwrap_or_default();
+      let done = client.wait(job_key.clone(), remaining);
+      assert_eq!(done.state, State::Completed, "{done:?}");
+      let terminal = done.job.as_ref().unwrap().result.as_ref().unwrap();
+      let detail: serde_json::Value = serde_json::from_str(&terminal.detail).unwrap();
+      let held = format!("{}: open handle within this path", disposable.display());
+      if terminal.effects != 0
+        || detail["worker_observation"]["unknown_effects"] != false
+        || detail["worker_observation"]["last_blocked"] != held
+      {
+        break done;
+      }
+      assert!(
+        Instant::now() < deadline,
+        "owned fixture stayed active: {done:?}"
+      );
+      // this completed zero-effect job is closed; a fresh request waits for the handle to close
+      thread::sleep(Duration::from_millis(25));
+      job_key = key(&fixture);
+    };
+    assert_eq!(done.key.as_ref(), Some(&job_key));
     let job = done.job.as_ref().unwrap();
     assert_eq!(job.invocation.as_ref().unwrap().mode, "apply");
     assert_eq!(job.result.as_ref().unwrap().effects, 2);
@@ -628,11 +650,11 @@ mod native {
       fs::read(kept.join("valuable")).unwrap(),
       b"unrelated kept work"
     );
-    assert_eq!(client.submit(input, Some(key.clone())).job, done.job);
+    assert_eq!(client.submit(input, Some(job_key.clone())).job, done.job);
     fixture.stop(Role::StateWriter);
     fixture.install(Role::StateWriter);
     fixture.epoch();
-    assert_eq!(client.show(key).job, done.job);
+    assert_eq!(client.show(job_key).job, done.job);
     assert_eq!(
       crate::quarantine::load_index(&qdir).unwrap().entries.len(),
       1
