@@ -1,5 +1,9 @@
 //! Fixed native activity probes. The granted helper becomes the tool without another PID.
 
+mod executable_paths;
+
+pub(crate) use executable_paths::snapshot as executables;
+
 use std::io;
 use std::path::PathBuf;
 
@@ -181,6 +185,36 @@ fn elapsed_seconds(elapsed: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn native_executable_snapshot_includes_its_live_caller() {
+    let executable = std::env::current_exe().unwrap();
+    let root = executable.parent().unwrap();
+    assert!(executables(root)
+      .unwrap()
+      .paths
+      .contains(std::path::Path::new(executable.file_name().unwrap())));
+    assert!(executables(std::path::Path::new("relative")).is_err());
+  }
+
+  /// A copied signed test driver supplies an owned live executable for installed-path cases.
+  #[test]
+  fn executable_fixture_entry() {
+    let Some(root) = std::env::var_os("REAP_ACTIVE_EXECUTABLE_FIXTURE") else {
+      return;
+    };
+    let root = PathBuf::from(root);
+    std::fs::write(root.join("ready"), b"owned non-agent executable").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !root.join("release").exists() {
+      assert!(
+        std::time::Instant::now() < deadline,
+        "owned executable fixture expired"
+      );
+      std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+  }
 
   #[test]
   fn batch_retains_late_activity_and_requires_complete_bounded_evidence() {

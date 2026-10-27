@@ -701,7 +701,7 @@ mod tests {
       }],
     };
     fixture.role(protected.parent().unwrap(), "conversation_source");
-    assert_eq!(crate::plan::apply_plan(&plan), 1);
+    assert_eq!(crate::plan::apply_plan(&plan).unwrap(), 1);
     assert_eq!(fs::read(&protected).unwrap(), BYTES);
     assert!(!ordinary.exists());
   }
@@ -724,7 +724,7 @@ mod tests {
     fs::rename(candidate, fixture.0.join("original")).unwrap();
     let replacement = fixture.payload("candidate");
     fixture.role(candidate, "permanent_archive");
-    assert_eq!(crate::plan::apply_plan(&plan), 0);
+    assert_eq!(crate::plan::apply_plan(&plan).unwrap(), 0);
     assert_eq!(fs::read(&replacement).unwrap(), BYTES);
     assert_eq!(fs::read(fixture.0.join("original/payload")).unwrap(), BYTES);
   }

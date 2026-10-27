@@ -124,7 +124,7 @@ artifact, although the next build may need to recompile some crates.
 `reap` is conservative by construction, but it does not claim to know Cargo's
 exact live dependency graph.
 
-Its safety model has five layers:
+Its safety model has six layers:
 
 1. **bounded deletion**
 
@@ -147,7 +147,18 @@ Its safety model has five layers:
    `.reap.json` can protect path fragments and basename globs. Candidates are
    checked against those protections before deletion.
 
-5. **dry-run by default**
+5. **native executable activity**
+
+   Before applying one Cargo plan, Reap obtains a bounded native snapshot of
+   running executable paths. A matching file, or a removal directory that
+   contains one, survives. Incomplete process evidence refuses that target
+   without deletion. Independent inactive candidates can still be removed.
+   A missing executable name needs complete PID-scoped mapped-vnode evidence.
+   Missing names alone never grant removal permission. Candidate identity
+   walks have one 131,072-entry limit per plan and never follow symlink leaves.
+   An incomplete candidate walk preserves that candidate, not unrelated ones.
+
+6. **dry-run by default**
 
    Bare `reap`, `reap sweep`, and `reap plan` only print a plan. Deletion requires
    `--apply` or the explicit `reap clean` command.
@@ -158,6 +169,16 @@ For apply, Reap holds Cargo's per-profile `.cargo-lock` from planning through
 deletion. A busy build or lock error causes that target to be skipped. Dry-runs
 do not take this lock. This coordination is not available on NFS, so do not
 apply there during a build.
+
+The executable snapshot does not read executable contents. It does not
+serialize an external process start after the snapshot, replace the build
+lock or age brake, or identify every open data file or mapped library.
+On macOS, verified Data-volume aliases share the same executable protection.
+Candidate comparisons resolve parent aliases without following a final symlink.
+For unresolved PIDs only, one bounded `lsof` batch supplies mapped-file identities.
+Health and vnode probes each have five-second deadlines and 512 KiB output limits.
+This guard does not serialize outside namespace changes or make legacy applying
+commands use the prompt client route.
 
 ### command authority
 
