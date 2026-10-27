@@ -1,0 +1,213 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "internal_component_verified_full_work_active",
+  "source_revision": "20c71cc759db4a5b8dba3b4c82e4902bac91792d",
+  "branch": "feat/mutation-executor",
+  "source_manifest": {
+    "src/journal.rs": "e102deedf6ad55133203c9849100bfad84b5f0f2efc38252f6f88a81dba8eddd",
+    "src/journal/tests.rs": "3613a19f1de91c75597e73a566a7cbca9d076c4268bb3aaeebea530e15bed1ff",
+    "src/journal/tests/mutation.rs": "00453ca505cf21f170280a37e42fa31e0384968129137e9956fa22a7b8a4c81b",
+    "src/launch.rs": "cf5b66b55e908b228a353740045f8ffb9459809bbe0d865405387174c0870bf2",
+    "src/main.rs": "452c2099a836affe51d7f8efc72b77f1ff04d30143a1de1b54bb34606630fd62",
+    "src/mutation.rs": "f70a989d94fbcbe8643647c538791852265758261058d619d87019b0e5bf932a",
+    "src/mutation/native.rs": "d29ac920a8fbccef0af38a760ebe2fbb907955458be0c88136a133c11878f0f1",
+    "src/worker.rs": "9d15e95e95a6b08a487809cac86d09b84cf69e557fdf628d89f6cae09f29c127",
+    "src/worker/tests.rs": "0874a8898e354f7b3e534384ad74a7be57fe61e2fca4d38ec033617397ea6487",
+    "src/worker/tests/mutation.rs": "457cdbd73e757fb3ecba9b83bea9930a010345538e2e703270fd8dbff9169d3c",
+    "docs/specs/mutation-execution.md": "30f09ea1f9b48fa3c64db6d05aa783adf63d77657c11b9bed02e60399f42499c",
+    "tests/test_public_mutations.py": "6d22b985948b8983a5afcb379dd43b710abb060fd10c8ef15f4d80186b162325"
+  },
+  "full_source": {
+    "command": "CARGO_BUILD_JOBS=1 TMPDIR=/private/tmp cargo test --locked --target-dir target/control-t13/mutation-bridge/private-target -- --test-threads=1",
+    "exit": 0,
+    "unit_passed": 336,
+    "native_fault_cases_omitted": 5,
+    "lifecycle_passed": 57,
+    "declaration_passed": 23,
+    "external_volume_opt_ins": false
+  },
+  "native_test_driver": {
+    "sha256": "6b5ade5c20f1d6dcd5fd5c5856a76cd360e565707f75bb67f303710db172d979",
+    "leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+    "source_manifest": "review-sources-v3.json",
+    "source_executable": "target/debug/deps/reap-b474d274394e83a9",
+    "bytes": 28793680
+  },
+  "catalyst": {
+    "journal": {
+      "summaries": [
+        "test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 303 filtered out; finished in 44.19s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 0
+    },
+    "worker": {
+      "summaries": [
+        "test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 8.64s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 0
+    },
+    "control": {
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 340 filtered out; finished in 0.04s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.78s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 7
+    },
+    "service": {
+      "summaries": [
+        "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 327 filtered out; finished in 23.11s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 48
+    },
+    "launch": {
+      "summaries": [
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 328 filtered out; finished in 1.33s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 0
+    }
+  },
+  "catalyst_mini": {
+    "journal": {
+      "summaries": [
+        "test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 303 filtered out; finished in 28.63s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 0
+    },
+    "worker": {
+      "summaries": [
+        "test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 7.32s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 0
+    },
+    "control": {
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 340 filtered out; finished in 0.02s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.60s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 7
+    },
+    "service": {
+      "summaries": [
+        "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 327 filtered out; finished in 21.57s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 48
+    },
+    "launch": {
+      "summaries": [
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 328 filtered out; finished in 1.10s"
+      ],
+      "verification_exit": 0,
+      "runtime_removed": true,
+      "owned_labels_absent": 0
+    }
+  },
+  "native_faults": {
+    "service": 4,
+    "launch": 1,
+    "fault_library_sha256": "4b33dfe1f17d78ee44d0c0eba4f7beefc1f2fda30795472a422946f8c94620a2"
+  },
+  "independent_review": {
+    "provider": "claude-code",
+    "account": "gmail",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "execution_profile": "workspace",
+    "peer": "peer-18e2424d7e77b4c0-387185",
+    "conversation": "conversation-18e2424d7fa0eab0-387189",
+    "accepted_request": "cmsg-18e2450fdde02130-391806",
+    "accepted_source_manifest": "review-sources-v3.json",
+    "required_findings": [
+      "destination preservation role guard",
+      "retained and mismatched permission actuator proof"
+    ],
+    "wire_overflow_red": "wire-bound-red-v2.log",
+    "wire_overflow_green": "wire-bound-green.log"
+  },
+  "retained_failures": [
+    {
+      "log": "full-rust-v3.log",
+      "unit_passed": 309,
+      "unit_failed": 27,
+      "classification": "running shared test executable disappeared; later self-spawns returned ENOENT; no product correction was applied to obtain the private-target pass"
+    },
+    {
+      "log": "full-rust-private-v3.log",
+      "lifecycle_passed": 56,
+      "lifecycle_failed": 1,
+      "classification": "CARGO_TARGET_DIR inherited by the owned nested Cargo fixture changed its lock location; the corrected invocation uses the parent --target-dir flag"
+    },
+    {
+      "log": "recovery-native-v2.log",
+      "passed": 15,
+      "failed": 1,
+      "classification": "fixture supplied stale Intended phase instead of the retained Uncertain record; exact record equality stayed enforced"
+    }
+  ],
+  "active_executable_issue": {
+    "citation": "ISS-CARGO-CLEANUP-DELETES-A-RUNNING-EXECUTAB",
+    "state": "planned",
+    "follow_up": "MS-LIFETIME-ENFORCE.T19",
+    "reproduction": {
+      "fixture": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-repro-yntrploq",
+      "installed_binary": "/Users/spencer/.cargo/bin/reap",
+      "exit": 0,
+      "stdout": "reap APPLY (deleting)\n  project\n    target : /Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-repro-yntrploq/project/target\n    debug/deps dups                    2 items    197.50 KiB\n    TOTAL                              2 items    197.50 KiB   <- planned\n    removed 2/2 planned item(s)\n",
+      "stderr": "",
+      "owned_pid": 73122,
+      "owned_process_still_live": true,
+      "old_active_path_survives": false,
+      "old_inactive_path_survives": false,
+      "newest_path_survives": true
+    },
+    "overlap": {
+      "maintenance_started_unix": 1793071649,
+      "maintenance_finished_unix": 1793071713,
+      "target": "/Users/spencer/src/reap/target",
+      "removed_items": 2765,
+      "exact_missing_file_attribution_proven": false
+    },
+    "native_probe_cost": {
+      "per_path_seconds": 0.2651116668712348,
+      "batch_snapshot": {
+        "listed_pids": 950,
+        "known_executable_paths": 918,
+        "error_counts": {
+          "3": 31
+        },
+        "elapsed_seconds": 0.013975625159218907,
+        "filesystem_path_reads": 0
+      }
+    }
+  },
+  "not_delivered": [
+    "public applying adapters",
+    "ordinary default KEEP creation",
+    "all fresh lifetime/legacy guards",
+    "old-reader barriers and conversion",
+    "native symlink/deletion/copy/policy units",
+    "installed product update",
+    "provider-native archive adapters and separate source release",
+    "remaining full-goal requirements"
+  ],
+  "evidence_root": "target/control-t13/mutation-bridge",
+  "mini_evidence_root": "/private/tmp/reap-cores-transport-8yjfimnx/mutation-t19-v2"
+}
