@@ -1,0 +1,260 @@
+{
+  "schema": "reap.proof.parents-executor/v1",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "work_state": "active",
+  "boundary": "Accepted Parent registration source checkpoint with native fixtures. Not installed parent acceptance, full T19 or combined-goal completion.",
+  "source_revision": "47fcc3998e2c1aaef1b556696541de12123cb17e",
+  "source_files_sha256": {
+    "README.md": "98f477eb521874e7a795812a9193a294dd6014f707b5021f6bdfb0acace297c6",
+    "docs/specs/invocation.md": "78f7ba2cab693bb0e68ad95460128280fa7b92d1d248ff4220180a48b758d8dd",
+    "docs/specs/job-client.md": "90da51c27b9ec5b91ccd73b2bff9c9afd752bc2bbf000b80e2a161470f03a1e1",
+    "docs/specs/mutation-execution.md": "0395fc4f0fcb82d6c0b9cdb49e5e9ff457bbcbad8eef2499ed17d421e6689f4b",
+    "skill/SKILL.md": "d0ce85a6e050cdc962076ad9a1dbca68f0fd595a4c695141de3e69ea48d8918a",
+    "src/activity.rs": "7b80943eeb9bf0eabc9ce64e8e05f7fa6752515b73dee81cf0876c0cc5efaf02",
+    "src/client.rs": "03ef424f28f3a5321069bdd5af0acc670c8615963fe3f773c11b706a895cac33",
+    "src/dispatch.rs": "3e0c3e60bfb321bb51b7880d4f9f2d7e37e49714fe541064a81362432c892916",
+    "src/dispatch/lease_job.rs": "779623ba6d4fd4554169f45138bd74d247d6c33657e19ebd962e3a0c1b96faef",
+    "src/dispatch/store_job.rs": "411d50b9587b799e45ffbcd9c3846a493bf40c2d2b06a8c81d1cf37eaf5340f8",
+    "src/dispatch/tests.rs": "69034b59dfc784bd66f9aefcb4cc151179b7367aa8425c078d511a030270bb8f",
+    "src/dispatch/tests/lease.rs": "3dc443998593d60b2ad007d02c80a2edd102bb365d215e97db6149b7d0fad308",
+    "src/dispatch/tests/stores.rs": "da4b29dd449287bac77fd18315caa62fd2f687a31a6817caf464567b9e959f84",
+    "src/invocation.rs": "2033bbec6f0d8e3cd42f1794eca70016e9aa09397dc80bdc524f107886e580c7",
+    "src/journal.rs": "5a29d9f4194b0ff1751d064d2c4f49ecbdf290fe484d8e54115203fd402f9097",
+    "src/main.rs": "7f830186c98681a667df458330f4710736ec7a09e433a72c926eb32bbbfe695c",
+    "src/parents.rs": "e0512a18ce6a99ddb383c41d774446c08fce20a0ffbc0ad8d19a00ac4460dc68",
+    "src/quarantine.rs": "298cce67c35465281c897ef02ad1108b39ce58ed33c4ddc2284d70316e3546c7",
+    "src/worker.rs": "c2d102d2b9f633eb51bbddce7818b42fb5872b7907f8a511b3812dc7cecc7865",
+    "tests/lifecycle_state.rs": "6684bfa3c3cf69e4d530fdb18223b6ba45843ecc99d3b9bc773639b6992349ec",
+    "tests/test_preservation.py": "8eb06c6d7c9a7fa7a90b316e5904ebcde419d3e45b83a6b44c92ad3fe2a466c1",
+    "tests/test_public_mutations.py": "9139cf22c32e96687354704746a4491f8bbfa20a11b73e38401e50fb10923ae0"
+  },
+  "frozen_artifacts": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/parents-executor-app-v6/app",
+      "sha256": "d547e97ba00ed497f8add1f0ce9d6b80f0ed6fd264a07ada531dae218dc3a6d6",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27482560,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/parents-executor-unit-v6-diagnostic/unit",
+      "sha256": "6754e9d8d36152566e646d6641d75a35ba394b24c23a37213887792502fb586c",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 36681728,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    }
+  },
+  "root_binary_units": {
+    "passed": 420,
+    "failed": 0,
+    "ignored": 6,
+    "filtered": 0,
+    "seconds": 723.86,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/parents-whole-unit-diagnostic-v6.log",
+      "sha256": "bbd702ba9973997ec390f53a6a12b36cc58cb3d69416936ad55be8f3fcd12061",
+      "bytes": 41428
+    }
+  },
+  "mini_parent_selection": {
+    "passed": 5,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 421,
+    "seconds": 14.04,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/parents-mini-native-full-v6.log",
+      "sha256": "e8e2fa09f9812662888d1a3c1c3071c80e2c65ca352f6d5241ac692be9334feb",
+      "bytes": 667
+    }
+  },
+  "native_unit_identity_before_after": [
+    {
+      "path": "target/control-t13/mutation-bridge/parents-root-pre-v6.json",
+      "sha256": "cf6c4c10cccff050611a08d6ca381d65d27cbd76c23923ec447440c8aeaee0bc",
+      "bytes": 721
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/parents-root-post-v6.json",
+      "sha256": "cf6c4c10cccff050611a08d6ca381d65d27cbd76c23923ec447440c8aeaee0bc",
+      "bytes": 721
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/parents-mini-pre-v6.json",
+      "sha256": "adef021eb5ad83568da70ce7438560bc2ad8a8ddf428c5618fac264259740e6f",
+      "bytes": 693
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/parents-mini-post-v6.json",
+      "sha256": "adef021eb5ad83568da70ce7438560bc2ad8a8ddf428c5618fac264259740e6f",
+      "bytes": 693
+    }
+  ],
+  "all_rust_targets_compile": {
+    "targets": 3,
+    "integration_targets_executed": false,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/parents-build-diagnostic-v6.log",
+      "sha256": "d480a89448e3b40a8e7d0d117c690d9816ced7d93f0f623b9eaba61d104c5154",
+      "bytes": 865
+    }
+  },
+  "public_regressions": {
+    "passed": 2,
+    "failed": 0,
+    "selection_seconds": 0.685,
+    "outcome_boundary": "Prompt Parent-arm refusal through the older installed cohort and read-only Parent listing; not installed positive registration.",
+    "final": {
+      "path": "target/control-t13/mutation-bridge/parents-public-green-v6.log",
+      "sha256": "8e0b52a4f2b66aa6a7aaf2d1bb6608b3325515d08849ba33be47b90e6438a7d5",
+      "bytes": 430
+    },
+    "old_config_fifo": {
+      "path": "target/control-t13/mutation-bridge/parents-client-config-red-v1.log",
+      "sha256": "40a803ffcd7188a1f4ec6948c9f864c74b5a291588e369448063df8fbc9a17b4",
+      "bytes": 2707
+    },
+    "old_listing_state_write": {
+      "path": "target/control-t13/mutation-bridge/parents-list-no-write-red-v1.log",
+      "sha256": "3a0227e3f0f460d1f3f27cca125394eda9ce6035c91d2f30ed1a841549f91e25",
+      "bytes": 905
+    },
+    "help": {
+      "path": "target/control-t13/mutation-bridge/parents-help-v6.log",
+      "sha256": "7c57129119b8e3b3aa892bac7dbf6784c963f60e58268b46b857df64197096be",
+      "bytes": 3489
+    }
+  },
+  "direct_stop_witnesses": {
+    "parent": {
+      "stops": 12,
+      "positive_and_negative_cases": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 421,
+        "seconds": 17.54,
+        "log": {
+          "path": "target/control-t13/mutation-bridge/parents-focused-v4.log",
+          "sha256": "bf1c99a35dd71626375b9e91a47d2a26f5df0d00af45bee8590bc3d8ebf30e04",
+          "bytes": 667
+        }
+      },
+      "final_full_run_includes_case": true,
+      "mini_final_run_includes_case": true
+    },
+    "lease": {
+      "stops": 15,
+      "case": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 425,
+        "seconds": 16.25,
+        "log": {
+          "path": "target/control-t13/mutation-bridge/parents-lease-crash-v4.log",
+          "sha256": "eb126742d2a1e4ec8b384773333594fca4ccd362df32726a335e24f97680f3c7",
+          "bytes": 225
+        }
+      },
+      "final_full_run_includes_case": true
+    },
+    "store": {
+      "stops": 24,
+      "case": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 425,
+        "seconds": 84.19,
+        "log": {
+          "path": "target/control-t13/mutation-bridge/parents-store-crash-v4.log",
+          "sha256": "3a4b61cfc7495557b971e412c48452c3df322ea4d2a699670669eea0a1acdd6a",
+          "bytes": 232
+        }
+      },
+      "final_full_run_includes_case": true
+    },
+    "invariants": [
+      "Exact selected stop evidence is required; early refusal cannot pass.",
+      "Parent visible publication prefix, unit sequence, completed count and marker/index agreement are required.",
+      "Replay preserves marker native identity and bytes, the ledger, and child data."
+    ]
+  },
+  "review": {
+    "peer": "peer-18e2cfcc3f3274a0-548431",
+    "conversation": "conversation-18e2cfcc41540c80-548435",
+    "final_accepted_request": "cmsg-18e2d56a3ace8f40-557909",
+    "initial_rejection": {
+      "path": "target/control-t13/mutation-bridge/parents-review-round1-v1.json",
+      "sha256": "08290f633ab774e101a228e091c133c777dac0cc97800a5ca189e34a31ba325e",
+      "bytes": 7596
+    },
+    "corrected_parent_acceptance": {
+      "path": "target/control-t13/mutation-bridge/parents-review-accepted-v1.json",
+      "sha256": "babd3a5038219acd788a4193efd6ad1cc0fb34a520a48fa8d24f8db96dad141e",
+      "bytes": 6375
+    },
+    "final_acceptance": {
+      "path": "target/control-t13/mutation-bridge/parents-diagnostic-final-accepted-v1.json",
+      "sha256": "81398911e8e9074f3575b6b157556e8930c2acc117d3d47bc6d3a0e45698e1f0",
+      "bytes": 4222
+    },
+    "state": "Final source accepted. Runtime, installed-positive, fleet/cutover and full-goal gates remain open."
+  },
+  "retained_activity_failure": {
+    "full_run": {
+      "passed": 419,
+      "failed": 1,
+      "ignored": 6,
+      "filtered": 0,
+      "seconds": 678.69,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/parents-whole-unit-v4.log",
+        "sha256": "a2ecc5e56a5f0a9239a7f7633855b5ec28e86c1d19e40b2dde737133a8d13769",
+        "bytes": 43948
+      }
+    },
+    "effects": 0,
+    "historical_handle_owner": "unknown",
+    "fixture": "target/control-t13/dispatch-8c35d58b373f1b2667f88a165bd2e907",
+    "cause_repaired": false,
+    "issue": "ISS-CLASSIFY-NATIVE-ACTIVITY-REFUSALS-WITHOU",
+    "diagnostic": {
+      "path": "target/control-t13/mutation-bridge/parents-whole-failure-diagnostic-v1.json",
+      "sha256": "de12f0ed228f748af93c8df248d36a992ac2fb5c356ac95ac4bf4e6fb6f03a0c",
+      "bytes": 39689
+    },
+    "later_observation": {
+      "path": "target/control-t13/mutation-bridge/parents-store-refusal-live-probe-v1.json",
+      "sha256": "6ba68187f5adcfb8db82b62772afd48c24c88c77da28a77c1d8d6ba5351d0f56",
+      "bytes": 100
+    },
+    "finding": "The exact final Store stop was absent because a real open-handle guard refused the unlink with zero effects. Later passing runs and an empty current probe do not identify the historical actor or establish repair. This is distinct from the Mini host-wide activity-tool health veto."
+  },
+  "storage": {
+    "all_quick_checks_internal": true,
+    "root_device": 16777232,
+    "mini_device": 16777234
+  },
+  "open_gates": [
+    "Five native fault-library cases and one inventory-cost case were ignored; separate acceptance remains open.",
+    "Complete Rust integration runtime and full-scale efficiency remain open.",
+    "Other applying families, remaining foreground reads, NativeFiles bookkeeping, cross-volume recovery and old-reader fences remain required.",
+    "Installed positive effects, protected survivors, preservation/workspace recipes, same-Micro fleet release and applicable operator guides remain required.",
+    "Default-KEEP creation, safe conversion, native conversation custody/retrieval and separate source release remain required.",
+    "The historical activity-veto cause remains unresolved; guards and mandatory stop evidence were not weakened."
+  ],
+  "activation": {
+    "product_installed": false,
+    "operator_guides_deployed": false,
+    "lifetime_conversion": false,
+    "conversation_source_pruned": false
+  }
+}
