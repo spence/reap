@@ -1,0 +1,257 @@
+{
+  "schema": "reap.proof.stores-executor/v1",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "work_state": "active",
+  "boundary": "Accepted source checkpoint with native fixtures. Not installed Store acceptance, full T19 or combined-goal completion.",
+  "source_revision": "156dc1e41b95603efa245a3ad90ab0f41296dbdf",
+  "source_files_sha256": {
+    "README.md": "8dee40c0fcaeddbe59f5c54743c9dca6760c975eae13e9cd5bcd715b386a6fee",
+    "docs/specs/invocation.md": "3d3c4c9be12db04d9d6661912ff09824cf8f76a60bc44501edb9884eb9f3aa22",
+    "docs/specs/job-client.md": "569e318f2acbd282420a10a9635e8644890113af8496051319b8cece226109f4",
+    "docs/specs/mutation-execution.md": "c620c118a46c2bd252868fb76e833d4f12a5e012b6d4a423b0aaa1667229b80c",
+    "skill/SKILL.md": "866055347ad897fa052f4f58689929d0aff737953aa0d00ac8859d39e3d5e5eb",
+    "src/client.rs": "0b505026e5343d386d742a3ef20c9ae8bc1233456f741751c4b922183f7b3d9f",
+    "src/discover.rs": "48ffb228f89687f02c7ced07d8e3a349a3b1a0d3f8cc6117db3395fc1488ba8f",
+    "src/dispatch.rs": "5a2996eeee1249a2973e55de487f3f421b6d5bd6db3e0cea9d9fe40edc7dcf26",
+    "src/dispatch/cargo_job.rs": "71f407df640bc85b7abb5ae01201b55353c2b35afbb7b3a7e5247fdd8cf42693",
+    "src/dispatch/cargo_job/applying.rs": "1e9dc199f303b996dd325c3217e298d22cd6ba05c2cae7d663515ddc8c562b7f",
+    "src/dispatch/cargo_job/inventory.rs": {
+      "deleted": true
+    },
+    "src/dispatch/lease_job.rs": "e3ecb2a3570f6a15180785a5c853dd69830d82db785177f7e00297f724711284",
+    "src/dispatch/tests.rs": "e07d81dba9ad944c3468906a87b907563e956ee86c122ac0e70ade0cd46de381",
+    "src/files/applying.rs": "74eebec706cd87b888b0e2faa3f14905dc6044eebf3103e456c6c04bfe01e60a",
+    "src/invocation.rs": "19574ebc4ff904e71f47b44db8c92738e595f283343249e33c74b566b46093d5",
+    "src/journal.rs": "1c63fe8c649e69bdbdcf0fbd94c35b57cada961e77d57b15b054b108f3d6b6d5",
+    "src/main.rs": "9c3de1e9c2fb99e8ab949c97ee362f38b13cee11bfc3625294c69452e8217f05",
+    "src/maintenance.rs": "d147f1a62798fcc9e055dffcd3793c462ab3e5d536df07d68515bb8edc6ddae3",
+    "src/manifest.rs": "96f8e27a90e5f2054203eb67b4f6ad6c63090b47ac224aa52162e208e0db321d",
+    "src/quarantine.rs": "e5852f4f75917ec737cda6d5c7f907ed57ced3e1bd823a38a77844c2fd49380e",
+    "src/store_bindings.rs": "dfa1d46a70b43cd8a921122d3125eeef0c2860e3e3313eeab5158535f8616cd5",
+    "src/stores.rs": "a1aa916c29ff1f604af11d2d3e3d939ad9bd0ccec67e4cf97c999f166aa216f1",
+    "src/worker.rs": "2f582b6e6ad0afd59e1806e3b62a94070b81341848b2d48f6e7da48c7744e66f",
+    "tests/lifecycle_state.rs": "3dbaca5951f93c7fb5d6719fc2226d00aa09e9f78d64965cec8a9cd04d37136e",
+    "tests/test_preservation.py": "3af42c81ddbbcabb9aa9d58ce4403daad62b34c3e9e424bd36127d13ac95ab94",
+    "tests/test_public_check.py": "0e23010d532224f097a4d671b9482bd10b6b81dd408fdcd5285bad30a1954705",
+    "tests/test_public_mutations.py": "3a44a4baae49da36e3534cf9fe793e6fabdbbf199b88f896046a0abbf8a622a7",
+    "src/dispatch/inventory.rs": "8af512ffd7429b5567dfee80ce13f694defc24d13cf97d8afe7ee770db54121c",
+    "src/dispatch/store_job.rs": "ed9d6137541a53c3934f4af25b6d5296a8dabae0865684dd486745b0a2b26bec",
+    "src/dispatch/tests/stores.rs": "397f75661f2d764fc45a4ef5d3e994e88de41d7d8a13519c112d376c5d19ff4f"
+  },
+  "frozen_artifacts": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/stores-executor-frozen-v2/app",
+      "sha256": "f47260213e94e1ef5921a5643dd7a415c7f48f62ff8cfb075be7ef706c9197f7",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27481856,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/stores-executor-frozen-v2/unit",
+      "sha256": "e9453d66fc45238535db92f726262ab6dae8c57e163e50eb0c37d3dcb33fa7e4",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 36556176,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    }
+  },
+  "root_binary_units": {
+    "passed": 415,
+    "failed": 0,
+    "ignored": 6,
+    "seconds": 665.66,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/stores-source-units-v2.log",
+      "sha256": "0dd9d01a5bb02110f905d6bc2f5cbd5018ec22d47ad8d95869aefa5bb6845017",
+      "bytes": 40877
+    }
+  },
+  "mini_selected_native_cases": {
+    "passed": 47,
+    "failed": 0,
+    "ignored": 1,
+    "filtered": 373,
+    "native_store_cases": 14,
+    "seconds": 215.94,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/stores-mini-native-full-v2.log",
+      "sha256": "7c1f8f9b34b5b9842df068037083ea8f4e919ecee0f750950b72bf080df07323",
+      "bytes": 5583
+    }
+  },
+  "all_rust_targets_compile": {
+    "targets": 3,
+    "integration_targets_executed": false,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/stores-integration-compile-v3.log",
+      "sha256": "2c6b1abea148d6424fe15c8f6120aceb540f5fe67a627ee19e97b12e0d449824",
+      "bytes": 864
+    }
+  },
+  "native_identity_before_after": [
+    {
+      "path": "target/control-t13/mutation-bridge/stores-root-pre-v2.json",
+      "sha256": "15965608257ff9a9f9b5c78d775be93db32a1bd233e851669788854d9516a599",
+      "bytes": 1370
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/stores-root-post-v2.json",
+      "sha256": "15965608257ff9a9f9b5c78d775be93db32a1bd233e851669788854d9516a599",
+      "bytes": 1370
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/stores-mini-pre-v2.json",
+      "sha256": "9663dc784ee08dd176bac2b097dd6aa23ccef42c71b7a421272d411bc3097993",
+      "bytes": 1332
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/stores-mini-post-v2.json",
+      "sha256": "9663dc784ee08dd176bac2b097dd6aa23ccef42c71b7a421272d411bc3097993",
+      "bytes": 1332
+    }
+  ],
+  "client_fifo": {
+    "cases": 2,
+    "five_manifest_forms": [
+      {
+        "command": [
+          "stores"
+        ],
+        "elapsed_seconds": 0.27797200018540025,
+        "state": "failed",
+        "exit_code": 1
+      },
+      {
+        "command": [
+          "stores",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-19dt92w5/home/projects/fixture"
+        ],
+        "elapsed_seconds": 0.2104164999909699,
+        "state": "failed",
+        "exit_code": 1
+      },
+      {
+        "command": [
+          "stores",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-19dt92w5/home/projects/fixture",
+          "--apply"
+        ],
+        "elapsed_seconds": 0.012633125064894557,
+        "state": "unavailable",
+        "exit_code": 1
+      },
+      {
+        "command": [
+          "stores",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-19dt92w5/home/projects/fixture",
+          "--init"
+        ],
+        "elapsed_seconds": 0.015474040992558002,
+        "state": "unavailable",
+        "exit_code": 1
+      },
+      {
+        "command": [
+          "stores",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-19dt92w5/home/projects/fixture",
+          "--bind",
+          "runs",
+          "--to",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-19dt92w5/external-store"
+        ],
+        "elapsed_seconds": 0.02464083395898342,
+        "state": "unavailable",
+        "exit_code": 1
+      }
+    ],
+    "outcome_boundary": "Prompt failed/unavailable receipts through the older installed cohort; not useful cleanup.",
+    "log": {
+      "path": "target/control-t13/mutation-bridge/stores-client-fifo-green-v2.log",
+      "sha256": "49ec8a1a73f1f78f8414f5c479baaeea3399e7404723e086b6a2eee6b7346b0c",
+      "bytes": 1529
+    },
+    "old_configuration_red": {
+      "path": "target/control-t13/mutation-bridge/stores-client-config-red-v1.log",
+      "sha256": "40915d708513bbbba7656743dde5ee3b69f3dc4b8f72cea977ee2502a224346a",
+      "bytes": 2330
+    }
+  },
+  "native_byte_budget_case": {
+    "root": [],
+    "mini": [
+      "Store byte-budget case: 5 effects in 7.688s"
+    ],
+    "boundary": "Small fixture observations, not paired whole-cleanup performance or allocated-space proof."
+  },
+  "review": {
+    "peer": "peer-18e2caf13e7882c8-542109",
+    "conversation": "conversation-18e2caf13f654fe0-542113",
+    "accepted_request": "cmsg-18e2cdf6a2439e20-545001",
+    "round3": {
+      "path": "target/control-t13/mutation-bridge/stores-review-accepted-round3-v1.json",
+      "sha256": "852fa480830abd256dbd08c659677ccd29f66ecb884521375ba51975917eaefa",
+      "bytes": 11423
+    },
+    "final": {
+      "path": "target/control-t13/mutation-bridge/stores-review-accepted-final-v1.json",
+      "sha256": "511a17dc95e84e84c6a667310c6edffa542697b144a762c5cadd43675283ec23",
+      "bytes": 7494
+    },
+    "state": "Current source accepted; runtime and full-goal gates open."
+  },
+  "retained_failures": [
+    {
+      "path": "target/control-t13/mutation-bridge/stores-executor-full-v1.log",
+      "sha256": "0c0b07622530647201c2d61d778fc81b64eca6e4079489b8ead5e635884c0cbf",
+      "bytes": 42980
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/stores-mini-native-full-v1.log",
+      "sha256": "fa3640a3276bbbe32060544a12f56007fffdebfb0d1298db0bb6023a26003893",
+      "bytes": 9901
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/stores-installed-boundary-v2.log",
+      "sha256": "f40a0ccd7e6c2fa75c74df78e90dc67bebd35a0767c8dfa9cacc62215fca99c7",
+      "bytes": 1727
+    }
+  ],
+  "installed_diagnosis": {
+    "read": {
+      "path": "target/control-t13/mutation-bridge/stores-context-diagnostic-v1.json",
+      "sha256": "660477d54cf876f441133a8f20f7207d4fc574662153b65e67717a17eaa3dca3",
+      "bytes": 1265
+    },
+    "apply": {
+      "path": "target/control-t13/mutation-bridge/stores-context-diagnostic-apply-v1.json",
+      "sha256": "a94dbae46c543ed97bbf0790e1cb30a36e1d84711358da83ba80b62a42d24732",
+      "bytes": 881
+    },
+    "cohort": {
+      "path": "target/control-t13/mutation-bridge/stores-install-preflight-diagnostic-v1.json",
+      "sha256": "3a45a8fbc4a9030c0d140271ea9fb6bbd79e72a982efcc8744bc4b3084976a75",
+      "bytes": 2095
+    },
+    "finding": "The existing managed cohort is the earlier installed release. It rejects applying Store preparation and does not execute Store read jobs. No permission or OS repair is established or required by this evidence."
+  },
+  "open_gates": [
+    "Other applying callers and maintenance must share reservations before bridge activation.",
+    "NativeFiles slot/evidence units need complete journaling.",
+    "Cross-volume staged copy and separate source removal remain absent.",
+    "Full cargo test integration runtime and the five native fault-library gates remain required.",
+    "Installed positive cleanup, protected survivors, preservation/workspace recipes and operator guidance remain required on both Macs.",
+    "Healthy-scope activity progress and full-scale bounded discovery/efficiency remain unproved.",
+    "Default-KEEP creation, safe conversion, native conversation capture/retrieval and separate source-release/provider/consumer gates remain required."
+  ],
+  "activation": {
+    "product_installed": false,
+    "operator_guides_deployed": false,
+    "lifetime_conversion": false,
+    "conversation_source_pruned": false
+  }
+}
