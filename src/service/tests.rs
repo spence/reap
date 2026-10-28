@@ -4,7 +4,7 @@ mod native {
   use crate::control::RESPONSE_BUDGET;
   use sha2::{Digest, Sha256};
   use std::cell::Cell;
-  use std::fs;
+  use std::fs::{self, File};
   use std::path::Path;
   use std::process::Command;
   use std::time::{Duration, SystemTime};
@@ -86,7 +86,7 @@ mod native {
       let fault = if role == Role::StateWriter {
         self
           .fault
-          .filter(|mode| !["context", "execution"].contains(mode))
+          .filter(|mode| !["context", "execution", "files-activity"].contains(mode))
           .map(|mode| {
             let library = std::env::var("REAP_NATIVE_CONTROL_FAULT_LIBRARY")
               .expect("native sync fault library is required");
@@ -103,6 +103,12 @@ mod native {
             if self.fault == Some("execution") {
               format!(
                 "<key>REAP_NATIVE_EXECUTION_GATE</key><string>{}</string>",
+                self.root.join("gate").display()
+              )
+            } else if self.fault == Some("files-activity") {
+              format!(
+                "<key>REAP_NATIVE_FILES_UNIT_STOP</key><string>intended-activity</string>\n\
+                 <key>REAP_NATIVE_FILES_ACTIVITY_GATE</key><string>{}</string>",
                 self.root.join("gate").display()
               )
             } else {
@@ -551,9 +557,100 @@ mod native {
   }
 
   #[test]
+  fn native_cargo_client_applies_each_operation_and_replays_after_writer_restart() {
+    use crate::client::{Client, State};
+
+    for operation in ["plan", "clean", "sweep"] {
+      let fixture = Fixture::new();
+      fixture.install(Role::ContextResolver);
+      let mut input = intent(&fixture);
+      let project = fixture.root.join("cargo-project");
+      let target = project.join("target");
+      fs::create_dir_all(target.join("debug/deps")).unwrap();
+      fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+      fs::write(project.join("valuable"), b"retained source bytes").unwrap();
+      fs::write(
+        project.join(".reap"),
+        br#"{"version":1,"keep":{"reason":"active work"}}"#,
+      )
+      .unwrap();
+      fs::write(
+        target.join("CACHEDIR.TAG"),
+        format!("Signature: {}\n", crate::plan::CARGO_CACHEDIR_SIGNATURE),
+      )
+      .unwrap();
+      fs::write(
+        input.namespace.home.join(".config/reap/config.json"),
+        serde_json::to_vec(&serde_json::json!({
+          "roots":[project], "quarantine":{"auto_purge":false},
+        }))
+        .unwrap(),
+      )
+      .unwrap();
+      let old = target.join("debug/deps/libsample-1111111111111111.rlib");
+      let newest = target.join("debug/deps/libsample-2222222222222222.rlib");
+      let now = SystemTime::now();
+      for (path, bytes, age) in [
+        (&old, b"superseded build".as_slice(), 3600),
+        (&newest, b"newest build".as_slice(), 1800),
+      ] {
+        fs::write(path, bytes).unwrap();
+        File::open(path)
+          .unwrap()
+          .set_times(std::fs::FileTimes::new().set_modified(now - Duration::from_secs(age)))
+          .unwrap();
+      }
+      input.argv = vec![operation.into(), "--min-age-minutes".into(), "0".into()];
+      if operation != "clean" {
+        input.argv.push("--apply".into());
+      }
+      if operation != "sweep" {
+        input
+          .argv
+          .extend(["--".into(), project.to_str().unwrap().into()]);
+      }
+      let job_key = key(&fixture);
+      let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+      fixture.call(Role::ContextResolver, Request::Ping);
+      let started = Instant::now();
+      let admitted = client.submit(input.clone(), Some(job_key.clone()));
+      assert!(
+        started.elapsed() < Duration::from_millis(1250),
+        "{admitted:?}"
+      );
+      assert_eq!(admitted.state, State::Pending, "{admitted:?}");
+      assert_eq!(admitted.key.as_ref(), Some(&job_key));
+      let done = client.wait(job_key.clone(), Duration::from_secs(30));
+      assert_eq!(done.state, State::Completed, "{operation}: {done:?}");
+      let job = done.job.as_ref().unwrap();
+      let summary = job.invocation.as_ref().unwrap();
+      assert_eq!(summary.operation, operation);
+      assert_eq!(summary.mode, "apply");
+      assert_eq!(job.result.as_ref().unwrap().effects, 2);
+      assert!(!old.exists());
+      assert_eq!(fs::read(&newest).unwrap(), b"newest build");
+      assert_eq!(
+        fs::read(project.join("valuable")).unwrap(),
+        b"retained source bytes"
+      );
+      assert!(project.join(".reap").is_file());
+      assert_eq!(
+        client.submit(input.clone(), Some(job_key.clone())).job,
+        done.job
+      );
+      fixture.stop(Role::StateWriter);
+      fixture.install(Role::StateWriter);
+      fixture.epoch();
+      assert_eq!(client.show(job_key.clone()).job, done.job);
+      assert_eq!(client.submit(input, Some(job_key)).job, done.job);
+      assert_eq!(fs::read(&newest).unwrap(), b"newest build");
+    }
+  }
+
+  #[test]
   fn native_files_apply_client_commits_payload_and_index_and_replays_one_result() {
     use crate::client::{Client, State};
-    let fixture = Fixture::new();
+    let fixture = Fixture::with_fault(Some("files-activity"));
     fixture.install(Role::ContextResolver);
     let mut input = intent(&fixture);
     let project = fixture.root.join("apply-project");
@@ -598,28 +695,86 @@ mod native {
     let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
     fixture.call(Role::ContextResolver, Request::Ping);
     let deadline = Instant::now() + Duration::from_secs(30);
+    let mut repeated = false;
     let done = loop {
       let admitted = client.submit(input.clone(), Some(job_key.clone()));
       assert_eq!(admitted.state, State::Pending, "{admitted:?}");
+      let held_source = if !repeated {
+        let gate = fixture.root.join("gate");
+        let gate_deadline = Instant::now() + Duration::from_secs(5);
+        while !gate.join("intended").exists() {
+          assert!(
+            Instant::now() < gate_deadline,
+            "fixture did not reach retained intent"
+          );
+          thread::sleep(Duration::from_millis(5));
+        }
+        let file = File::open(disposable.join("payload")).unwrap();
+        fs::write(gate.join("release"), b"inspect the owned source handle").unwrap();
+        Some(file)
+      } else {
+        None
+      };
       let remaining = deadline
         .checked_duration_since(Instant::now())
         .unwrap_or_default();
       let done = client.wait(job_key.clone(), remaining);
-      assert_eq!(done.state, State::Completed, "{done:?}");
-      let terminal = done.job.as_ref().unwrap().result.as_ref().unwrap();
+      drop(held_source);
+      let job = done.job.as_ref().expect("retained fixture job");
+      let terminal = job.result.as_ref().expect("terminal fixture result");
       let detail: serde_json::Value = serde_json::from_str(&terminal.detail).unwrap();
       let held = format!("{}: open handle within this path", disposable.display());
-      if terminal.effects != 0
+      let before_intent = detail["worker_observation"]["last_blocked"] == held;
+      let slots = fs::read_dir(crate::quarantine::entries_dir(&qdir))
+        .and_then(|entries| entries.take(2).collect::<std::io::Result<Vec<_>>>())
+        .unwrap_or_default();
+      let before_move = slots.len() == 1
+        && slots[0].file_type().is_ok_and(|kind| kind.is_dir())
+        && fs::symlink_metadata(slots[0].path().join("disposable"))
+          .is_err_and(|reason| reason.kind() == std::io::ErrorKind::NotFound)
+        && detail["worker_observation"]["last_error"]
+          == format!(
+            "move {} -> {}: fresh activity preserves this unit; inspect {} before retrying",
+            disposable.display(),
+            slots[0].path().join("disposable").display(),
+            slots[0].path().display()
+          );
+      // a retained terminal proves the writer has closed all units and native process grants
+      if repeated
+        || done.state != State::Failed
+        || job.completed_at.is_none()
+        || terminal.exit_code != 1
+        || terminal.effects != 0
         || detail["worker_observation"]["unknown_effects"] != false
-        || detail["worker_observation"]["last_blocked"] != held
+        || !(before_intent || before_move)
       {
+        assert_eq!(done.state, State::Completed, "{done:?}");
         break done;
       }
+      assert_eq!(
+        fs::read(disposable.join("payload")).unwrap(),
+        b"authorized payload survives"
+      );
+      assert_eq!(
+        fs::read(disposable.join(".reap")).unwrap(),
+        br#"{"version":1,"expires":"2020-01-01T00:00:00Z","scratch":true}"#
+      );
+      assert_eq!(
+        fs::read(kept.join("valuable")).unwrap(),
+        b"unrelated kept work"
+      );
+      assert!(crate::quarantine::load_index(&qdir)
+        .unwrap()
+        .entries
+        .is_empty());
       assert!(
         Instant::now() < deadline,
         "owned fixture stayed active: {done:?}"
       );
-      // this completed zero-effect job is closed; a fresh request waits for the handle to close
+      repeated = true;
+      println!(
+        "Files fixture retained a terminal zero-effect activity veto before a fresh request"
+      );
       thread::sleep(Duration::from_millis(25));
       job_key = key(&fixture);
     };

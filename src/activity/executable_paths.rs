@@ -18,7 +18,7 @@ pub(crate) struct Snapshot {
 
 impl Snapshot {
   /// Preserve a known image or matching mapped inode. Unknown candidate evidence refuses removal.
-  /// Candidate walks never follow symlink leaves and share one fixed entry allowance per plan.
+  /// Candidate walks never follow symlink leaves and share one fixed entry allowance per snapshot.
   pub(crate) fn protects(&mut self, physical: &Path, relative: &Path) -> io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
     if self
@@ -63,13 +63,6 @@ impl Snapshot {
       .ok_or_else(|| io::Error::other("candidate activity walk exceeds its bound"))?;
     Ok(())
   }
-}
-
-/// Capture relative running executable paths inside an absolute physical target boundary.
-/// Missing processes are harmless. Unknown paths or incomplete enumeration refuse the snapshot.
-/// This observation does not serialize an external process start after the snapshot.
-pub(crate) fn snapshot(root: &Path) -> io::Result<Snapshot> {
-  snapshot_with(root, mapped_paths::observe)
 }
 
 /// Use the caller's supervised collector for unresolved executable names.
@@ -238,6 +231,17 @@ fn native(_: &Path) -> io::Result<Snapshot> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn relative_activity_roots_refuse_before_any_collection() {
+    let mut collected = false;
+    let result = snapshot_with(Path::new("relative"), |_| {
+      collected = true;
+      Ok(BTreeSet::new())
+    });
+    assert_eq!(result.err().unwrap().kind(), io::ErrorKind::InvalidInput);
+    assert!(!collected);
+  }
 
   #[test]
   fn abandoned_wide_candidates_cannot_reuse_the_shared_walk_allowance() {

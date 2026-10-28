@@ -371,6 +371,568 @@ fn native_cargo_apply_removes_only_inactive_output_and_keeps_policy_and_newest_b
 
 #[cfg(target_os = "macos")]
 #[test]
+fn native_cargo_regression_parent_components_use_kernel_alias_semantics() {
+  for mode in ["plain", "alias", "missing"] {
+    let fixture = Fixture::new();
+    let mut input = fixture.cargo_input(true);
+    let project = fixture.0.join("project");
+    let target = project.join("target");
+    fs::write(target.join("debug/.cargo-lock"), b"").unwrap();
+    let disposable = target.join("debug/incremental/disposable");
+    fs::create_dir(&disposable).unwrap();
+    fs::write(disposable.join("payload"), b"regenerable output").unwrap();
+    let path = match mode {
+      "plain" => {
+        fs::create_dir(fixture.0.join("step")).unwrap();
+        "step/../project"
+      }
+      "alias" => {
+        fs::create_dir(project.join("nested")).unwrap();
+        std::os::unix::fs::symlink(project.join("nested"), fixture.0.join("step")).unwrap();
+        "step/../target"
+      }
+      _ => "missing/../project",
+    };
+    let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+    intent.argv = vec!["clean".into(), path.into()];
+    input.request = serde_json::to_string(&intent).unwrap();
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let mut repeated = false;
+    let result = loop {
+      let epoch = journal.epoch();
+      let key = Key {
+        generation: epoch.generation,
+        epoch: epoch.current,
+        nonce: random_token().unwrap(),
+      };
+      journal
+        .admit_execution(key.clone(), input.clone(), 1)
+        .unwrap();
+      let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+      let result =
+        terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30));
+      let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap_or_default();
+      let ledger = journal.mutation(&key).unwrap().unwrap();
+      // only one fresh fixture request can follow a terminal zero-effect open-handle veto
+      if !repeated
+        && mode != "missing"
+        && result.exit_code == 1
+        && result.effects == 0
+        && ledger.current.is_none()
+        && detail["error"].is_null()
+        && detail["worker_observation"]["unknown_effects"] == false
+        && detail["worker_observation"]["last_blocked"]
+          == format!("{}: open handle within this path", disposable.display())
+      {
+        assert_eq!(
+          fs::read(disposable.join("payload")).unwrap(),
+          b"regenerable output"
+        );
+        assert_eq!(
+          fs::read(project.join("valuable")).unwrap(),
+          b"protected survivor"
+        );
+        repeated = true;
+        println!("parent-component fixture retained a terminal zero-effect handle veto before a fresh request");
+        continue;
+      }
+      break result;
+    };
+    if mode == "missing" {
+      assert_ne!(result.exit_code, 0, "{}", result.detail);
+      assert_eq!(result.effects, 0);
+      assert_eq!(
+        fs::read(disposable.join("payload")).unwrap(),
+        b"regenerable output"
+      );
+    } else {
+      assert_eq!(result.exit_code, 0, "{mode}: {}", result.detail);
+      assert_eq!(result.effects, 2);
+      assert!(!disposable.exists());
+    }
+    assert_eq!(
+      fs::read(project.join("valuable")).unwrap(),
+      b"protected survivor"
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_cargo_regression_sweep_continues_after_locked_and_invalid_targets() {
+  let fixture = Fixture::new();
+  let project = fixture.0.join("project");
+  let quarantine = project.join("quarantine");
+  let mut outputs = Vec::new();
+  for name in ["a-busy", "b-invalid", "c-ready", "quarantine/archived"] {
+    let root = project.join(name);
+    let target = root.join("target");
+    fs::create_dir_all(target.join("debug/deps")).unwrap();
+    fs::write(root.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(
+      target.join("CACHEDIR.TAG"),
+      format!("Signature: {}\n", crate::plan::CARGO_CACHEDIR_SIGNATURE),
+    )
+    .unwrap();
+    fs::write(target.join("debug/.cargo-lock"), b"").unwrap();
+    let old = target.join("debug/deps/libsample-1111111111111111.rlib");
+    let newest = target.join("debug/deps/libsample-2222222222222222.rlib");
+    for (path, bytes, age) in [
+      (&old, b"older build".as_slice(), 3600),
+      (&newest, b"newest build".as_slice(), 1800),
+    ] {
+      fs::write(path, bytes).unwrap();
+      File::open(path)
+        .unwrap()
+        .set_times(
+          std::fs::FileTimes::new()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(age)),
+        )
+        .unwrap();
+    }
+    outputs.push((old, newest));
+  }
+  fs::write(project.join("b-invalid/.reap.json"), b"{broken").unwrap();
+  let lock = std::fs::OpenOptions::new()
+    .read(true)
+    .write(true)
+    .open(project.join("a-busy/target/debug/.cargo-lock"))
+    .unwrap();
+  lock.try_lock().unwrap();
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({
+      "roots":[project], "quarantine":{"dir":quarantine,"auto_purge":false},
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec![
+    "sweep".into(),
+    "--apply".into(),
+    "--min-age-minutes".into(),
+    "0".into(),
+  ];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal
+    .admit_execution(key.clone(), input.clone(), 1)
+    .unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let result = terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30));
+  assert_eq!(result.exit_code, 1, "{}", result.detail);
+  assert_eq!(result.effects, 1, "{}", result.detail);
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["requested_targets"], 3);
+  assert_eq!(detail["reports"].as_array().unwrap().len(), 3);
+  assert!(result.detail.contains("invalid Cargo manifest"));
+  assert!(result
+    .detail
+    .contains("active Cargo build or unavailable lock"));
+  assert_eq!(detail["worker_observation"]["unknown_effects"], false);
+  for (index, (old, newest)) in outputs.iter().enumerate() {
+    assert_eq!(old.exists(), index != 2, "{}", old.display());
+    if index != 2 {
+      assert_eq!(fs::read(old).unwrap(), b"older build");
+    }
+    assert_eq!(fs::read(newest).unwrap(), b"newest build");
+  }
+  let first = journal.lookup(&key).unwrap();
+  assert_eq!(journal.admit_execution(key, input, 10).unwrap(), first);
+  assert_eq!(
+    fs::read(project.join("valuable")).unwrap(),
+    b"protected survivor"
+  );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_cargo_regression_refused_unlink_reclaims_an_independent_sibling() {
+  use std::os::unix::fs::PermissionsExt;
+  // SAFETY: geteuid has no pointer arguments.
+  if unsafe { libc::geteuid() } == 0 {
+    return;
+  }
+  let fixture = Fixture::new();
+  let input = fixture.cargo_input(true);
+  let project = fixture.0.join("project");
+  let target = project.join("target");
+  let deps = target.join("debug/deps");
+  fs::write(target.join("debug/.cargo-lock"), b"").unwrap();
+  let old = deps.join("libsample-1111111111111111.rlib");
+  let newest = deps.join("libsample-2222222222222222.rlib");
+  for (path, age) in [(&old, 3600), (&newest, 1800)] {
+    fs::write(path, b"retained dependency bytes").unwrap();
+    File::open(path)
+      .unwrap()
+      .set_times(
+        std::fs::FileTimes::new()
+          .set_modified(std::time::SystemTime::now() - Duration::from_secs(age)),
+      )
+      .unwrap();
+  }
+  let disposable = target.join("debug/incremental/disposable");
+  fs::create_dir(&disposable).unwrap();
+  fs::write(disposable.join("payload"), b"regenerable bytes").unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal.admit_execution(key.clone(), input, 1).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  fs::set_permissions(&deps, fs::Permissions::from_mode(0o555)).unwrap();
+  let result = terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30));
+  fs::set_permissions(&deps, fs::Permissions::from_mode(0o755)).unwrap();
+  assert_eq!(result.exit_code, 1, "{}", result.detail);
+  assert_eq!(result.effects, 2, "{}", result.detail);
+  assert_eq!(fs::read(old).unwrap(), b"retained dependency bytes");
+  assert_eq!(fs::read(newest).unwrap(), b"retained dependency bytes");
+  assert!(!disposable.exists());
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["reports"][0]["removed_items"], 1);
+  assert_eq!(detail["reports"][0]["blocked_items"], 1);
+  assert_eq!(detail["worker_observation"]["unknown_effects"], false);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_cargo_unobserved_unit_keeps_later_targets_and_exclusion() {
+  const CHILD: &str = "REAP_CARGO_CONTINUATION_FIXTURE";
+  if std::env::var_os(CHILD).is_none() {
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+      .args([
+        "--exact",
+        "dispatch::tests::native_cargo_unobserved_unit_keeps_later_targets_and_exclusion",
+        "--nocapture",
+      ])
+      .env(CHILD, "1")
+      .status()
+      .unwrap();
+    assert!(status.success());
+    return;
+  }
+  std::env::set_var("REAP_NATIVE_CARGO_UNIT_STOP", "unlink-unobserved");
+  let fixture = Fixture::new();
+  let project = fixture.0.join("project");
+  let mut payloads = Vec::new();
+  for name in ["a-uncertain", "z-independent"] {
+    let root = project.join(name);
+    let target = root.join("target");
+    let disposable = target.join("debug/incremental/disposable");
+    fs::create_dir_all(&disposable).unwrap();
+    fs::write(root.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(
+      target.join("CACHEDIR.TAG"),
+      format!("Signature: {}\n", crate::plan::CARGO_CACHEDIR_SIGNATURE),
+    )
+    .unwrap();
+    fs::write(target.join("debug/.cargo-lock"), b"").unwrap();
+    let payload = disposable.join("payload");
+    fs::write(&payload, b"original retained bytes").unwrap();
+    payloads.push(payload);
+  }
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({
+      "roots":[project],"quarantine":{"auto_purge":false},
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = vec![
+    "sweep".into(),
+    "--apply".into(),
+    "--min-age-minutes".into(),
+    "0".into(),
+  ];
+  input.request = serde_json::to_string(&intent).unwrap();
+  let root = fixture.0.join("journal");
+  let mut journal = Journal::open(&root).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal.admit_execution(key.clone(), input, 1).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let deadline = Instant::now() + Duration::from_secs(30);
+  let result = loop {
+    scheduler.tick(&mut journal, 2).unwrap();
+    if let Some((_, Progress::Result { terminal }, Some(launch))) = journal.execution(&key).unwrap()
+    {
+      if launch.mutation_recovery.is_some() && launch.released() {
+        break terminal;
+      }
+    }
+    assert!(
+      Instant::now() < deadline,
+      "unobserved intent did not retain a released recovery observer: {:?}",
+      journal.execution(&key).unwrap()
+    );
+    std::thread::sleep(Duration::from_millis(10));
+  };
+  assert_eq!(result.exit_code, 1, "{}", result.detail);
+  assert_eq!(result.effects, 0);
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["worker_observation"]["unknown_effects"], true);
+  assert_eq!(detail["reports"].as_array().unwrap().len(), 1);
+  assert_eq!(
+    fs::read(payloads[0].with_extension("retained-original")).unwrap(),
+    b"original retained bytes"
+  );
+  assert_eq!(fs::read(&payloads[0]).unwrap(), b"replacement source bytes");
+  assert_eq!(fs::read(&payloads[1]).unwrap(), b"original retained bytes");
+  let ledger = journal.mutation(&key).unwrap().unwrap();
+  assert_eq!(ledger.completed_units, 0);
+  assert!(ledger.unresolved_resources().is_some());
+  let record = ledger.current.unwrap();
+  assert_eq!(record.sequence, 1);
+  assert!(record.phase.unresolved());
+  assert!(journal.next_mutation_sequence(&key).is_err());
+  assert!(journal
+    .stage_mutation(&key, 2, record.intent.clone())
+    .is_err());
+  let waiter = Key {
+    nonce: random_token().unwrap(),
+    ..key.clone()
+  };
+  journal
+    .admit_execution(waiter.clone(), fixture.input(), 3)
+    .unwrap();
+  assert!(journal
+    .reserve_launch(&waiter, 1, record.intent.resources().clone())
+    .unwrap()
+    .is_none());
+  drop(scheduler);
+  drop(journal);
+  let mut journal = Journal::open(&root).unwrap();
+  assert!(journal
+    .reserve_launch(&waiter, 1, record.intent.resources().clone())
+    .unwrap()
+    .is_none());
+  assert!(journal
+    .mutation(&key)
+    .unwrap()
+    .unwrap()
+    .unresolved_resources()
+    .is_some());
+  assert_eq!(fs::read(&payloads[1]).unwrap(), b"original retained bytes");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_cargo_preserves_late_roles_and_replacements() {
+  const CHILD: &str = "REAP_CARGO_ROLE_FIXTURE";
+  if std::env::var_os(CHILD).is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args([
+        "--exact",
+        "dispatch::tests::native_cargo_preserves_late_roles_and_replacements",
+        "--nocapture",
+      ])
+      .env(CHILD, "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  for mode in [
+    "conversation_source",
+    "permanent_archive",
+    "late-role",
+    "replacement-role",
+  ] {
+    let fixture = Fixture::new();
+    let input = fixture.cargo_input(true);
+    let profile = fixture.0.join("project/target/debug");
+    File::create(profile.join(".cargo-lock")).unwrap();
+    let source = profile.join("incremental/protected");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("payload"), b"original protected bytes").unwrap();
+    let early = matches!(mode, "conversation_source" | "permanent_archive");
+    let ordinary = profile.join("incremental/ordinary");
+    if early {
+      std::env::remove_var("REAP_NATIVE_CARGO_UNIT_STOP");
+      fs::write(
+        source.join(".reap"),
+        serde_json::to_vec(&serde_json::json!({
+          "version":2,"role":mode,"keep":{"reason":"required native evidence"},
+          "seal":mode=="permanent_archive",
+        }))
+        .unwrap(),
+      )
+      .unwrap();
+      fs::create_dir(&ordinary).unwrap();
+      fs::write(ordinary.join("payload"), b"disposable sibling").unwrap();
+    } else {
+      std::env::set_var("REAP_NATIVE_CARGO_UNIT_STOP", mode);
+    }
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let mut repeated = false;
+    let result = loop {
+      let epoch = journal.epoch();
+      let key = Key {
+        generation: epoch.generation,
+        epoch: epoch.current,
+        nonce: random_token().unwrap(),
+      };
+      journal
+        .admit_execution(key.clone(), input.clone(), 1)
+        .unwrap();
+      let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+      let result =
+        terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30));
+      let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap_or_default();
+      let ledger = journal.mutation(&key).unwrap().unwrap();
+      let blocked = if early { &ordinary } else { &source };
+      // a pre-intent handle veto does not exercise the requested role fault
+      if !repeated
+        && result.exit_code == 1
+        && result.effects == 0
+        && ledger.current.is_none()
+        && detail["error"].is_null()
+        && detail["worker_observation"]["unknown_effects"] == false
+        && detail["worker_observation"]["last_blocked"]
+          == format!("{}: open handle within this path", blocked.display())
+      {
+        assert_eq!(
+          fs::read(source.join("payload")).unwrap(),
+          b"original protected bytes"
+        );
+        assert_eq!(
+          fs::read(fixture.0.join("project/valuable")).unwrap(),
+          b"protected survivor"
+        );
+        if early {
+          assert_eq!(
+            fs::read(ordinary.join("payload")).unwrap(),
+            b"disposable sibling"
+          );
+        }
+        repeated = true;
+        println!(
+          "role fixture retained a terminal zero-effect handle veto before a fresh request: {mode}"
+        );
+        continue;
+      }
+      break result;
+    };
+    assert_eq!(
+      result.effects,
+      if early { 2 } else { 0 },
+      "{mode}: {}",
+      result.detail
+    );
+    assert_eq!(
+      result.exit_code,
+      u8::from(!early),
+      "{mode}: {}",
+      result.detail
+    );
+    assert_eq!(
+      fs::read(source.join("payload")).unwrap(),
+      if mode == "replacement-role" {
+        b"replacement archive bytes".as_slice()
+      } else {
+        b"original protected bytes".as_slice()
+      },
+      "{mode}: {}",
+      result.detail
+    );
+    assert!(source.join(".reap").is_file(), "{mode}: {}", result.detail);
+    if early {
+      assert!(!ordinary.exists());
+    }
+    if mode == "replacement-role" {
+      assert_eq!(
+        fs::read(source.with_extension("retained-original").join("payload")).unwrap(),
+        b"original protected bytes"
+      );
+    }
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"protected survivor"
+    );
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_cargo_stale_profile_compaction_keeps_release_final_binary_and_fresh_output() {
+  let fixture = Fixture::new();
+  let mut input = fixture.cargo_input(true);
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv.extend([
+    "--stale-debug".into(),
+    "30".into(),
+    "--min-age-minutes".into(),
+    "10".into(),
+  ]);
+  input.request = serde_json::to_string(&intent).unwrap();
+  let target = fixture.0.join("project/target");
+  let debug = target.join("debug");
+  fs::create_dir_all(target.join("release/deps")).unwrap();
+  let stale = debug.join("deps/libsample-1111111111111111.rlib");
+  let release = target.join("release/deps/libsample-2222222222222222.rlib");
+  let final_binary = debug.join("current-tool");
+  let old = debug.join("incremental/old");
+  let fresh = debug.join("incremental/fresh");
+  fs::create_dir(&old).unwrap();
+  fs::create_dir(&fresh).unwrap();
+  for path in [
+    &stale,
+    &release,
+    &final_binary,
+    &old.join("payload"),
+    &fresh.join("payload"),
+  ] {
+    fs::write(path, b"build bytes").unwrap();
+  }
+  let stamp = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+  filetime::set_file_mtime(&stale, stamp).unwrap();
+  filetime::set_file_mtime(&old, stamp).unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let epoch = journal.epoch();
+  let key = Key {
+    generation: epoch.generation,
+    epoch: epoch.current,
+    nonce: random_token().unwrap(),
+  };
+  journal.admit_execution(key.clone(), input, 1).unwrap();
+  let mut scheduler = Scheduler::recover(&mut journal).unwrap();
+  let result = terminal_with_timeout(&mut journal, &mut scheduler, &key, Duration::from_secs(30));
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 5, "{}", result.detail);
+  assert!(!stale.exists());
+  assert!(!old.exists());
+  for path in [&release, &final_binary, &fresh.join("payload")] {
+    assert_eq!(fs::read(path).unwrap(), b"build bytes");
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn native_cargo_read_preserves_complete_paged_selection_and_replays_without_effects() {
   let fixture = Fixture::new();
   let mut input = fixture.cargo_input(false);

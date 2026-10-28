@@ -2114,7 +2114,7 @@ fn active_cargo_build_keeps_an_old_cleanup_candidate() {
     }
     thread::sleep(std::time::Duration::from_millis(100));
   }
-  let attempted = started.then(|| root.run(args(&["clean", "{path}"], &project)));
+  let attempted = started.then(|| root.run(args(&["clean", "{path}", "--wait", "30"], &project)));
   fs::write(&release, b"continue").unwrap();
   let cargo_output = cargo.wait_with_output().unwrap();
   assert!(
@@ -2125,9 +2125,11 @@ fn active_cargo_build_keeps_an_old_cleanup_candidate() {
   assert!(started, "Cargo build script did not run");
   let attempted = attempted.unwrap();
   assert!(!attempted.status.success());
-  assert!(String::from_utf8_lossy(&attempted.stderr).contains("SKIPPED Cargo cleanup"));
+  assert!(
+    String::from_utf8_lossy(&attempted.stdout).contains("active Cargo build or unavailable lock")
+  );
   assert!(old.join("artifact").is_file());
-  success(root.run(args(&["clean", "{path}"], &project)));
+  success(root.run(args(&["clean", "{path}", "--wait", "30"], &project)));
   assert!(!old.exists());
 }
 
@@ -2141,7 +2143,7 @@ fn normal_worktree_retires_approved_cargo_output_without_cleaning_it() {
   assert!(!plain.status.success());
   assert!(String::from_utf8_lossy(&plain.stdout).contains("git-ignored"));
   success(root.run(args(
-    &["clean", "{path}", "--min-age-minutes", "0"],
+    &["clean", "{path}", "--min-age-minutes", "0", "--wait", "30"],
     &checkout,
   )));
   assert!(artifact.is_file());
@@ -3230,6 +3232,7 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
   assert_eq!(dry["outcome"], "ok");
   assert_eq!(dry["mode"], "dry-run");
   assert_eq!(dry["stages"].as_array().unwrap().len(), 7);
+  assert_eq!(dry["stages"][2]["command"], "reap sweep --wait 30");
   assert_eq!(dry["stages"][4]["command"], "reap files --wait 30");
   assert_eq!(dry["stages"][4]["outcome"], "ok");
   assert_eq!(dry["stages"][6]["outcome"], "skipped");
@@ -3246,6 +3249,10 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
   let after_first = fs::read(root.state().join("leases.json")).unwrap();
   let applied: Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
   assert_eq!(applied["outcome"], "ok");
+  assert_eq!(
+    applied["stages"][2]["command"],
+    "reap sweep --apply --wait 30"
+  );
   assert_eq!(
     applied["stages"][4]["command"],
     "reap files --apply --wait 30"
@@ -3493,7 +3500,16 @@ fn sweep_returns_failure_for_invalid_manifest_and_preserves_target() {
   .unwrap();
   fs::write(target.join("artifact"), b"keep").unwrap();
   fs::write(project.join(".reap.json"), b"{broken").unwrap();
-  let sweep = root.run(vec!["sweep".into(), "--apply".into()]);
-  failure(sweep);
+  let sweep = root.run(vec![
+    "sweep".into(),
+    "--apply".into(),
+    "--wait".into(),
+    "30".into(),
+  ]);
+  assert_eq!(sweep.status.code(), Some(1));
+  let receipt: Value = serde_json::from_slice(&sweep.stdout).unwrap();
+  assert_eq!(receipt["protocol"], 2);
+  assert_eq!(receipt["state"], "failed");
+  assert!(String::from_utf8_lossy(&sweep.stdout).contains("manifest"));
   assert!(target.join("artifact").is_file());
 }

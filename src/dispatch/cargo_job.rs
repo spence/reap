@@ -9,7 +9,7 @@ use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use super::{invalid, signature, Inspector, Scope};
 use crate::config::Config;
@@ -26,6 +26,7 @@ struct Context<'a> {
   caller: File,
   base: PathBuf,
   manifests: Vec<Manifest>,
+  refusals: Vec<serde_json::Value>,
 }
 
 impl Context<'_> {
@@ -93,7 +94,7 @@ pub(crate) fn assess(
   } else {
     None
   };
-  let mut reports = Vec::new();
+  let mut reports = context.refusals.clone();
   let mut error = None;
   for manifest in &context.manifests {
     let result = if let Some(runner) = &mut runner {
@@ -106,7 +107,14 @@ pub(crate) fn assess(
       Ok(report) => reports.push(report),
       Err(reason) => {
         error = Some(reason.to_string());
-        break;
+        reports
+          .push(serde_json::json!({"target":manifest.target_dir(),"error":reason.to_string()}));
+        if let Some(runner) = &mut runner {
+          if let Err(reason) = runner.can_continue(helpers) {
+            error = Some(format!("{}; cannot continue: {reason}", error.unwrap()));
+            break;
+          }
+        }
       }
     }
   }
@@ -117,12 +125,12 @@ pub(crate) fn assess(
   {
     error = Some(reason.to_string());
   }
-  let blocked = reports
-    .iter()
-    .any(|report| report["blocked_items"].as_u64().unwrap_or(0) != 0);
+  let blocked = reports.iter().any(|report| {
+    report["error"].is_string() || report["blocked_items"].as_u64().unwrap_or(0) != 0
+  });
   let detail = serde_json::to_string(&serde_json::json!({
     "command": context.request.operation, "mode": if context.request.apply { "apply" } else { "read" },
-    "reports":reports, "requested_targets":context.manifests.len(), "error":error,
+    "reports":reports, "requested_targets":context.manifests.len()+context.refusals.len(), "error":error,
     "worker_observation": runner.as_ref().map(|runner| serde_json::json!({
       "completed_units":runner.effects, "unknown_effects":runner.unknown, "last_blocked":runner.last_blocked,
     })),
@@ -234,14 +242,6 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
       .as_deref()
       .map(PathBuf::from)
       .unwrap_or_else(|| caller.base.clone());
-    if raw
-      .components()
-      .any(|part| matches!(part, Component::ParentDir))
-    {
-      return Err(invalid(
-        "Cargo path contains an unsupported parent component",
-      ));
-    }
     let path = inspector.canonical_path(&if raw.is_absolute() {
       raw
     } else {
@@ -280,37 +280,51 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     }
   };
   let mut manifests = Vec::new();
+  let mut refusals = Vec::new();
   for (project, forced) in selections {
-    inspector.directory(&project)?;
-    let bytes = inspector.bytes(&project.join(MANIFEST_NAME))?;
-    let mut manifest = crate::manifest::parse_manifest(&project, bytes.as_deref())
-      .map_err(|error| invalid(&error.to_string()))?;
-    if let Some(target) = forced {
-      manifest.target = target.to_string_lossy().into_owned();
-    }
-    crate::apply_overrides(&mut manifest.policy, &request.policy);
-    let target = inspector.canonical_path(&manifest.target_dir())?;
-    if target.starts_with(&state) || state.starts_with(&target) {
-      return Err(invalid("Cargo selection overlaps execution state"));
-    }
-    if inspector.optional_directory(&target)? {
-      let guards = crate::plan::Guards::new(&manifest.keep);
-      for (_, profile) in crate::plan::discover_profiles(&target, &guards)? {
-        crate::plan::check_profile_path(&target, &profile).map_err(|error| invalid(&error))?;
-        inspector.directory(&profile)?;
-        for sub in crate::plan::REGEN_SUBDIRS {
-          let logical = profile.join(sub);
-          if inspector.optional_directory(&logical)? {
-            let physical = inspector.canonical_path(&logical)?;
-            if !physical.starts_with(&target) {
-              return Err(invalid("Cargo regenerable input escapes its target"));
+    let label = forced.clone().unwrap_or_else(|| project.clone());
+    let result = (|| -> io::Result<Manifest> {
+      inspector.directory(&project)?;
+      let bytes = inspector.bytes(&project.join(MANIFEST_NAME))?;
+      let mut manifest = crate::manifest::parse_manifest(&project, bytes.as_deref())
+        .map_err(|error| invalid(&format!("invalid Cargo manifest: {error}")))?;
+      if let Some(target) = forced {
+        manifest.target = target.to_string_lossy().into_owned();
+      }
+      crate::apply_overrides(&mut manifest.policy, &request.policy);
+      let target = inspector.canonical_path(&manifest.target_dir())?;
+      if target.starts_with(&state) || state.starts_with(&target) {
+        return Err(invalid("Cargo selection overlaps execution state"));
+      }
+      if inspector.optional_directory(&target)? {
+        let guards = crate::plan::Guards::new(&manifest.keep);
+        for (_, profile) in crate::plan::discover_profiles(&target, &guards)? {
+          crate::plan::check_profile_path(&target, &profile).map_err(|error| invalid(&error))?;
+          inspector.directory(&profile)?;
+          for sub in crate::plan::REGEN_SUBDIRS {
+            let logical = profile.join(sub);
+            if inspector.optional_directory(&logical)? {
+              let physical = inspector.canonical_path(&logical)?;
+              if !physical.starts_with(&target) {
+                return Err(invalid("Cargo regenerable input escapes its target"));
+              }
             }
           }
         }
       }
+      manifest.target = target.to_string_lossy().into_owned();
+      Ok(manifest)
+    })();
+    match result {
+      Ok(manifest) => manifests.push(manifest),
+      Err(reason) if request.operation == "sweep" => {
+        if refusals.len() >= super::MAX_OBJECTS {
+          return Err(invalid("Cargo target refusals exceed their bound"));
+        }
+        refusals.push(serde_json::json!({"target":label,"error":reason.to_string()}));
+      }
+      Err(reason) => return Err(reason),
     }
-    manifest.target = target.to_string_lossy().into_owned();
-    manifests.push(manifest);
   }
   inspector.revalidate()?;
   Ok(Context {
@@ -320,6 +334,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     caller: directory,
     base: caller.base,
     manifests,
+    refusals,
   })
 }
 

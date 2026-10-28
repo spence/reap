@@ -1,5 +1,5 @@
-//! Bounded Cargo compaction with redundancy, minimum age, manifest protection,
-//! preservation roles, and a native executable-activity snapshot before removal.
+//! Cargo selection with redundancy, minimum age, manifest protection, and preservation roles.
+//! The granted Cargo executor owns locks, fresh activity, exact mutations, and recovery.
 //!
 //! The dedup keeps exactly what the current build links; the invariants are
 //! covered by the tests in this module.
@@ -7,7 +7,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fs::{self, File, Metadata, OpenOptions};
+use std::fs::{self, Metadata};
 use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -420,57 +420,6 @@ pub(crate) fn discover_profiles(
   Ok(found)
 }
 
-/// Hold Cargo's per-profile lock across planning and deletion, or skip the target.
-pub fn lock_cargo_profiles(manifest: &Manifest) -> Result<Vec<File>, String> {
-  let target = manifest.target_dir();
-  if !target.is_dir() {
-    return Ok(vec![]);
-  }
-  let guards = Guards::new(&manifest.keep);
-  let profiles = discover_profiles(&target, &guards).map_err(|error| error.to_string())?;
-  let mut locks = Vec::with_capacity(profiles.len());
-  for (_, profile) in profiles {
-    check_profile_path(&target, &profile)?;
-    let path = profile.join(".cargo-lock");
-    match fs::symlink_metadata(&path) {
-      Ok(meta) if !meta.is_file() => {
-        return Err(format!(
-          "{} is not a regular Cargo lock file",
-          path.display()
-        ));
-      }
-      Ok(_) => {}
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-      Err(e) => return Err(format!("{}: {e}", path.display())),
-    }
-    let file = OpenOptions::new()
-      .read(true)
-      .write(true)
-      .create(true)
-      .truncate(false)
-      .open(&path)
-      .map_err(|e| format!("{}: {e}", path.display()))?;
-    let path_meta = fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let file_meta = file
-      .metadata()
-      .map_err(|e| format!("{}: {e}", path.display()))?;
-    if !path_meta.is_file()
-      || path_meta.dev() != file_meta.dev()
-      || path_meta.ino() != file_meta.ino()
-    {
-      return Err(format!("{} changed identity", path.display()));
-    }
-    file.try_lock().map_err(|e| {
-      format!(
-        "{}: active Cargo build or unavailable lock: {e}",
-        path.display()
-      )
-    })?;
-    locks.push(file);
-  }
-  Ok(locks)
-}
-
 pub(crate) fn check_profile_path(target: &Path, profile: &Path) -> Result<(), String> {
   let target_meta =
     fs::symlink_metadata(target).map_err(|e| format!("{}: {e}", target.display()))?;
@@ -661,68 +610,6 @@ fn add_category(
     bytes,
   });
   Ok(())
-}
-
-// --------------------------------------------------------------------------- //
-// Deletion
-// --------------------------------------------------------------------------- //
-
-/// Apply one candidate set after a complete native executable snapshot.
-/// Snapshot failure returns before removals; later path failures retain their existing diagnostics.
-pub fn apply_plan(plan: &Plan) -> std::io::Result<usize> {
-  if plan.item_count() == 0 {
-    return Ok(0);
-  }
-  let physical_target = fs::canonicalize(&plan.target)?;
-  let candidates = plan
-    .categories
-    .iter()
-    .flat_map(|category| &category.paths)
-    .map(|path| {
-      path
-        .strip_prefix(&plan.target)
-        .map_err(std::io::Error::other)?;
-      let parent = path
-        .parent()
-        .ok_or_else(|| std::io::Error::other("missing candidate parent"))?;
-      let name = path
-        .file_name()
-        .ok_or_else(|| std::io::Error::other("missing candidate name"))?;
-      let physical = fs::canonicalize(parent)?.join(name);
-      let relative = physical
-        .strip_prefix(&physical_target)
-        .map_err(std::io::Error::other)?;
-      Ok((path, relative.to_path_buf()))
-    })
-    .collect::<std::io::Result<Vec<_>>>()?;
-  let mut active = crate::activity::executables(&physical_target)?;
-  let mut removed = 0;
-  for (p, relative) in candidates {
-    let physical = physical_target.join(&relative);
-    match active.protects(&physical, &relative) {
-      Ok(false) => {}
-      Ok(true) => {
-        eprintln!(
-          "preserved {}: active executable or mapped image",
-          p.display()
-        );
-        continue;
-      }
-      Err(error) => {
-        eprintln!(
-          "preserved {}: incomplete activity evidence: {error}",
-          p.display()
-        );
-        continue;
-      }
-    }
-    let res = crate::preservation::remove(p);
-    match res {
-      Ok(()) => removed += 1,
-      Err(e) => eprintln!("warning: could not remove {}: {}", p.display(), e),
-    }
-  }
-  Ok(removed)
 }
 
 // --------------------------------------------------------------------------- //
@@ -927,7 +814,7 @@ mod tests {
   }
 
   #[test]
-  fn cargo_lock_refuses_symlinked_profile() {
+  fn cargo_profile_validation_refuses_symlinked_profile() {
     let root = tmpdir();
     let target = root.join("target");
     let outside = root.join("valuable");
@@ -936,7 +823,9 @@ mod tests {
     fs::write(outside.join("deps/local-data"), b"keep").unwrap();
     std::os::unix::fs::symlink(&outside, target.join("debug")).unwrap();
     let manifest = manifest_for(&root, Keep::default(), Policy::default());
-    assert!(lock_cargo_profiles(&manifest).is_err());
+    assert!(
+      check_profile_path(&manifest.target_dir(), &manifest.target_dir().join("debug")).is_err()
+    );
     assert!(outside.join("deps/local-data").is_file());
     let _ = fs::remove_dir_all(root);
   }
@@ -1060,37 +949,6 @@ mod tests {
       "keep.names artifact never touched"
     );
 
-    apply_plan(&plan).unwrap();
-    assert!(
-      !deps.join("libfoo-1111111111111111.rlib").exists(),
-      "old foo deleted on apply"
-    );
-    assert!(
-      deps.join("libfoo-2222222222222222.rlib").exists(),
-      "newest foo survives apply"
-    );
-    assert!(
-      deps.join("libbar-3333333333333333.rlib").exists(),
-      "singleton survives apply"
-    );
-    assert!(
-      deps.join("libqux-4444444444444444.rlib").exists(),
-      "fresh dup survives apply"
-    );
-    assert!(
-      incr.join("sess-fresh").exists(),
-      "fresh incremental survives apply"
-    );
-    assert!(
-      !incr.join("sess-old").exists(),
-      "old incremental deleted on apply"
-    );
-    assert!(
-      tgt.join("prebuilt/vendored.a").exists(),
-      "prebuilt blob survives apply"
-    );
-    assert!(tgt.join("debug/mytool").exists(), "binary survives apply");
-
     let _ = fs::remove_dir_all(&root);
   }
 
@@ -1143,20 +1001,6 @@ mod tests {
       "kept release profile untouched"
     );
 
-    apply_plan(&plan).unwrap();
-    assert!(
-      !tgt.join("debug/deps/libz-6666666666666666.rlib").exists(),
-      "stale debug deps gone"
-    );
-    assert!(
-      tgt.join("debug/mytool").exists(),
-      "binary survives stale-clean"
-    );
-    assert!(
-      tgt.join("release/deps/libz-7777777777777777.rlib").exists(),
-      "release survives stale-clean"
-    );
-
     let _ = fs::remove_dir_all(&root);
   }
 
@@ -1186,30 +1030,6 @@ mod tests {
       "singleton in only-profile is never wiped (no kept fallback)"
     );
 
-    let _ = fs::remove_dir_all(&root);
-  }
-
-  #[test]
-  fn apply_count_excludes_failed_removal_and_preserves_unselected_data() {
-    let root = tmpdir();
-    let removable = root.join("removable");
-    let vanished = root.join("vanished");
-    let protected = root.join("protected");
-    fs::write(&removable, b"old").unwrap();
-    fs::write(&protected, b"keep").unwrap();
-    let plan = Plan {
-      target: root.clone(),
-      missing: false,
-      categories: vec![Category {
-        label: "test".to_string(),
-        paths: vec![removable.clone(), vanished],
-        bytes: 3,
-      }],
-      total_bytes: 3,
-    };
-    assert_eq!(apply_plan(&plan).unwrap(), 1);
-    assert!(!removable.exists());
-    assert!(protected.is_file());
     let _ = fs::remove_dir_all(&root);
   }
 }

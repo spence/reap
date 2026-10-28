@@ -2,40 +2,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
-use std::process::Command;
-use std::time::Duration;
-
-/// Observe only unresolved PIDs; return every text-vnode identity, including unlinked images.
-/// Missing names never grant permission. Complete records and both EOFs precede any removal.
-pub(super) fn observe(pids: &BTreeSet<i32>) -> io::Result<BTreeSet<(u64, u64)>> {
-  let health = crate::util::capture_probe(
-    Command::new("/bin/ps").args(["-axo", "state=,etime=,comm="]),
-    Duration::from_secs(5),
-  )?;
-  if !health.status.success() || !health.stderr.is_empty() {
-    return Err(io::Error::other("native probe health is unavailable"));
-  }
-  crate::activity::health(&health.stdout)?;
-
-  let selected = pids
-    .iter()
-    .map(i32::to_string)
-    .collect::<Vec<_>>()
-    .join(",");
-  let output = crate::util::capture_probe(
-    Command::new("/usr/sbin/lsof")
-      .env_clear()
-      .env("LC_ALL", "C")
-      .args(["-nP", "-a", "-p", &selected, "-d", "txt", "-F0pftDik"]),
-    Duration::from_secs(5),
-  )?;
-  if !output.status.success() || !output.stderr.is_empty() {
-    return Err(io::Error::other(
-      "native text-vnode observation is incomplete",
-    ));
-  }
-  decode(&output.stdout, pids)
-}
 
 /// Require every selected PID, complete NUL framing, and known vnode type, identity, and links.
 pub(in crate::activity) fn decode(

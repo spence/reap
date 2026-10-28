@@ -21,7 +21,7 @@ class Fixture:
         base = base or ROOT / "target/control-t13"
         base.mkdir(parents=True, exist_ok=True)
         self.root = pathlib.Path(tempfile.mkdtemp(prefix="preservation-cli-", dir=base)).resolve()
-        self.unconfirmed_files = 0
+        self.unconfirmed_jobs = 0
         self.home = self.root / "home"
         self.projects = self.home / "projects"
         self.state = self.root / "state/reap"
@@ -42,26 +42,28 @@ class Fixture:
             self.environment.pop(name, None)
 
     def close(self):
-        if self.unconfirmed_files:
+        if self.unconfirmed_jobs:
             (self.root / ".reap").write_text(json.dumps({
-                "version": 1, "keep": {"reason": "unconfirmed Files preservation fixture"},
+                "version": 1, "keep": {"reason": "unconfirmed preservation fixture job"},
             }))
-            print(f"Retained unconfirmed Files fixture: {self.root}")
+            print(f"Retained unconfirmed preservation fixture: {self.root}")
         else:
             shutil.rmtree(self.root)
 
     def run(self, *arguments):
         files = arguments and arguments[0] == "files"
-        if files:
-            self.unconfirmed_files += 1
+        coordinated = arguments and arguments[0] in ("files", "plan", "clean", "sweep")
+        if coordinated:
+            self.unconfirmed_jobs += 1
             arguments = (*arguments, "--wait", "30")
         result = subprocess.run([str(BINARY), *map(str, arguments)], cwd=self.root,
-                                env=self.environment, capture_output=True, timeout=35 if files else 30)
-        if files:
+                                env=self.environment, capture_output=True, timeout=35 if coordinated else 30)
+        if coordinated:
             receipt = json.loads(result.stdout)
             assert receipt["protocol"] == 2, receipt
             if receipt["state"] == "completed":
-                self.unconfirmed_files -= 1
+                self.unconfirmed_jobs -= 1
+        if files:
             detail = json.loads(receipt["job"]["result"]["detail"])
             result.stdout = detail["stdout"].encode()
             result.stderr = detail["stderr"].encode()

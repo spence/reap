@@ -116,6 +116,37 @@ class PublicMutations(unittest.TestCase):
                 self.assertNotEqual(result.receipt["state"], "completed")
                 self.assertTrue(self.kept.exists())
 
+    def test_cargo_commands_do_not_wait_for_target_marker_fifo(self):
+        (self.project / "Cargo.toml").write_text(
+            '[package]\nname="reap-cargo-client-fixture"\nversion="0.1.0"\n')
+        target = self.project / "target"
+        target.mkdir()
+        (target / "CACHEDIR.TAG").write_text(
+            "Signature: 8a477f597d28d172789f06886806bc55\n")
+        os.mkfifo(self.project / "CACHEDIR.TAG")
+        commands = [
+            ("plan", self.project),
+            ("plan", self.project, "--apply"),
+            ("clean", self.project),
+            ("clean", self.project, "--apply"),
+            ("sweep",),
+            ("sweep", "--apply"),
+            (),
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                result = self.run_cli(*command)
+                print(json.dumps({"command": list(map(str, command)), "elapsed_seconds": result.elapsed,
+                                  "exit_code": result.returncode, "state": result.receipt["state"],
+                                  "invocation": result.receipt.get("invocation")}))
+                self.assertIn(result.returncode, (1, 75))
+                self.assertNotEqual(result.receipt["state"], "completed")
+                self.assertEqual(result.receipt["invocation"]["operation"],
+                                 command[0] if command else "sweep")
+                self.assertEqual(result.receipt["invocation"]["mode"],
+                                 "apply" if "clean" in command or "--apply" in command else "read")
+                self.assertTrue(self.kept.exists())
+
     def test_completed_files_apply_retires_only_the_authorized_unit(self):
         disposable = self.project / "disposable"
         disposable.mkdir()

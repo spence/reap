@@ -6,15 +6,15 @@ Scope: applying Cargo plans, including `plan`, `clean`, `sweep`, and maintenance
 
 ## Contract
 
-- **C1 — Snapshot before effects.** Before applying a nonempty Cargo plan, obtain a complete
+- **C1 — Snapshot before effects.** Before each Cargo removal unit, obtain a fresh complete
   native executable-path snapshot. Bound enumeration at 32,768 processes. On macOS, a full
   buffer, missing caller, denied process-path query, invalid path, or unknown alias evidence
-  refuses the target before removal. `ESRCH` can omit an absent image. `ENOENT` cannot.
+  refuses the affected removal. `ESRCH` can omit an absent image. `ENOENT` cannot.
   Missing names require complete text-vnode identities from one PID-scoped `lsof` batch.
   Both probe pipes must reach EOF with success and no stderr. Every requested PID needs complete
-  regular-file type, device, inode, and link-count fields. Unknown evidence refuses the target.
+  regular-file type, device, inode, and link-count fields. Unknown evidence refuses the affected removal.
   The health and vnode probes each have five-second deadlines and 512 KiB output limits.
-  No per-candidate host-wide process scan or target discovery supplies this guard.
+  The bounded client does not enumerate processes or discover targets.
   A granted worker uses its owned helper channel for the missing-name batch, without another untracked process.
   The helper retains its granted PID through `exec`. Timeout refuses evidence without releasing unresolved ownership.
   The private request and evidence bounds are defined by [SPEC-WORKER-GRANTS C9](worker-grants.md).
@@ -32,10 +32,9 @@ Scope: applying Cargo plans, including `plan`, `clean`, `sweep`, and maintenance
   the final symlink. An intermediate directory alias cannot hide an active executable.
 - **C4 — Exact limit.** The snapshot does not serialize an external process start after capture.
   It does not replace Cargo's build lock, minimum age, manifest or preservation guards, and it
-  does not prove that every data file or mapped library is unused. Full per-unit activity and the
-  bounded applying bridge remain under T19; this contract does not activate them.
-  Outside namespace changes are not serialized. Legacy applying frontends do not acquire the
-  prompt response guarantee from this guard.
+  does not prove that every data file or mapped library is unused.
+  Outside namespace changes are not serialized. Full applying-family integration and fleet proof
+  remain T19 requirements; this source guard does not establish those outcomes.
 
 ## Bindings
 
@@ -50,10 +49,21 @@ A refuse-all implementation cannot pass.
 missing-PID and oversized captures. `native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence`
 requires the caller image's actual device/inode from the granted helper and retains both EOF guards.
 `helper_probe_deadline_retains_sequence_after_a_partial_reply` covers a cumulative wait with partial framing.
-These helper bindings do not prove Cargo caller migration or per-unit freshness.
+These helper bindings alone do not prove Cargo caller migration or per-unit freshness.
+`native_cargo_apply_preserves_a_running_executable_without_a_build_lock` exercises the Cargo adapter.
+`native_cargo_client_applies_each_operation_and_replays_after_writer_restart` exercises native client submission and actual permitted effects.
+Installed Cargo preservation cases remain required on both Macs before delivery.
 
 `tests/native_activity_fault.c` supplies capacity, missing-caller, and denied-path faults to the
 owned CLI. Each must return failure with unchanged candidate bytes. Fault libraries and native
 drivers use the same Micro identity for both-Mac verification. All quick-check inputs and output
 remain on internal storage. Linux and unsupported-platform behavior require their separate
 runtime evidence; macOS proof does not establish those boundaries.
+
+## Unmet conformance and closing conditions
+
+Installed C1–C3 conformance for the coordinated Cargo route is not established.
+`tests/test_active_executables.py` still expects the foreground text report and CLI-local fault injection.
+It must use job receipts and inject capacity, missing-caller, and denied-path faults at the granted worker boundary.
+All existing survivor, independent-removal, alias, and post-exit release cases must then pass on both Macs.
+The native component cases do not replace this installed-path gate.

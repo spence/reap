@@ -62,7 +62,7 @@ use clap::{Args, Parser, Subcommand};
 
 use config::{config_path, load_config, write_default_config};
 use create::CreateCmd;
-use discover::{discover_manifests, discover_targets, is_cargo_target_dir};
+use discover::{discover_manifests, discover_targets};
 use inventory::scan_projects;
 use lease::{
   add_lease, find_by_path, load_leases, release_lease, remove_released_marker, renew_lease,
@@ -70,7 +70,7 @@ use lease::{
 };
 use manifest::{find_project_root, load_manifest, Policy, StoreDisposition, MANIFEST_NAME};
 use parents::ParentsCmd;
-use plan::{apply_plan, human, now_secs, plan_project, Plan};
+use plan::{human, now_secs};
 use provenance::Provenance;
 use quarantine::{
   assess_retire, assess_retire_ignoring_dir_mtimes, audit_purge_entry, diagnose_entry, entries_dir,
@@ -152,6 +152,9 @@ enum Cmd {
     quick: bool,
     #[command(flatten)]
     policy: PolicyArgs,
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// Dry-run a single project dir or target dir (default: cwd)
   Plan {
@@ -165,6 +168,9 @@ enum Cmd {
     quick: bool,
     #[command(flatten)]
     policy: PolicyArgs,
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// Reclaim a single project dir or target dir (implies --apply; default: cwd)
   Clean {
@@ -178,6 +184,9 @@ enum Cmd {
     quick: bool,
     #[command(flatten)]
     policy: PolicyArgs,
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// List discovered target dirs (no deletion)
   List,
@@ -376,13 +385,6 @@ enum QuarantineCmd {
   Unhold { id: String },
 }
 
-enum RunError {
-  Manifest(String),
-  Plan(String),
-  CargoLock(String),
-  Activity(String),
-}
-
 fn main() {
   let entered = Instant::now();
   let cli = Cli::parse();
@@ -412,27 +414,74 @@ fn main() {
       }
     },
     // Bare `reap` == dry-run sweep.
-    None => cmd_sweep(false, false, false, &PolicyArgs::default()),
+    None => client::run_cargo(
+      invocation::CargoRequest {
+        operation: "sweep".into(),
+        path: None,
+        apply: false,
+        verbose: false,
+        quick: false,
+        policy: PolicyArgs::default(),
+      },
+      None,
+      entered,
+    ),
     Some(Cmd::Sweep {
       apply,
       verbose,
       quick,
       policy,
-    }) => cmd_sweep(apply, verbose, quick, &policy),
+      wait,
+    }) => client::run_cargo(
+      invocation::CargoRequest {
+        operation: "sweep".into(),
+        path: None,
+        apply,
+        verbose,
+        quick,
+        policy,
+      },
+      wait,
+      entered,
+    ),
     Some(Cmd::Plan {
       path,
       apply,
       verbose,
       quick,
       policy,
-    }) => cmd_one(path, apply, verbose, quick, &policy),
+      wait,
+    }) => client::run_cargo(
+      invocation::CargoRequest {
+        operation: "plan".into(),
+        path,
+        apply,
+        verbose,
+        quick,
+        policy,
+      },
+      wait,
+      entered,
+    ),
     Some(Cmd::Clean {
       path,
       apply: _,
       verbose,
       quick,
       policy,
-    }) => cmd_one(path, true, verbose, quick, &policy),
+      wait,
+    }) => client::run_cargo(
+      invocation::CargoRequest {
+        operation: "clean".into(),
+        path,
+        apply: true,
+        verbose,
+        quick,
+        policy,
+      },
+      wait,
+      entered,
+    ),
     Some(Cmd::List) => cmd_list(),
     Some(Cmd::Check { path, wait }) => client::run_check(path, wait, entered),
     Some(Cmd::Config { init }) => cmd_config(init),
@@ -505,36 +554,6 @@ fn apply_overrides(p: &mut Policy, o: &PolicyArgs) {
   }
 }
 
-/// Load the project's manifest (or defaults), point it at `forced_target` when
-/// given (discovery / a directly-passed target dir), apply CLI overrides, plan,
-/// and optionally delete.
-fn build_and_run(
-  project_dir: &Path,
-  forced_target: Option<&Path>,
-  apply: bool,
-  quick: bool,
-  overrides: &PolicyArgs,
-) -> Result<(Plan, usize), RunError> {
-  let mut manifest = load_manifest(project_dir).map_err(|e| RunError::Manifest(e.0))?;
-  if let Some(t) = forced_target {
-    manifest.target = t.to_string_lossy().into_owned();
-  }
-  apply_overrides(&mut manifest.policy, overrides);
-  let _cargo_locks = if apply {
-    Some(plan::lock_cargo_profiles(&manifest).map_err(RunError::CargoLock)?)
-  } else {
-    None
-  };
-  let plan =
-    plan_project(&manifest, now_secs(), quick).map_err(|e| RunError::Plan(e.to_string()))?;
-  let removed = if apply {
-    apply_plan(&plan).map_err(|error| RunError::Activity(error.to_string()))?
-  } else {
-    0
-  };
-  Ok((plan, removed))
-}
-
 fn absolutize(p: &Path) -> PathBuf {
   if p.is_absolute() {
     p.to_path_buf()
@@ -546,201 +565,6 @@ fn absolutize(p: &Path) -> PathBuf {
 // --------------------------------------------------------------------------- //
 // Commands
 // --------------------------------------------------------------------------- //
-
-fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) -> i32 {
-  let (cfg, from_file) = load_config();
-  let roots = cfg.expanded_roots();
-  let t0 = Instant::now();
-  // The quarantine can hold moved target trees; never sweep inside it.
-  let mut exclude = cfg.exclude.clone();
-  exclude.push(format!("{}*", cfg.quarantine_dir().display()));
-  let disc = discover_targets(&roots, &exclude);
-  let ms = t0.elapsed().as_millis();
-
-  println!(
-    "reap sweep -- {} -- {} target dir(s) under {} [{} ms]{}\n",
-    if apply {
-      "APPLY (cleaning)"
-    } else {
-      "DRY-RUN (nothing deleted)"
-    },
-    disc.targets.len(),
-    roots_display(&roots),
-    ms,
-    if from_file {
-      ""
-    } else {
-      "  (default roots; `reap config --init` to change)"
-    }
-  );
-  for w in &disc.errors {
-    eprintln!("  discovery warning: {}", w);
-  }
-  if disc.targets.is_empty() {
-    println!("no cargo target dirs found. Adjust roots with `reap config --init`.");
-    if !disc.errors.is_empty() {
-      eprintln!(
-        "error: sweep could not inspect {} path(s)",
-        disc.errors.len()
-      );
-      return 1;
-    }
-    return 0;
-  }
-
-  let mut grand: u64 = 0;
-  let mut errors = disc.errors.len();
-  for target in &disc.targets {
-    let project = target.parent().unwrap_or(target.as_path());
-    let name = dir_label(project);
-    match build_and_run(project, Some(target.as_path()), apply, quick, overrides) {
-      Ok((plan, removed)) => {
-        print_plan(&name, &plan, apply, verbose, quick);
-        if apply {
-          println!(
-            "    removed {removed}/{} planned item(s)",
-            plan.item_count()
-          );
-          if removed != plan.item_count() {
-            errors += 1;
-          }
-        }
-        grand += plan.total_bytes;
-        println!();
-      }
-      Err(RunError::Manifest(e)) => {
-        eprintln!("  {}: INVALID manifest: {}", name, e);
-        errors += 1;
-      }
-      Err(RunError::Plan(error)) => {
-        eprintln!("  {name}: Cargo planning refused: {error}");
-        errors += 1;
-      }
-      Err(RunError::CargoLock(e)) => {
-        eprintln!("  {}: SKIPPED Cargo cleanup: {}", name, e);
-        errors += 1;
-      }
-      Err(RunError::Activity(e)) => {
-        eprintln!("SKIPPED Cargo cleanup: executable activity is unavailable: {e}");
-        errors += 1;
-      }
-    }
-  }
-
-  let tag = if apply { "planned" } else { "reclaimable" };
-  let size = if quick {
-    "(run without --quick to size)".to_string()
-  } else {
-    human(grand)
-  };
-  println!("{}", "=".repeat(62));
-  println!(
-    " GRAND TOTAL {} across {} target dir(s): {}",
-    tag,
-    disc.targets.len(),
-    size
-  );
-  if errors > 0 {
-    println!(" ({} warning(s)/error(s) -- see above)", errors);
-  }
-  if !apply && grand > 0 && !quick {
-    println!(" Re-run `reap sweep --apply` to reclaim it.");
-  }
-  println!("{}", "=".repeat(62));
-  if errors > 0 {
-    eprintln!("error: sweep left {errors} target(s) or discovery path(s) unprocessed");
-    1
-  } else {
-    0
-  }
-}
-
-fn cmd_one(
-  path: Option<String>,
-  apply: bool,
-  verbose: bool,
-  quick: bool,
-  overrides: &PolicyArgs,
-) -> i32 {
-  let raw = match path {
-    Some(p) => PathBuf::from(p),
-    None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-  };
-  let abs = absolutize(&raw);
-  let (project_dir, forced_target) = if is_cargo_target_dir(&abs) {
-    (
-      abs
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| abs.clone()),
-      Some(abs.clone()),
-    )
-  } else {
-    match find_project_root(&abs) {
-      Some(r) => (r, None),
-      None => {
-        eprintln!(
-          "error: no Cargo.toml, {}, or cargo target dir at or above {}",
-          MANIFEST_NAME,
-          abs.display()
-        );
-        return 1;
-      }
-    }
-  };
-
-  let (plan, removed) = match build_and_run(
-    &project_dir,
-    forced_target.as_deref(),
-    apply,
-    quick,
-    overrides,
-  ) {
-    Ok(p) => p,
-    Err(RunError::Manifest(e)) => {
-      eprintln!("error: {}", e);
-      return 1;
-    }
-    Err(RunError::Plan(error)) => {
-      eprintln!("Cargo planning refused: {error}");
-      return 1;
-    }
-    Err(RunError::CargoLock(e)) => {
-      eprintln!("SKIPPED Cargo cleanup: {}", e);
-      return 1;
-    }
-    Err(RunError::Activity(e)) => {
-      eprintln!("SKIPPED Cargo cleanup: executable activity is unavailable: {e}");
-      return 1;
-    }
-  };
-  println!(
-    "reap {}",
-    if apply {
-      "APPLY (deleting)"
-    } else {
-      "DRY-RUN (nothing deleted)"
-    }
-  );
-  print_plan(&dir_label(&project_dir), &plan, apply, verbose, quick);
-  if apply {
-    println!(
-      "    removed {removed}/{} planned item(s)",
-      plan.item_count()
-    );
-    if removed != plan.item_count() {
-      eprintln!("error: some planned Cargo artifacts were not removed");
-      return 1;
-    }
-  }
-  if !apply && plan.total_bytes > 0 && !quick {
-    println!(
-      "\nRe-run with --apply to reclaim {}.",
-      human(plan.total_bytes)
-    );
-  }
-  0
-}
 
 fn cmd_list() -> i32 {
   let (cfg, from_file) = load_config();
@@ -2338,13 +2162,6 @@ fn cmd_inventory(quick: bool) -> i32 {
 // Reporting helpers
 // --------------------------------------------------------------------------- //
 
-fn dir_label(dir: &Path) -> String {
-  dir
-    .file_name()
-    .map(|s| s.to_string_lossy().into_owned())
-    .unwrap_or_else(|| dir.display().to_string())
-}
-
 fn roots_display(roots: &[PathBuf]) -> String {
   if roots.is_empty() {
     return "(no roots)".to_string();
@@ -2354,48 +2171,4 @@ fn roots_display(roots: &[PathBuf]) -> String {
     .map(|p| p.display().to_string())
     .collect::<Vec<_>>()
     .join(", ")
-}
-
-fn print_plan(name: &str, plan: &Plan, apply_mode: bool, verbose: bool, quick: bool) {
-  if plan.missing {
-    println!("  {:<40}  (no target/ -- nothing to do)", name);
-    return;
-  }
-  println!("  {}", name);
-  println!("    target : {}", plan.target.display());
-  if plan.categories.is_empty() {
-    println!("    nothing reclaimable (already clean; or all candidates too fresh)");
-    return;
-  }
-  for c in &plan.categories {
-    let size = if quick {
-      "  ?  ".to_string()
-    } else {
-      human(c.bytes)
-    };
-    println!(
-      "    {:<30} {:>5} items  {:>12}",
-      c.label,
-      c.paths.len(),
-      size
-    );
-    if verbose {
-      for p in &c.paths {
-        println!("        {}", p.display());
-      }
-    }
-  }
-  let tag = if apply_mode { "planned" } else { "reclaimable" };
-  let size = if quick {
-    "(run without --quick to size)".to_string()
-  } else {
-    human(plan.total_bytes)
-  };
-  println!(
-    "    {:<30} {:>5} items  {:>12}   <- {}",
-    "TOTAL",
-    plan.item_count(),
-    size,
-    tag
-  );
 }

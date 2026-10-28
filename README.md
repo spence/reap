@@ -35,8 +35,8 @@ declared store, a lease); age only delays it.
 ```bash
 reap status           # fast capacity and lifecycle snapshot; no tree sizing
 reap coverage         # shallow audit of configured directories and registrations
-reap                  # dry-run every discovered target directory
-reap sweep --apply    # apply the proposed cleanup
+reap sweep --wait 30   # await dry-run selection across discovered targets
+reap sweep --apply --wait 30 # await authorized cleanup
 reap maintain          # guarded one-shot dry-run with a receipt
 
 reap create scratch ../bench-run --ttl 48h --owner agent-x --purpose "benchmark"
@@ -149,18 +149,18 @@ Its safety model has six layers:
 
 5. **native executable activity**
 
-   Before applying one Cargo plan, Reap obtains a bounded native snapshot of
+   Before each Cargo removal unit, Reap obtains a bounded native snapshot of
    running executable paths. A matching file, or a removal directory that
-   contains one, survives. Incomplete process evidence refuses that target
-   without deletion. Independent inactive candidates can still be removed.
+   contains one, survives. Incomplete process evidence refuses the affected
+   removal. Independently guarded inactive candidates can still be removed.
    A missing executable name needs complete PID-scoped mapped-vnode evidence.
    Missing names alone never grant removal permission. Candidate identity
-   walks have one 131,072-entry limit per plan and never follow symlink leaves.
+   walks share a 131,072-entry limit per snapshot and never follow symlink leaves.
    An incomplete candidate walk preserves that candidate, not unrelated ones.
 
 6. **dry-run by default**
 
-   Bare `reap`, `reap sweep`, and `reap plan` only print a plan. Deletion requires
+   Bare `reap`, `reap sweep`, and `reap plan` only request a plan. Deletion requires
    `--apply` or the explicit `reap clean` command.
 
 ### concurrent builds
@@ -177,8 +177,8 @@ On macOS, verified Data-volume aliases share the same executable protection.
 Candidate comparisons resolve parent aliases without following a final symlink.
 For unresolved PIDs only, one bounded `lsof` batch supplies mapped-file identities.
 Health and vnode probes each have five-second deadlines and 512 KiB output limits.
-This guard does not serialize outside namespace changes or make legacy applying
-commands use the prompt client route.
+This guard does not serialize outside namespace changes. Cargo commands use the
+bounded job client described below.
 
 ### command authority
 
@@ -282,17 +282,17 @@ exceptions are possible.
 ```bash
 # discover every target under the configured roots and print a dry-run
 reap
-reap sweep
+reap sweep --wait 30
 
 # apply the global sweep
-reap sweep --apply
+reap sweep --apply --wait 30
 
 # skip recursive byte measurement when the disk is critically full
-reap sweep --quick --apply
+reap sweep --quick --apply --wait 30
 
 # inspect or clean one project or target directory
-reap plan [dir]
-reap clean [dir]
+reap plan [dir] [--wait [SECONDS]]
+reap clean [dir] [--wait [SECONDS]]
 
 # discovery and configuration
 reap list
@@ -336,6 +336,13 @@ reap maintain [--apply] [--only doctor-leases|doctor-quarantine|cargo|stores|ret
 
 `reap plan` accepts either a project directory or a recognized target directory.
 `reap clean` is the applying form and therefore does not require `--apply`.
+Cargo commands emit protocol 2 JSON receipts through the bounded job client.
+Use `--wait 30` on `plan`, `clean`, or `sweep` when the next step requires completed work.
+Bare `reap` requests a read-only sweep with the ordinary one-second response budget.
+Cargo results are structured job detail, not human-readable plan output.
+Inspect `reports` for planned, removed, and blocked items; retrieve retained pages when `paged_result` is present.
+A target refusal does not prevent independently guarded targets from cleanup.
+Changed shared dependencies and unresolved unit effects still prevent further effects.
 
 ### policy overrides
 
@@ -356,14 +363,14 @@ Examples:
 
 ```bash
 # preserve the two newest generations of every crate
-reap sweep --keep-recent 2 --apply
+reap sweep --keep-recent 2 --apply --wait 30
 
 # compact duplicate artifacts but keep incremental compilation sessions
-reap sweep --no-incremental --apply
+reap sweep --no-incremental --apply --wait 30
 
 # clear regenerable debug-profile contents after 21 idle days,
 # but only when a retained release profile has artifacts
-reap sweep --stale-debug 21 --apply
+reap sweep --stale-debug 21 --apply --wait 30
 ```
 
 Command-line policy overrides take precedence over project policy, which takes
@@ -992,7 +999,8 @@ Those volume deltas can include concurrent activity; they are not attributed
 bytes reclaimed. A failed stage leaves a nonzero overall result but does not
 silently authorize later work: each subsequent command independently rechecks
 its own authority and state. `reap status` shows the last result. A changed
-config or installed binary stops later stages. An applying Files stage with outcome
+config or installed binary stops later stages. Cargo and Files stages use `--wait 30`.
+An applying Cargo or Files stage with outcome
 `pending` or `unconfirmed` also stops later stages. Use `reap job show ID` or
 `reap job wait ID` to resolve that same job; do not resubmit unconfirmed work.
 A concurrent maintenance run
@@ -1104,7 +1112,7 @@ Safety behavior is covered with synthetic target-tree tests. Changes to artifact
 classification or deletion boundaries should include an invariant test showing
 both what is removed and what must survive.
 
-The bounded [job client](docs/specs/job-client.md) supports manifest validation, declaration assessment and application, and job observations:
+The bounded [job client](docs/specs/job-client.md) supports Cargo, manifest validation, declaration assessment and application, and job observations:
 
 ```bash
 reap check [dir]                 # ordinary response budget: one second
@@ -1112,6 +1120,9 @@ reap check [dir] --wait 30        # explicit completion wait
 reap files [dir]                 # ordinary response budget: one second
 reap files [dir] --wait 30        # explicit read-only completion wait
 reap files [dir] --apply --wait 30 # explicit cleanup completion wait
+reap plan [dir] --wait 30         # explicit Cargo preview completion wait
+reap clean [dir] --wait 30        # Cargo application; clean implies apply
+reap sweep --apply --wait 30      # configured Cargo targets
 reap job show GENERATION:EPOCH:NONCE
 reap job wait GENERATION:EPOCH:NONCE --timeout 30
 reap job page GENERATION:EPOCH:NONCE 0
@@ -1120,7 +1131,8 @@ reap job cancel GENERATION:EPOCH:NONCE
 
 These commands emit JSON. Exit 0 requires completed success; exit 75 means pending or unknown.
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
-`check` and non-applying `files` submit read-only jobs. `files --apply` submits a mutation job.
+`check` and non-applying `files`, `plan`, and `sweep` submit read-only jobs.
+`files --apply`, `plan --apply`, `sweep --apply`, and `clean` submit mutation jobs.
 A pending receipt includes the same-key observation command;
 require completed success before a dependent step. `--wait` without a value means 30 seconds.
 Waiting does not cancel or resubmit work. Receipts identify protocol 2, operation, mode, and
@@ -1136,7 +1148,8 @@ Observe the same key for its terminal result. A result already durably staged re
 An already successful job retains exit 0. This does not mean that cancellation took effect.
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
 macOS installation registers that broker. Files application records exact payload and index units
-through the shared executor. Other applying filesystem commands still retain their foreground routes.
+through the shared executor. Cargo application records lock publication and exact removal units through that executor.
+Other applying filesystem commands still retain their foreground routes.
 The full applying-command migration remains open. No new lifetime authority is activated by this route.
 
 Their component contracts are [transport](docs/specs/control-transport.md) and
@@ -1154,8 +1167,8 @@ Its SQLite snapshot operation uses native online backup, including committed WAL
 work and byte limits. It requires backup completion, finalization, and integrity verification.
 This library operation does not establish complete conversation dependencies or source-release permission.
 Native prepared jobs now have a [read-only check execution path](docs/specs/job-execution.md)
-through owned resolver/bulk workers and durable terminal results. Ordinary `check` uses this path;
-applying operations are not activated.
+through owned resolver/bulk workers and durable terminal results. Ordinary `check` uses this path.
+Files and Cargo have separate applying adapters; full fleet activation remains open.
 Read-only declaration preview has native resolver and worker phases with structured counters.
 It can assess one workspace with governing ancestor policy and required sibling retention measurements.
 It does not recursively scan unrelated sibling subtrees for display sizing.
@@ -1184,7 +1197,7 @@ Complete results publish bounded observations in the job journal, without target
 Result retirement can forget this derived evidence; lost credit restarts grace.
 A public helper command is not provided.
 Public non-applying `files` uses this path and emits protocol 2 JSON, not foreground diagnostic text.
-Read-only maintenance explicitly waits for its result. A pending receipt is not a completed maintenance stage.
+Maintenance explicitly waits for Cargo and Files results. A pending receipt is not a completed maintenance stage.
 These changes do not migrate leases, capture live conversations, or release sources.
 Native archive adapters, unified execution, caller migration, and installed-path acceptance remain required.
 

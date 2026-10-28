@@ -2,7 +2,6 @@
 
 mod executable_paths;
 
-pub(crate) use executable_paths::snapshot as executables;
 pub(crate) use executable_paths::snapshot_with as executables_with;
 pub(crate) use executable_paths::Snapshot as ExecutableSnapshot;
 
@@ -316,18 +315,6 @@ mod tests {
     let mut capture = Capture::new(&probe);
     capture.push(&large).unwrap();
     assert!(capture.finish().is_err());
-  }
-
-  #[cfg(target_os = "macos")]
-  #[test]
-  fn native_executable_snapshot_includes_its_live_caller() {
-    let executable = std::env::current_exe().unwrap();
-    let root = executable.parent().unwrap();
-    assert!(executables(root)
-      .unwrap()
-      .paths
-      .contains(std::path::Path::new(executable.file_name().unwrap())));
-    assert!(executables(std::path::Path::new("relative")).is_err());
   }
 
   /// A copied signed test driver supplies an owned live executable for installed-path cases.

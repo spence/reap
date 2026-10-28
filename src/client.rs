@@ -77,7 +77,15 @@ pub fn run_files(
   run_prepared("files", path, apply, wait, entered)
 }
 
-/// Prepare one invocation and observe its same retained key within the cumulative deadline.
+/// Submit Cargo selection or compaction without caller-side discovery or configuration reads.
+pub(crate) fn run_cargo(
+  request: invocation::CargoRequest,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  run_argv(request.argv(), request.apply, wait, entered)
+}
+
 fn run_prepared(
   operation: &str,
   path: Option<String>,
@@ -85,6 +93,18 @@ fn run_prepared(
   wait: Option<Duration>,
   entered: Instant,
 ) -> i32 {
+  let mut argv = vec![operation.into()];
+  if let Some(path) = path {
+    argv.push(path);
+  }
+  if apply {
+    argv.push("--apply".into());
+  }
+  run_argv(argv, apply, wait, entered)
+}
+
+/// Prepare one invocation and observe its same retained key within the cumulative deadline.
+fn run_argv(argv: Vec<String>, apply: bool, wait: Option<Duration>, entered: Instant) -> i32 {
   let timeout = wait.unwrap_or(RESPONSE_BUDGET);
   let Some(deadline) = entered.checked_add(timeout).filter(|_| !timeout.is_zero()) else {
     return emit(Receipt::new(
@@ -109,13 +129,6 @@ fn run_prepared(
       None,
       Some("internal configuration snapshots are not a public invocation override".into()),
     ));
-  }
-  let mut argv = vec![operation.into()];
-  if let Some(path) = path {
-    argv.push(path);
-  }
-  if apply {
-    argv.push("--apply".into());
   }
   let input = Intent {
     argv,

@@ -226,6 +226,22 @@ impl<'a> Applying<'a> {
         "owned applying fixture exits after retained intent",
       ));
     }
+    #[cfg(test)]
+    if std::env::var("REAP_NATIVE_FILES_UNIT_STOP").as_deref() == Ok("intended-activity") {
+      let gate = std::env::var_os("REAP_NATIVE_FILES_ACTIVITY_GATE")
+        .map(PathBuf::from)
+        .ok_or_else(|| io::Error::other("owned activity fixture has no gate"))?;
+      fs::write(gate.join("intended"), b"owned retained rename intent")?;
+      let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+      while !gate.join("release").exists() {
+        if std::time::Instant::now() >= deadline {
+          return Err(io::Error::other(
+            "owned retained-intent activity gate expired",
+          ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+      }
+    }
     let outcome = held.commit(staged, self.grant, || {
       self.guard_unit(scan, removal, boundary, cfg, leases, helpers, &fingerprint)
     })?;

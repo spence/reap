@@ -113,82 +113,22 @@ impl<'a, 'b> Applying<'a, 'b> {
       let mut blocked = 0;
       for category in &plan.categories {
         for logical in &category.paths {
-          let parent = fs::canonicalize(
-            logical
-              .parent()
-              .ok_or_else(|| io::Error::other("Cargo selection has no parent"))?,
-          )?;
-          let physical = parent.join(
-            logical
-              .file_name()
-              .ok_or_else(|| io::Error::other("Cargo selection has no name"))?,
-          );
-          if !physical.starts_with(&target) {
-            return Err(io::Error::other("Cargo selection escapes its target"));
-          }
-          let entries = inventory.entries(&physical)?;
-          let guards = crate::plan::Guards::new(&manifest.keep);
-          if entries.iter().any(|entry| {
-            let lexical = logical.join(
-              entry
-                .strip_prefix(&physical)
-                .expect("captured candidate containment"),
-            );
-            guards.is_protected(
-              &lexical
-                .strip_prefix(&target)
-                .unwrap_or(&lexical)
-                .to_string_lossy(),
-            )
-          }) {
-            blocked += 1;
-            self.last_blocked = Some(format!("{}: manifest protection", logical.display()));
-            continue;
-          }
-          if let Some(reason) =
-            self.guard(manifest, logical, &physical, &inventory, &locks, helpers)?
-          {
-            blocked += 1;
-            self.last_blocked = Some(reason);
-            continue;
-          }
-          for path in entries {
-            self.fresh()?;
-            inventory.fresh()?;
-            let fingerprint = self.fingerprint(&path, &physical, &inventory)?;
-            let held = HeldUnlink::prepare(&path, &self.grant.resources, fingerprint.clone())?;
-            inventory.source(&path, held.source())?;
-            let original = held.source().try_clone()?;
-            let staged = helpers.stage_mutation(self.sequence, held.intent().clone())?;
-            let Staged::New(record) = &staged else {
-              return Err(io::Error::other(
-                "retained Cargo intent has no repeat permission",
-              ));
-            };
-            let nonce = record.nonce.clone();
-            #[cfg(test)]
-            stop_at("unlink-intended");
-            let outcome = held.commit(staged, self.grant, || {
-              if let Some(reason) =
-                self.guard(manifest, logical, &physical, &inventory, &locks, helpers)?
-              {
-                return Err(io::Error::other(reason));
+          match self.remove(manifest, logical, &mut inventory, &locks, helpers) {
+            Ok(None) => removed += 1,
+            Ok(Some(reason)) => {
+              blocked += 1;
+              self.last_blocked = Some(reason);
+            }
+            Err(reason) => {
+              self.last_blocked = Some(format!("{}: {reason}", logical.display()));
+              self.can_continue(helpers)?;
+              inventory.fresh()?;
+              for lock in &locks {
+                lock.fresh()?;
               }
-              Ok(fingerprint)
-            })?;
-            #[cfg(test)]
-            if outcome.phase == Phase::Removed {
-              stop_at("unlinked");
+              blocked += 1;
             }
-            self.observe(nonce, outcome.phase, helpers)?;
-            #[cfg(test)]
-            stop_at("unlink-observed");
-            if outcome.phase != Phase::Removed {
-              return Err(io::Error::other(outcome.detail));
-            }
-            inventory.removed(&path, &original)?;
           }
-          removed += 1;
         }
       }
       return Ok(report(
@@ -205,6 +145,109 @@ impl<'a, 'b> Applying<'a, 'b> {
       )?
     };
     Ok(report(&plan, 0, 0, self.context.request.verbose))
+  }
+
+  /// A refused selection permits continuation only after the writer proves a closed unit boundary.
+  /// Unknown effects or unavailable writer evidence never release this worker's exclusion.
+  pub(super) fn can_continue(&mut self, helpers: &mut Helpers<'_>) -> io::Result<()> {
+    if self.unknown {
+      return self.fresh();
+    }
+    match helpers.next_mutation_sequence() {
+      Ok(position) if position == (self.sequence, self.effects) => self.fresh(),
+      Ok(_) => {
+        self.unknown = true;
+        Err(io::Error::other(
+          "Cargo unit boundary differs from the writer",
+        ))
+      }
+      Err(reason) => {
+        self.unknown = true;
+        Err(reason)
+      }
+    }
+  }
+
+  /// Remove one logical selection through exact entry units; a known veto leaves it protected.
+  fn remove(
+    &mut self,
+    manifest: &Manifest,
+    logical: &Path,
+    inventory: &mut Inventory,
+    locks: &[Lock],
+    helpers: &mut Helpers<'_>,
+  ) -> io::Result<Option<String>> {
+    let target = manifest.target_dir();
+    let parent = fs::canonicalize(
+      logical
+        .parent()
+        .ok_or_else(|| io::Error::other("Cargo selection has no parent"))?,
+    )?;
+    let physical = parent.join(
+      logical
+        .file_name()
+        .ok_or_else(|| io::Error::other("Cargo selection has no name"))?,
+    );
+    if !physical.starts_with(&target) {
+      return Err(io::Error::other("Cargo selection escapes its target"));
+    }
+    let entries = inventory.entries(&physical)?;
+    let guards = crate::plan::Guards::new(&manifest.keep);
+    if entries.iter().any(|entry| {
+      let lexical = logical.join(
+        entry
+          .strip_prefix(&physical)
+          .expect("captured candidate containment"),
+      );
+      guards.is_protected(
+        &lexical
+          .strip_prefix(&target)
+          .unwrap_or(&lexical)
+          .to_string_lossy(),
+      )
+    }) {
+      return Ok(Some(format!("{}: manifest protection", logical.display())));
+    }
+    if let Some(reason) = self.guard(manifest, logical, &physical, inventory, locks, helpers)? {
+      return Ok(Some(reason));
+    }
+    for path in entries {
+      self.fresh()?;
+      inventory.fresh()?;
+      let fingerprint = self.fingerprint(&path, &physical, inventory)?;
+      let held = HeldUnlink::prepare(&path, &self.grant.resources, fingerprint.clone())?;
+      inventory.source(&path, held.source())?;
+      let original = held.source().try_clone()?;
+      let staged = helpers.stage_mutation(self.sequence, held.intent().clone())?;
+      let Staged::New(record) = &staged else {
+        return Err(io::Error::other(
+          "retained Cargo intent has no repeat permission",
+        ));
+      };
+      let nonce = record.nonce.clone();
+      #[cfg(test)]
+      stop_at("unlink-intended");
+      #[cfg(test)]
+      inject_unit_fixture(logical, &path)?;
+      let outcome = held.commit(staged, self.grant, || {
+        if let Some(reason) = self.guard(manifest, logical, &physical, inventory, locks, helpers)? {
+          return Err(io::Error::other(reason));
+        }
+        Ok(fingerprint)
+      })?;
+      #[cfg(test)]
+      if outcome.phase == Phase::Removed {
+        stop_at("unlinked");
+      }
+      self.observe(nonce, outcome.phase, helpers)?;
+      #[cfg(test)]
+      stop_at("unlink-observed");
+      if outcome.phase != Phase::Removed {
+        return Err(io::Error::other(outcome.detail));
+      }
+      inventory.removed(&path, &original)?;
+    }
+    Ok(None)
   }
 
   fn fresh(&self) -> io::Result<()> {
@@ -353,6 +396,31 @@ impl<'a, 'b> Applying<'a, 'b> {
     }
     helpers.observe_mutation(nonce, phase)
   }
+}
+
+#[cfg(test)]
+fn inject_unit_fixture(path: &Path, entry: &Path) -> io::Result<()> {
+  let mode = std::env::var("REAP_NATIVE_CARGO_UNIT_STOP").unwrap_or_default();
+  if mode == "unlink-unobserved" {
+    fs::rename(entry, entry.with_extension("retained-original"))?;
+    fs::write(entry, b"replacement source bytes")?;
+    return Err(io::Error::other("native Cargo intent observation withheld"));
+  }
+  if !matches!(mode.as_str(), "late-role" | "replacement-role") {
+    return Ok(());
+  }
+  if mode == "replacement-role" {
+    fs::rename(path, path.with_extension("retained-original"))?;
+    fs::create_dir(path)?;
+    fs::write(path.join("payload"), b"replacement archive bytes")?;
+  }
+  fs::write(
+    path.join(crate::lifetime::FILE_NAME),
+    br#"{
+      "version":2,"role":"permanent_archive",
+      "keep":{"reason":"native role fixture"},"seal":true
+    }"#,
+  )
 }
 
 #[cfg(test)]

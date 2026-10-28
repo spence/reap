@@ -55,13 +55,15 @@ purge selectors do not waive this guard. Uncertain role evidence refuses the aff
 Ordinary KEEP still permits authorized Cargo compaction. This guard does not activate conversation
 archives, source pruning, or version 2 lifetime disposal.
 
-## Bounded Files commands and job observations
+## Bounded commands and job observations
 
 `reap check [PATH]` submits read-only manifest validation with a one-second response budget.
 Use `reap check [PATH] --wait 30` when the next step needs completed validation.
 `reap files [PATH]` submits read-only declaration assessment with the same response budget.
 Use `reap files [PATH] --wait 30` before a dependent step. PATH can select a workspace inside a governed root.
 Use `reap files [PATH] --apply --wait 30` to await authorized cleanup through the shared executor.
+Use `reap plan [PATH] --wait 30` for completed Cargo assessment, or `reap clean [PATH] --wait 30` for completed cleanup.
+`clean` implies apply. `plan` and `sweep` apply only with `--apply`; bare `reap` submits a read-only sweep.
 `--wait` without a value means 30 seconds. A pending receipt is not successful validation.
 `reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
 `reap job wait GENERATION:EPOCH:NONCE --timeout 30` explicitly waits for completion.
@@ -76,7 +78,8 @@ Files preview can request supervised native activity evidence. Pending or incomp
 Its Git tracking uses bounded snapshots. Unsupported or changed dependencies protect the selection.
 macOS installation registers the three fixed on-demand roles. Ordinary commands never install them.
 `files --apply` uses the same bounded client and records its exact payload and index units.
-Other applying commands retain their foreground routes; full command migration remains open.
+Cargo commands use that client and executor, including journaled lock publication and exact removal units.
+Other applying commands retain their foreground routes; full fleet migration remains open.
 Complete zero-effect Files jobs in either mode can publish journal grace credit. Legacy cache credit is not imported.
 
 Use `reap job cancel ID` only for a job you own or were assigned. Observe the same key afterward.
@@ -87,10 +90,10 @@ An already successful job retains exit 0. This does not mean that cancellation t
 ## 1. Reclaim cargo build output (the common job)
 
 ```bash
-reap                       # bare == DRY-RUN sweep of every discovered target dir
-reap sweep --apply         # reclaim across all of them
-reap clean <dir>           # one project or target dir (implies apply)
-reap plan  <dir>           # dry-run one;  reap list  shows what's discovered
+reap sweep --wait 30       # await a read-only Cargo selection
+reap sweep --apply --wait 30 # await cleanup across discovered targets
+reap clean <dir> --wait 30 # one project or target dir; implies apply
+reap plan <dir> --wait 30  # await one preview; reap list shows discovered targets
 ```
 
 Discovery walks configured roots (default `~/src`) for cargo's `CACHEDIR.TAG`
@@ -101,13 +104,15 @@ recent artifacts ineligible. For apply, Reap holds Cargo's per-profile
 `.cargo-lock` from planning through deletion and skips a target if a build or
 lock error prevents that. Dry-runs do not lock. Cargo does not use this lock
 on NFS, so do not apply there during a build.
+Read Cargo results from the receipt's structured `reports`, or retrieve retained pages when required.
+Compare `planned_items`, `removed_items`, and `blocked_items`; a pending receipt is not completed cleanup.
 
-Cargo apply preserves running executable paths from a bounded native snapshot,
-including a removal directory that contains one. Incomplete process evidence
-refuses the target. A partial removal returns nonzero; inspect its survivors.
+Cargo apply preserves executable paths and removal directories that contain them.
+It requires a fresh bounded native executable snapshot before each removal unit.
+Incomplete process evidence refuses the affected removal. A partial removal returns nonzero; inspect its survivors.
 An unresolved executable name needs complete scoped vnode evidence, not an
 assumption of inactivity. An incomplete candidate walk preserves that candidate.
-The snapshot does not serialize later process starts or protect every open data
+These snapshots do not serialize later process starts or protect every open data
 file or mapped library. Keep the build lock and minimum-age brake.
 
 ## 2. Temporary checkouts: lease at creation, retire when expired

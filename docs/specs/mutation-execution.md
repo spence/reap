@@ -81,10 +81,19 @@
   Unknown or changed planning input refuses further effects. Only known owned removals can retire
   inventory dependencies; new or replaced entries survive. Partial removal is not completed success.
   Workspace KEEP prevents retirement, not separately permitted compaction of regenerable Cargo output.
+  A known target or candidate refusal does not prevent independently guarded cleanup elsewhere.
+  Continuation requires the writer's closed unit boundary and fresh remaining dependencies.
+  Unresolved intent, unknown effects, or changed shared dependencies prevent further effects.
   Binding: `dispatch::tests::native_cargo_apply_removes_only_inactive_output_and_keeps_policy_and_newest_build`;
   `dispatch::tests::native_cargo_apply_preserves_a_running_executable_without_a_build_lock`;
   `dispatch::tests::native_cargo_apply_preserves_output_when_the_build_lock_is_held`;
   `dispatch::tests::native_cargo_apply_refuses_manifest_changes_after_resolution`;
+  `dispatch::tests::native_cargo_preserves_late_roles_and_replacements`;
+  `dispatch::tests::native_cargo_stale_profile_compaction_keeps_release_final_binary_and_fresh_output`;
+  `dispatch::tests::native_cargo_regression_parent_components_use_kernel_alias_semantics`;
+  `dispatch::tests::native_cargo_regression_sweep_continues_after_locked_and_invalid_targets`;
+  `dispatch::tests::native_cargo_regression_refused_unlink_reclaims_an_independent_sibling`;
+  `dispatch::tests::native_cargo_unobserved_unit_keeps_later_targets_and_exclusion`;
   `dispatch::tests::native_cargo_apply_recovers_interrupted_lock_and_unlink_units_without_repetition`;
   `dispatch::tests::native_cargo_read_preserves_complete_paged_selection_and_replays_without_effects`;
   `plan::tests::incomplete_cargo_inputs_refuse_instead_of_selecting_from_an_empty_scan`;
@@ -123,9 +132,11 @@ neither recovery nor replay repeats the payload move or metadata publication.
 Cross-volume moves, lifetime-policy publication, and fleet adapter activation remain outside this
 verified boundary. These private applying cases do not establish the full caller integration
 or performance requirements.
+The native sweep regression also requires quarantine exclusion. A native nested-mount refusal case
+remains unmet; it must prove refusal without source effects before fleet activation.
 
-The source Files client now submits applying requests through the bounded client. Maintenance and
-workflow fixtures await the same terminal result. Fleet activation remains a separate gate; other
+The source Files and Cargo clients submit applying requests through the bounded client. Maintenance
+awaits the same terminal result for both families. Fleet activation remains a separate gate; other
 applying families still need the shared executor before the full bridge can be released.
 A failed terminal result can retain an uncertain unit and its C5 physical reservation.
 Legacy foreground commands do not honor that reservation. They must migrate before fleet activation under C7.

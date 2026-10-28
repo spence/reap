@@ -115,6 +115,7 @@ pub(crate) fn cargo_request(input: &Intent) -> Option<CargoRequest> {
       verbose,
       quick,
       policy,
+      wait: None,
     } => (None, apply, verbose, quick, policy),
     crate::Cmd::Plan {
       path,
@@ -122,12 +123,14 @@ pub(crate) fn cargo_request(input: &Intent) -> Option<CargoRequest> {
       verbose,
       quick,
       policy,
+      wait: None,
     } => (path, apply, verbose, quick, policy),
     crate::Cmd::Clean {
       path,
       verbose,
       quick,
       policy,
+      wait: None,
       ..
     } => (path, true, verbose, quick, policy),
     _ => return None,
@@ -721,6 +724,9 @@ mod tests {
       vec!["plan", "--unrecognized"],
       vec!["plan", "--apply", "--apply"],
       vec!["sweep", "unexpected-path"],
+      vec!["plan", "--wait"],
+      vec!["clean", "--wait", "30"],
+      vec!["sweep", "--wait", "30"],
       vec!["check", "."],
     ] {
       assert!(cargo_request(&intent(&argv)).is_none());

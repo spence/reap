@@ -191,9 +191,10 @@ pub fn run(apply: bool, only: Option<Stage>, if_free_below_gib: Option<f64>) -> 
     receipt.error = Some(reason);
     receipt.next_action = Some(
       if receipt.stages.last().is_some_and(|stage| {
-        stage.stage == "files" && matches!(stage.outcome.as_str(), "pending" | "unconfirmed")
+        matches!(stage.stage.as_str(), "cargo" | "files")
+          && matches!(stage.outcome.as_str(), "pending" | "unconfirmed")
       }) {
-        "inspect the retained Files receipt; resolve that job and do not resubmit unconfirmed work"
+        "inspect the retained job receipt; resolve that job and do not resubmit unconfirmed work"
           .into()
       } else {
         format!("inspect {} and rerun `reap maintain`", path.display())
@@ -309,8 +310,8 @@ fn execute(
     if apply && !diagnostic {
       args.push("--apply");
     }
-    let files = stage == Stage::Files;
-    if files {
+    let coordinated = matches!(stage, Stage::Cargo | Stage::Files);
+    if coordinated {
       args.extend(["--wait", "30"]);
     }
     let command = format!("reap {}", args.join(" "));
@@ -318,23 +319,23 @@ fn execute(
     let started = Instant::now();
     let mut child = Command::new(binary);
     child.args(&args);
-    if files {
+    if coordinated {
       child.env_remove("REAP_INTERNAL_CONFIG_SNAPSHOT");
     } else {
       child.env("REAP_INTERNAL_CONFIG_SNAPSHOT", &config_text);
     }
     let output = child.output();
-    let mut files_closed = !(files && apply);
+    let mut stage_closed = !(coordinated && apply);
     let after = available_bytes(&qdir).ok();
     let elapsed_millis = started.elapsed().as_millis();
     let (outcome, exit_code, stdout, stderr, output_truncated, reason) = match output {
       Ok(output) => {
-        if files && apply {
-          files_closed = files_stage_closed(&output);
+        if coordinated && apply {
+          stage_closed = job_stage_closed(&output);
         }
         let (stdout, out_truncated) = bounded(&output.stdout);
         let (stderr, err_truncated) = bounded(&output.stderr);
-        let outcome = if !files_closed {
+        let outcome = if !stage_closed {
           if output.status.code() == Some(75) {
             "pending"
           } else {
@@ -386,15 +387,18 @@ fn execute(
       reason,
       next_action: (outcome == "failed").then(|| stage.next_action().to_string()),
     });
-    if !files_closed {
-      return Err("Files result is unconfirmed; no later stage was started".into());
+    if !stage_closed {
+      return Err(format!(
+        "{} result is unconfirmed; no later stage was started",
+        stage.name()
+      ));
     }
   }
   Ok(())
 }
 
-/// Permit later stages only after terminal Files evidence or confirmed non-admission.
-fn files_stage_closed(output: &std::process::Output) -> bool {
+/// Permit later stages only after a terminal coordinated result or confirmed non-admission.
+fn job_stage_closed(output: &std::process::Output) -> bool {
   use crate::client::{Receipt, State};
 
   let Ok(receipt) = serde_json::from_slice::<Receipt>(&output.stdout) else {
@@ -484,93 +488,98 @@ mod tests {
   }
 
   #[test]
-  fn applying_maintenance_stops_after_unconfirmed_files_and_continues_after_completion() {
-    for state in ["pending", "malformed", "completed", "not_accepted"] {
-      let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-      let root =
-        std::env::temp_dir().join(format!("reap-maintenance-{}-{nonce}", std::process::id()));
-      fs::create_dir(&root).unwrap();
-      let fixture = Fixture(root);
-      #[cfg(target_os = "macos")]
-      assert_eq!(
-        fs::metadata(&fixture.0).unwrap().dev(),
-        fs::metadata("/System/Volumes/Data").unwrap().dev()
-      );
-      fs::write(
-        fixture.0.join(".reap"),
-        r#"{"version":1,"keep":{"reason":"owned maintenance fixture"}}"#,
-      )
-      .unwrap();
-      let quarantine = fixture.0.join("quarantine");
-      fs::create_dir(&quarantine).unwrap();
-      let config = fixture.0.join("config.json");
-      fs::write(
-        &config,
-        json!({"quarantine":{"dir":quarantine,"auto_purge":true}}).to_string(),
-      )
-      .unwrap();
-
-      let mut response = json!({"protocol":2,"state":state,"key":null,"job_id":null,
-        "job":null,"observed_at":null,"reason":null,"next_command":null});
-      if state == "completed" {
-        let key = json!({"generation":"a".repeat(32),"epoch":1,"nonce":"b".repeat(32)});
-        response["key"] = key.clone();
-        response["job"] = json!({"key":key,"created_at":1,"completed_at":2,
-          "result":{"exit_code":0,"effects":2,"detail":"{}"}});
-      }
-      let stdout = if state == "malformed" {
-        "lost output".into()
-      } else {
-        response.to_string()
-      };
-      let exit = match state {
-        "pending" => 75,
-        "not_accepted" => 1,
-        _ => 0,
-      };
-      let binary = fixture.0.join("stage");
-      fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"${{0%/*}}/trace\"\nif [ \"$1\" = files ]; then\n  printf '%s\\n' '{stdout}'\n  exit {exit}\nfi\n")).unwrap();
-      fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
-      let mut receipt = Receipt {
-        version: 1,
-        mode: "apply".into(),
-        started_unix: 0,
-        finished_unix: 0,
-        config_path: config.display().to_string(),
-        binary_path: binary.display().to_string(),
-        outcome: "running".into(),
-        stages: vec![],
-        error: None,
-        next_action: None,
-      };
-
-      let result = execute(&config, &binary, &mut receipt, true, None);
-      let trace = fs::read_to_string(fixture.0.join("trace")).unwrap();
-      assert!(trace.contains("files --apply --wait 30\n"), "{trace}");
-      if matches!(state, "pending" | "malformed") {
-        assert!(result.unwrap_err().contains("no later stage was started"));
-        assert_eq!(receipt.stages.last().unwrap().stage, "files");
+  fn applying_maintenance_stops_after_unconfirmed_jobs_and_continues_after_completion() {
+    for (selected_command, selected_stage) in [("sweep", "cargo"), ("files", "files")] {
+      for state in ["pending", "malformed", "completed", "not_accepted"] {
+        let nonce = SystemTime::now()
+          .duration_since(UNIX_EPOCH)
+          .unwrap()
+          .as_nanos();
+        let root =
+          std::env::temp_dir().join(format!("reap-maintenance-{}-{nonce}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let fixture = Fixture(root);
+        #[cfg(target_os = "macos")]
         assert_eq!(
-          receipt.stages.last().unwrap().outcome,
-          if state == "pending" {
-            "pending"
-          } else {
-            "unconfirmed"
-          }
+          fs::metadata(&fixture.0).unwrap().dev(),
+          fs::metadata("/System/Volumes/Data").unwrap().dev()
         );
-        assert!(trace.ends_with("files --apply --wait 30\n"), "{trace}");
-        assert!(!trace.contains("retire"), "{trace}");
-        assert!(!trace.contains("purge"), "{trace}");
-      } else {
-        result.unwrap();
-        assert_eq!(receipt.stages.last().unwrap().stage, "purge");
-        assert!(
-          trace.ends_with("retire --apply\npurge --apply\n"),
-          "{trace}"
-        );
+        fs::write(
+          fixture.0.join(".reap"),
+          r#"{"version":1,"keep":{"reason":"owned maintenance fixture"}}"#,
+        )
+        .unwrap();
+        let quarantine = fixture.0.join("quarantine");
+        fs::create_dir(&quarantine).unwrap();
+        let config = fixture.0.join("config.json");
+        fs::write(
+          &config,
+          json!({"quarantine":{"dir":quarantine,"auto_purge":true}}).to_string(),
+        )
+        .unwrap();
+
+        let key = json!({"generation":"a".repeat(32),"epoch":1,"nonce":"b".repeat(32)});
+        let completed = json!({"protocol":2,"state":"completed","key":key,"job_id":null,
+        "job":{"key":key,"created_at":1,"completed_at":2,
+          "result":{"exit_code":0,"effects":2,"detail":"{}"}},
+        "observed_at":null,"reason":null,"next_command":null});
+        let mut response = json!({"protocol":2,"state":state,"key":null,"job_id":null,
+        "job":null,"observed_at":null,"reason":null,"next_command":null});
+        if state == "completed" {
+          response = completed.clone();
+        }
+        let stdout = if state == "malformed" {
+          "lost output".into()
+        } else {
+          response.to_string()
+        };
+        let exit = match state {
+          "pending" => 75,
+          "not_accepted" => 1,
+          _ => 0,
+        };
+        let binary = fixture.0.join("stage");
+        fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"${{0%/*}}/trace\"\nif [ \"$1\" = files ] || [ \"$1\" = sweep ]; then\n  [ -z \"${{REAP_INTERNAL_CONFIG_SNAPSHOT+x}}\" ] || exit 9\n  if [ \"$1\" = {selected_command} ]; then\n    printf '%s\\n' '{stdout}'\n    exit {exit}\n  fi\n  printf '%s\\n' '{completed}'\nfi\n")).unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        let mut receipt = Receipt {
+          version: 1,
+          mode: "apply".into(),
+          started_unix: 0,
+          finished_unix: 0,
+          config_path: config.display().to_string(),
+          binary_path: binary.display().to_string(),
+          outcome: "running".into(),
+          stages: vec![],
+          error: None,
+          next_action: None,
+        };
+
+        let result = execute(&config, &binary, &mut receipt, true, None);
+        let trace = fs::read_to_string(fixture.0.join("trace")).unwrap();
+        let expected_command = format!("{selected_command} --apply --wait 30\n");
+        assert!(trace.contains(&expected_command), "{trace}");
+        if matches!(state, "pending" | "malformed") {
+          assert!(result.unwrap_err().contains("no later stage was started"));
+          assert_eq!(receipt.stages.last().unwrap().stage, selected_stage);
+          assert_eq!(
+            receipt.stages.last().unwrap().outcome,
+            if state == "pending" {
+              "pending"
+            } else {
+              "unconfirmed"
+            }
+          );
+          assert!(trace.ends_with(&expected_command), "{trace}");
+          assert!(!trace.contains("retire"), "{trace}");
+          assert!(!trace.contains("purge"), "{trace}");
+        } else {
+          result.unwrap();
+          assert_eq!(receipt.stages.last().unwrap().stage, "purge");
+          assert!(
+            trace.ends_with("retire --apply\npurge --apply\n"),
+            "{trace}"
+          );
+        }
       }
     }
   }
