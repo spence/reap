@@ -97,7 +97,7 @@
   `dispatch::tests::native_cargo_apply_recovers_interrupted_lock_and_unlink_units_without_repetition`;
   `dispatch::tests::native_cargo_read_preserves_complete_paged_selection_and_replays_without_effects`;
   `plan::tests::incomplete_cargo_inputs_refuse_instead_of_selecting_from_an_empty_scan`;
-  `dispatch::cargo_job::inventory::tests`;
+  `dispatch::inventory::tests`;
   `tests/test_public_mutations.py::PublicMutations::test_cargo_commands_do_not_wait_for_target_marker_fifo`.
 
 - **C13 — Legacy lease metadata remains explicit.** Lease commands use the shared client and writer.
@@ -114,6 +114,27 @@
   Renew and release do not require a readable co-located lifetime declaration during resolution.
   A preservation refusal after index release keeps the marker and reports a partial result.
   Binding: `dispatch::tests::lease`; the native lease client and exact-receipt replay cases in `service::tests::native`.
+
+- **C14 — Store operations retain their declared authority.** Assessment, arming, binding and applying
+  store requests use the same bounded client, durable writer and native unit executor.
+  Only explicit arming or binding can publish store authority. Missing and unarmed stores remain non-applying.
+  Applying selection retains declared disposition, series, minimum age, newest-unit protection and byte limits.
+  Retention selects each whole direct-child unit before its first payload effect, not each entry in a partial deletion.
+  Fresh manifest, marker, binding, lease, preservation, mount, caller and activity guards precede each effect.
+  Direct deletion records each exact postorder entry. Unknown effects retain exclusion; recovery never resumes a deletion prefix.
+  Quarantine records destination directories, source evidence, payload and index as separate units.
+  A failed index publication retains recoverable payload evidence, not a false rollback or completed cleanup claim.
+  Existing explicit disposal authority remains unchanged; these operations do not activate lifetime conversion or source pruning.
+  Binding: `dispatch::tests::stores::native_stores_init_assess_delete_and_replay_keep_newest_and_unmatched_units`;
+  `dispatch::tests::stores::native_stores_binding_quarantine_and_replay_keep_payload_evidence_and_newest_output`;
+  `dispatch::tests::stores::native_stores_size_retention_keeps_each_series_and_unmatched_special_output`;
+  `dispatch::tests::stores::native_stores_changed_unit_survives_while_an_unchanged_older_unit_is_removed`;
+  `dispatch::tests::stores::native_stores_interrupted_units_preserve_payloads_and_never_repeat_after_reopen`;
+  `dispatch::tests::stores::native_stores_unobserved_unlink_retains_exclusion_after_native_exit_and_reopen`;
+  `dispatch::tests::stores::native_stores_init_without_a_store_declaration_refuses_without_metadata_effects`;
+  `dispatch::tests::stores::native_stores_full_index_refuses_before_slot_or_evidence_publication_on_repeat`;
+  `stores::tests::selected_store_recheck_does_not_rescan_an_unrelated_live_store`;
+  `tests/test_public_mutations.py::PublicMutations::test_store_apply_does_not_wait_for_configuration_fifo`.
 
 ## Conformance boundary
 

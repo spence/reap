@@ -1958,7 +1958,7 @@ impl Job {
         && self.view.invocation.as_ref().is_some_and(|summary| {
           matches!(
             summary.operation.as_str(),
-            "files" | "plan" | "clean" | "sweep" | "lease"
+            "files" | "plan" | "clean" | "sweep" | "lease" | "stores"
           ) && summary.mode == "apply"
         });
       if (!applying
@@ -2063,6 +2063,11 @@ impl Job {
         .invocation
         .as_ref()
         .is_some_and(|summary| summary.operation == "lease");
+      let stores = self
+        .view
+        .invocation
+        .as_ref()
+        .is_some_and(|summary| summary.operation == "stores");
       if (matches!(
         progress,
         Progress::ResolvingFiles
@@ -2073,7 +2078,7 @@ impl Job {
         || (matches!(
           progress,
           Progress::Resolving | Progress::Resolved { .. } | Progress::Checking { .. }
-        ) && (files || cargo || lease))
+        ) && (files || cargo || lease || stores))
         || (matches!(
           progress,
           Progress::ResolvingCargo | Progress::CargoResolved { .. } | Progress::RunningCargo { .. }
@@ -2082,6 +2087,12 @@ impl Job {
           progress,
           Progress::ResolvingLease | Progress::LeaseResolved { .. } | Progress::RunningLease { .. }
         ) && !lease)
+        || (matches!(
+          progress,
+          Progress::ResolvingStores
+            | Progress::StoresResolved { .. }
+            | Progress::RunningStores { .. }
+        ) && !stores)
       {
         return Err(invalid(
           "execution phase differs from its retained operation",
@@ -2094,7 +2105,9 @@ impl Job {
         | Progress::CargoResolved { scope }
         | Progress::RunningCargo { scope }
         | Progress::LeaseResolved { scope }
+        | Progress::StoresResolved { scope }
         | Progress::RunningLease { scope }
+        | Progress::RunningStores { scope }
         | Progress::PreviewingFiles { scope } => scope.validate()?,
         Progress::FilesYielded { scope, checkpoint } => {
           scope.validate()?;
@@ -2143,7 +2156,9 @@ impl Job {
         | Progress::ResolvingFiles
         | Progress::ResolvingCargo
         | Progress::ResolvingLease
+        | Progress::ResolvingStores
         | Progress::LeaseResolved { .. }
+        | Progress::StoresResolved { .. }
         | Progress::CargoResolved { .. }
         | Progress::FilesResolved { .. } => self
           .launch
@@ -2152,7 +2167,8 @@ impl Job {
         Progress::Checking { scope }
         | Progress::PreviewingFiles { scope }
         | Progress::RunningCargo { scope }
-        | Progress::RunningLease { scope } => self.launch.as_ref().is_some_and(|launch| {
+        | Progress::RunningLease { scope }
+        | Progress::RunningStores { scope } => self.launch.as_ref().is_some_and(|launch| {
           (launch.resources == Resources::Resolver && launch.released())
             || launch.resources
               == (Resources::Bulk {
@@ -2249,7 +2265,7 @@ fn record_limit(executing: bool, invocation: Option<&crate::invocation::Summary>
     && invocation.is_some_and(|summary| {
       matches!(
         summary.operation.as_str(),
-        "files" | "plan" | "clean" | "sweep" | "lease"
+        "files" | "plan" | "clean" | "sweep" | "lease" | "stores"
       )
     })
   {

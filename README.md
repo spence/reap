@@ -301,10 +301,10 @@ reap config
 reap config --init
 
 # declared artifact stores (.reap.json v2)
-reap stores [dir]
-reap stores --init [dir]
-reap stores --bind NAME --to /absolute/dir [project-dir]
-reap stores --apply
+reap stores [dir] [--wait [SECONDS]]
+reap stores --init [dir] [--wait [SECONDS]]
+reap stores --bind NAME --to /absolute/dir [project-dir] [--wait [SECONDS]]
+reap stores --apply [dir] [--wait [SECONDS]]
 
 # temporary checkouts
 reap create scratch <new-dir> --ttl 48h --owner NAME --purpose TEXT
@@ -600,11 +600,11 @@ A declaration alone deletes nothing. To arm a project-relative store, create
 its directory and `REAP-STORE.TAG` marker:
 
 ```bash
-reap stores --init          # create + arm the declared stores of this project
+reap stores --init --wait 30 # create and arm; require completed success
 ```
 
 Without the marker, `reap stores --apply` reports a project-relative store as
-UNARMED and skips it. An external store needs both its local binding and a
+`unarmed` in its structured report and skips it. An external store needs both its local binding and a
 matching marker. A freshly cloned repository therefore stays inert until
 someone with access to the machine arms its stores.
 
@@ -612,17 +612,26 @@ Before each eviction, `--apply` reloads the manifest and rechecks the armed
 marker, store path and identity, disposition, retention eligibility, and the
 candidate's identity and activity under the machine state lock. It also
 refuses a unit overlapping any recorded lease. A changed run is skipped with
-a warning; unchanged eligible runs can still be evicted. Directory scans fail
-closed on unreadable entries, special files, or nested mounts. Symlinks inside
+a failed result; unchanged eligible runs can still be evicted. Directory scans fail
+closed on unreadable matched entries, nested special files, or nested mounts. Symlinks inside
 a run are not followed. Reap does not lock the process producing a run, so
 producers should finish writing before a run becomes eligible for eviction.
+
+All Store commands use the bounded job client and protocol 2 receipts.
+Use `--wait 30` before a dependent step; exit 0 requires completed success.
+Read structured `reports`, or retrieve retained pages when `paged_result` is present.
+Retention assessment does not traverse unmatched children or charge them to the retention budget.
+Their bytes remain unknown; reports provide `known_bytes`, `unknown_children`, and nullable `total_bytes`.
+Direct special-file children remain protected. An unrelated live producer does not invalidate another unit's snapshot.
+Each deletion entry and quarantine publication has separate durable intent.
+After interruption, recovery never resumes a partial deletion from the original request.
 
 For recoverable output, add `"disposition": "quarantine"` to that store, then
 arm and apply it as usual:
 
 ```bash
-reap stores --init .
-reap stores --apply .
+reap stores --init . --wait 30
+reap stores --apply . --wait 30
 reap quarantine                    # shows owner, project, store, series, and original path
 reap quarantine restore <id> --to /safe/absolute/new-path
 ```
@@ -630,8 +639,9 @@ reap quarantine restore <id> --to /safe/absolute/new-path
 Restore requires an explicit, absent destination under an existing,
 non-symlinked parent; it never overwrites a new run at the original path.
 An external quarantine must already exist. A same-filesystem move does not
-free disk space until purge; a move to another volume frees source-volume
-space after the verified copy. Bare `reap purge --apply` applies only when this
+free disk space until purge. The coordinated Store path currently refuses cross-volume moves and retains the source.
+Verified staged-copy support remains required before full migration.
+Bare `reap purge --apply` applies only when this
 machine enables `auto_purge` and an entry has passed `purge_after_days`.
 Explicit `--id`, `--owner`, and `--all` still bypass that automatic policy.
 If a store move is interrupted before its index write,
@@ -1163,6 +1173,7 @@ An already successful job retains exit 0. This does not mean that cancellation t
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
 macOS installation registers that broker. Files application records exact payload and index units
 through the shared executor. Cargo application records lock publication and exact removal units through that executor.
+Lease and Store commands also use that client and executor, including explicit metadata publications.
 Other applying filesystem commands still retain their foreground routes.
 The full applying-command migration remains open. No new lifetime authority is activated by this route.
 

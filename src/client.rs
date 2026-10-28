@@ -86,6 +86,16 @@ pub(crate) fn run_cargo(
   run_argv(request.argv(), request.apply, wait, entered)
 }
 
+/// Submit store assessment, arming, binding or cleanup without caller-side filesystem work.
+pub(crate) fn run_stores(
+  request: invocation::StoreRequest,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  let applying = request.applying();
+  run_argv(request.argv(), applying, wait, entered)
+}
+
 /// Submit explicit legacy lease metadata work without caller-side state reads or lock waits.
 pub(crate) fn run_lease(command: crate::LeaseCmd, wait: Option<Duration>, entered: Instant) -> i32 {
   let applying = !matches!(command, crate::LeaseCmd::List);
@@ -138,7 +148,9 @@ fn run_argv(argv: Vec<String>, apply: bool, wait: Option<Duration>, entered: Ins
   }
   let provenance = if apply {
     attribution(
-      argv.first().is_some_and(|operation| operation == "lease"),
+      argv
+        .first()
+        .is_some_and(|operation| matches!(operation.as_str(), "lease" | "stores")),
       crate::util::default_owner(),
       crate::provenance::from_env("REAP_OWNER"),
       crate::provenance::from_env("REAP_SESSION"),
@@ -169,14 +181,14 @@ fn run_argv(argv: Vec<String>, apply: bool, wait: Option<Duration>, entered: Ins
   emit(receipt)
 }
 
-/// Lease creator attribution excludes the fallback owner label.
+/// Explicit creator attribution excludes the fallback owner label.
 fn attribution(
-  lease: bool,
+  separate_creator: bool,
   owner: String,
   explicit_owner: Option<String>,
   session: Option<String>,
 ) -> serde_json::Value {
-  if lease {
+  if separate_creator {
     serde_json::json!({"owner":owner,"actor":explicit_owner,"session":session})
   } else {
     serde_json::json!({"actor":owner,"session":session})

@@ -1,7 +1,7 @@
 //! Machine-local authority for named stores outside a project directory.
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{config_path, Config};
 use crate::manifest::Manifest;
 use crate::stores::STORE_MARKER;
-use crate::util::{lock_state, new_token, state_dir, write_json_atomic};
+use crate::util::{new_token, state_dir};
 
 const MARKER_SIGNATURE: &str = "reap-external-store-v1";
 
@@ -68,6 +68,24 @@ fn load_bindings(state: &Path) -> Result<BindingFile, String> {
 /// Parse the local registry supplied by a bounded reader.
 pub(crate) fn parse_bindings(bytes: &[u8]) -> Result<Vec<StoreBinding>, String> {
   Ok(parse_binding_file(bytes)?.bindings)
+}
+
+/// Serialize a complete recognized registry without changing it on disk.
+pub(crate) fn registry_bytes(bindings: &[StoreBinding]) -> Result<Vec<u8>, String> {
+  serde_json::to_vec_pretty(&BindingFile {
+    version: 1,
+    bindings: bindings.to_vec(),
+  })
+  .map_err(|error| error.to_string())
+}
+
+/// Prepare the exact structured marker for one explicit native binding.
+pub(crate) fn marker_bytes(binding: &StoreBinding) -> Result<Vec<u8>, String> {
+  serde_json::to_vec_pretty(&ExternalMarker {
+    signature: MARKER_SIGNATURE.into(),
+    binding: binding.clone(),
+  })
+  .map_err(|error| error.to_string())
 }
 
 fn parse_binding_file(bytes: &[u8]) -> Result<BindingFile, String> {
@@ -298,40 +316,13 @@ pub fn verify_for_manifest(manifest: &Manifest, binding: &StoreBinding) -> Resul
   Ok(path)
 }
 
-fn write_marker(binding: &StoreBinding) -> Result<(), String> {
-  let path = Path::new(&binding.path).join(STORE_MARKER);
-  match fs::symlink_metadata(&path) {
-    Ok(_) => return Err(format!("{} already has a store marker", path.display())),
-    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-    Err(e) => return Err(format!("{}: {e}", path.display())),
-  }
-  let temp = Path::new(&binding.path).join(format!(
-    ".{STORE_MARKER}.{}-{}.tmp",
-    std::process::id(),
-    &binding.token[..8]
-  ));
-  let marker = ExternalMarker {
-    signature: MARKER_SIGNATURE.to_string(),
-    binding: binding.clone(),
-  };
-  let mut text = serde_json::to_vec_pretty(&marker).map_err(|e| e.to_string())?;
-  text.push(b'\n');
-  let mut file = OpenOptions::new()
-    .write(true)
-    .create_new(true)
-    .open(&temp)
-    .map_err(|e| format!("{}: {e}", temp.display()))?;
-  let result = file
-    .write_all(&text)
-    .and_then(|_| file.sync_all())
-    .and_then(|_| fs::rename(&temp, &path));
-  if result.is_err() {
-    let _ = fs::remove_file(&temp);
-  }
-  result.map_err(|e| format!("{}: {e}", path.display()))
-}
-
-pub fn bind(manifest: &Manifest, resource: &str, path: &Path) -> Result<PathBuf, String> {
+/// Assess current explicit binding intent without publishing a marker or changing the registry.
+pub(crate) fn prepare_binding(
+  manifest: &Manifest,
+  resource: &str,
+  path: &Path,
+  bindings: &[StoreBinding],
+) -> Result<StoreBinding, String> {
   if !manifest
     .stores
     .iter()
@@ -341,15 +332,12 @@ pub fn bind(manifest: &Manifest, resource: &str, path: &Path) -> Result<PathBuf,
       "resource {resource:?} is not declared in .reap.json"
     ));
   }
-  let state = state_dir();
-  let _lock = lock_state(&state).map_err(|e| format!("{}: {e}", state.display()))?;
-  let mut file = load_bindings(&state)?;
   let (project, project_dev, project_ino) = project_identity(&manifest.project_dir)?;
   let (canon, dev, ino) = no_symlink_dir(path)?;
-  let old = file.bindings.iter().find(|binding| {
+  let old = bindings.iter().find(|binding| {
     binding.project_path == project.to_string_lossy() && binding.resource == resource
   });
-  check_overlap(manifest, &canon, old, &file.bindings)?;
+  check_overlap(manifest, &canon, old, bindings)?;
   if let Some(old) = old {
     if old.path == canon.to_string_lossy()
       && old.dev == dev
@@ -358,10 +346,10 @@ pub fn bind(manifest: &Manifest, resource: &str, path: &Path) -> Result<PathBuf,
       && old.project_ino == project_ino
       && verify_for_manifest(manifest, old).is_ok()
     {
-      return Ok(canon);
+      return Ok(old.clone());
     }
   }
-  let binding = StoreBinding {
+  Ok(StoreBinding {
     project_path: project.to_string_lossy().into_owned(),
     project_dev,
     project_ino,
@@ -370,15 +358,7 @@ pub fn bind(manifest: &Manifest, resource: &str, path: &Path) -> Result<PathBuf,
     dev,
     ino,
     token: new_token(&format!("{}:{resource}", canon.display())),
-  };
-  write_marker(&binding)?;
-  file.bindings.retain(|current| {
-    !(current.project_path == binding.project_path && current.resource == resource)
-  });
-  file.bindings.push(binding);
-  write_json_atomic(&bindings_path(&state), &file)
-    .map_err(|e| format!("{}: {e}", bindings_path(&state).display()))?;
-  Ok(canon)
+  })
 }
 
 #[cfg(test)]

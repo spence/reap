@@ -11,26 +11,19 @@
 
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io::{self, Write};
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
-use crate::lease::{load_leases, LeaseFile};
+use crate::lease::LeaseFile;
 use crate::manifest::{load_manifest, Manifest, Store, StoreDisposition, StoreSeries};
 use crate::plan::{human, mtime_secs, now_secs};
-use crate::provenance::{self, Provenance};
-use crate::quarantine::{
-  execute_store_retire, finalize_restore, load_index, save_index, StoreProvenance,
-};
 use crate::store_bindings;
-use crate::util::{hostname, lock_state, move_unit, state_dir};
 
 pub const STORE_MARKER: &str = "REAP-STORE.TAG";
 const STORE_MARKER_SIGNATURE: &str = "reap-store-marker-v1";
-static MARKER_NONCE: AtomicU64 = AtomicU64::new(0);
 
 pub enum StoreState {
   Missing,
@@ -39,6 +32,7 @@ pub enum StoreState {
   Armed,
 }
 
+#[derive(serde::Serialize)]
 pub struct StoreCandidate {
   pub path: PathBuf,
   pub bytes: u64,
@@ -50,7 +44,7 @@ pub struct StoreCandidate {
   tree_fingerprint: Option<u64>,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq, serde::Serialize)]
 struct FileStamp {
   dev: u64,
   ino: u64,
@@ -91,19 +85,13 @@ struct StoreAuthority {
   marker: FileStamp,
 }
 
-pub struct StoreApply {
-  pub removed: usize,
-  pub bytes: u64,
-  pub errors: Vec<String>,
-  pub quarantined: Vec<String>,
-}
-
 pub struct StorePlan {
   pub rel: String,
   pub dir: PathBuf,
   pub state: StoreState,
   pub total_children: usize,
   pub total_bytes: u64,
+  pub unknown_children: usize,
   pub candidates: Vec<StoreCandidate>,
   pub notes: Vec<String>,
   pub disposition: StoreDisposition,
@@ -121,6 +109,15 @@ impl StorePlan {
 /// Plan every declared store of a project. Path-safety violations are errors
 /// (fail closed); a missing store dir is just reported.
 pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, String> {
+  plan_stores_projected(manifest, now, None)
+}
+
+/// The caller must prove the selected unit's exact owned-removal prefix before this projection.
+fn plan_stores_projected(
+  manifest: &Manifest,
+  now: f64,
+  projection: Option<&StoreCandidate>,
+) -> Result<Vec<StorePlan>, String> {
   let target_canon = fs::canonicalize(manifest.target_dir()).ok();
   let mut plans = Vec::new();
   for s in &manifest.stores {
@@ -142,6 +139,7 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
             state: StoreState::Unbound,
             total_children: 0,
             total_bytes: 0,
+            unknown_children: 0,
             candidates: vec![],
             notes: vec![],
             disposition: s.disposition,
@@ -165,6 +163,7 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
         state: StoreState::Missing,
         total_children: 0,
         total_bytes: 0,
+        unknown_children: 0,
         candidates: vec![],
         notes: vec![],
         disposition: s.disposition,
@@ -181,190 +180,14 @@ pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, Stri
             ));
           }
         }
-        plans.push(plan_one(s, rel, dir, now, armed)?);
+        plans.push(plan_one(s, rel, dir, now, armed, projection)?);
       }
     }
   }
   Ok(plans)
 }
 
-/// Re-evaluate each planned deletion against current authority and retention.
-pub fn apply_store(plan: &StorePlan, project_dir: &Path) -> StoreApply {
-  let mut result = StoreApply {
-    removed: 0,
-    bytes: 0,
-    errors: vec![],
-    quarantined: vec![],
-  };
-  if !matches!(plan.state, StoreState::Armed) || plan.disposition != StoreDisposition::Delete {
-    result
-      .errors
-      .push("store is not armed for deletion".to_string());
-    return result;
-  }
-  let state = state_dir();
-  let _state_lock = match lock_state(&state) {
-    Ok(lock) => lock,
-    Err(e) => {
-      result.errors.push(format!("cannot lock Reap state: {e}"));
-      return result;
-    }
-  };
-  let leases = match load_leases(&state) {
-    Ok(leases) => leases,
-    Err(e) => {
-      result.errors.push(e);
-      return result;
-    }
-  };
-  for c in &plan.candidates {
-    match checked_candidate(plan, project_dir, c, &leases) {
-      Ok(_) => {}
-      Err(e) => {
-        result.errors.push(e);
-        continue;
-      }
-    };
-    let removed = crate::preservation::remove(&c.path);
-    match removed {
-      Ok(()) => {
-        result.removed += 1;
-        result.bytes += c.bytes;
-      }
-      Err(e) => result
-        .errors
-        .push(format!("could not remove {}: {}", c.path.display(), e)),
-    }
-  }
-  result
-}
-
-/// Move eligible units into the configured quarantine and index each move.
-pub fn quarantine_store(plan: &StorePlan, project_dir: &Path, qdir: &Path) -> StoreApply {
-  let mut result = StoreApply {
-    removed: 0,
-    bytes: 0,
-    errors: vec![],
-    quarantined: vec![],
-  };
-  if !matches!(plan.state, StoreState::Armed) || plan.disposition != StoreDisposition::Quarantine {
-    result
-      .errors
-      .push("store is not armed for quarantine".to_string());
-    return result;
-  }
-  let state = state_dir();
-  let _state_lock = match lock_state(&state) {
-    Ok(lock) => lock,
-    Err(e) => {
-      result.errors.push(format!("cannot lock Reap state: {e}"));
-      return result;
-    }
-  };
-  let leases = match load_leases(&state) {
-    Ok(leases) => leases,
-    Err(e) => {
-      result.errors.push(e);
-      return result;
-    }
-  };
-  let qcanon = match fs::canonicalize(qdir) {
-    Ok(path) if path == qdir => path,
-    Ok(_) => {
-      result.errors.push(format!(
-        "{} is not a canonical quarantine path",
-        qdir.display()
-      ));
-      return result;
-    }
-    Err(e) => {
-      result.errors.push(format!("{}: {e}", qdir.display()));
-      return result;
-    }
-  };
-  if qcanon.starts_with(&plan.dir) || plan.dir.starts_with(&qcanon) {
-    result
-      .errors
-      .push(format!("{} overlaps the store", qdir.display()));
-    return result;
-  }
-  let project = match fs::canonicalize(project_dir) {
-    Ok(path) => path,
-    Err(e) => {
-      result
-        .errors
-        .push(format!("{}: {e}", project_dir.display()));
-      return result;
-    }
-  };
-  let mut index = match load_index(&qcanon) {
-    Ok(index) => index,
-    Err(e) => {
-      result.errors.push(e);
-      return result;
-    }
-  };
-  let machine = hostname();
-  for candidate in &plan.candidates {
-    if let Err(e) = checked_candidate(plan, project_dir, candidate, &leases) {
-      result.errors.push(e);
-      continue;
-    }
-    let provenance = StoreProvenance {
-      project_path: project.to_string_lossy().into_owned(),
-      store: plan.rel.clone(),
-      series: candidate.series.clone(),
-    };
-    let origin = Provenance {
-      project: Some(provenance.project_path.clone()),
-      actor: provenance::from_env("REAP_OWNER"),
-      session: provenance::from_env("REAP_SESSION"),
-      host: Some(machine.clone()),
-      creation_method: plan.creation_method.clone(),
-    };
-    let retired = match execute_store_retire(
-      &candidate.path,
-      candidate.bytes,
-      &qcanon,
-      &machine,
-      now_secs() as i64,
-      provenance,
-      origin,
-    ) {
-      Ok(retired) => retired,
-      Err(e) => {
-        result.errors.push(e);
-        continue;
-      }
-    };
-    index.entries.push(retired.entry.clone());
-    if let Err(e) = save_index(&qcanon, &index) {
-      index.entries.pop();
-      result.errors.push(format!("saving quarantine index: {e}"));
-      match move_unit(&retired.dest, &candidate.path) {
-        Ok(_) => {
-          if let Err(cleanup) = finalize_restore(&qcanon, &retired.entry) {
-            result
-              .errors
-              .push(format!("cleaning rolled-back slot: {cleanup}"));
-          }
-        }
-        Err(rollback) => result.errors.push(format!(
-          "restoring {} after index failure: {rollback}; data remains at {}",
-          candidate.path.display(),
-          retired.dest.display()
-        )),
-      }
-      return result;
-    }
-    result.removed += 1;
-    result.bytes += candidate.bytes;
-    result.quarantined.push(retired.entry.id);
-  }
-  result
-}
-
-fn checked_candidate(
+pub(crate) fn checked_candidate(
   plan: &StorePlan,
   project_dir: &Path,
   candidate: &StoreCandidate,
@@ -420,12 +243,7 @@ fn recheck_candidate(
   project_dir: &Path,
   candidate: &StoreCandidate,
 ) -> Result<(), String> {
-  let manifest = load_manifest(project_dir).map_err(|e| e.0)?;
-  let plans = plan_stores(&manifest, now_secs())?;
-  let current = plans
-    .iter()
-    .find(|current| current.rel == plan.rel && current.external == plan.external)
-    .ok_or("store declaration removed")?;
+  let current = current_store_plan(plan, project_dir, now_secs(), None)?;
   if !matches!(current.state, StoreState::Armed)
     || current.dir != plan.dir
     || current.authority != plan.authority
@@ -449,27 +267,56 @@ fn recheck_candidate(
   Ok(())
 }
 
-/// Create (if needed) and arm every declared store dir with the marker.
-pub fn init_stores(manifest: &Manifest) -> Result<Vec<(PathBuf, &'static str)>, String> {
-  let mut out = Vec::new();
-  for s in &manifest.stores {
-    if let Some(resource) = &s.resource {
-      out.push((
-        PathBuf::from(format!("resource:{resource}")),
-        "bind required",
-      ));
-      continue;
-    }
-    let rel = s.path.trim_matches('/');
-    let canon = ensure_store_dir(&manifest.project_dir, rel)?;
-    if marker_armed(&canon) {
-      out.push((canon, "already armed"));
-    } else {
-      write_marker(&canon).map_err(|e| format!("{}: {}", canon.display(), e))?;
-      out.push((canon, "armed"));
-    }
+/// Retain original unit statistics only after its caller validates every owned entry change.
+/// Other units use current statistics; an unrelated live producer is not a snapshot mismatch.
+pub(crate) fn recheck_projected_candidate(
+  plan: &StorePlan,
+  project: &Path,
+  candidate: &StoreCandidate,
+  now: f64,
+) -> Result<(), String> {
+  if candidate.path.parent() != Some(plan.dir.as_path()) {
+    return Err("projected store unit is not a direct child".into());
   }
-  Ok(out)
+  let current = current_store_plan(plan, project, now, Some(candidate))?;
+  if !matches!(current.state, StoreState::Armed)
+    || current.dir != plan.dir
+    || current.authority != plan.authority
+    || current.disposition != plan.disposition
+    || current.creation_method != plan.creation_method
+  {
+    return Err("store declaration, path, identity or armed marker changed".into());
+  }
+  if !current
+    .candidates
+    .iter()
+    .any(|current| current.path == candidate.path)
+  {
+    return Err("store unit is no longer eligible under current retention".into());
+  }
+  Ok(())
+}
+
+/// Reassess only the selected store. Unrelated stores cannot change a unit's retention eligibility.
+fn current_store_plan(
+  plan: &StorePlan,
+  project: &Path,
+  now: f64,
+  projection: Option<&StoreCandidate>,
+) -> Result<StorePlan, String> {
+  let mut manifest = load_manifest(project).map_err(|error| error.0)?;
+  manifest.stores.retain(|store| {
+    store.resource.is_some() == plan.external
+      && store
+        .resource
+        .as_ref()
+        .map(|name| format!("resource:{name}"))
+        .unwrap_or_else(|| store.path.trim_matches('/').to_string())
+        == plan.rel
+  });
+  plan_stores_projected(&manifest, now, projection)?
+    .pop()
+    .ok_or_else(|| "store declaration removed".into())
 }
 
 pub fn marker_armed(dir: &Path) -> bool {
@@ -484,41 +331,13 @@ pub fn marker_armed(dir: &Path) -> bool {
   }
 }
 
-pub fn write_marker(dir: &Path) -> io::Result<()> {
-  crate::preservation::check_container(dir)?;
-  let text = format!(
-    "Signature: {}\n\
-     # This directory is a reap-managed artifact store: its direct children\n\
-     # are subject to the retention policy declared in the project's .reap.json.\n\
-     # Created by `reap stores --init`.\n",
-    STORE_MARKER_SIGNATURE
-  );
-  let marker = dir.join(STORE_MARKER);
-  let temp = dir.join(format!(
-    ".{STORE_MARKER}.{}-{}.tmp",
-    std::process::id(),
-    MARKER_NONCE.fetch_add(1, AtomicOrdering::Relaxed)
-  ));
-  let mut file = OpenOptions::new()
-    .write(true)
-    .create_new(true)
-    .open(&temp)?;
-  let result = file
-    .write_all(text.as_bytes())
-    .and_then(|_| file.sync_all())
-    .and_then(|_| crate::preservation::rename(&temp, &marker));
-  if result.is_err() {
-    let _ = crate::preservation::remove(&temp);
-  }
-  result
-}
-
 fn plan_one(
   store: &Store,
   rel: String,
   dir: PathBuf,
   now: f64,
   armed: bool,
+  projection: Option<&StoreCandidate>,
 ) -> Result<StorePlan, String> {
   let state = if armed {
     StoreState::Armed
@@ -573,11 +392,25 @@ fn plan_one(
     }
     let meta =
       fs::symlink_metadata(entry.path()).map_err(|e| format!("{}: {e}", entry.path().display()))?;
+    if let Some(original) = projection.filter(|original| original.path == entry.path()) {
+      children.push(Child {
+        path: entry.path(),
+        mtime: original.newest_mtime,
+        bytes: original.bytes,
+        eligible: true,
+        series,
+        stamp: original.stamp.clone(),
+        tree_fingerprint: original.tree_fingerprint,
+      });
+      continue;
+    }
     let mut mtime = mtime_secs(&meta);
     let mut tree_fingerprint = None;
     let (bytes, eligible) = if meta.file_type().is_symlink() {
       // Deleting a symlink removes only the link itself.
       (0, true)
+    } else if series.is_none() {
+      (0, false)
     } else if meta.is_dir() {
       if !same_fs_candidate(store_dev, meta.dev()) {
         notes.push(format!("{}: crosses a mount -- never a candidate", name));
@@ -706,6 +539,7 @@ fn plan_one(
     state,
     total_children: children.len(),
     total_bytes,
+    unknown_children: unmatched,
     candidates,
     notes,
     disposition: store.disposition,
@@ -740,8 +574,8 @@ fn match_series(name: Option<&str>, series: &[StoreSeries]) -> Result<Option<usi
 
 /// Resolve a declared store to its canonical dir. `Ok(None)` when it does not
 /// exist yet; errors on symlinked stores or escapes from the project root.
-fn resolve_store_dir(project: &Path, rel: &str) -> Result<Option<PathBuf>, String> {
-  walk_store_dir(project, rel, false)
+pub(crate) fn resolve_store_dir(project: &Path, rel: &str) -> Result<Option<PathBuf>, String> {
+  walk_store_dir(project, rel)
 }
 
 fn same_fs_candidate(store_dev: u64, candidate_dev: u64) -> bool {
@@ -784,11 +618,7 @@ fn store_tree_stats(root: &Path, store_dev: u64) -> Result<StoreTreeStats, Strin
   Ok(stats)
 }
 
-fn ensure_store_dir(project: &Path, rel: &str) -> Result<PathBuf, String> {
-  walk_store_dir(project, rel, true)?.ok_or_else(|| format!("store {rel:?} could not be created"))
-}
-
-fn walk_store_dir(project: &Path, rel: &str, create: bool) -> Result<Option<PathBuf>, String> {
+fn walk_store_dir(project: &Path, rel: &str) -> Result<Option<PathBuf>, String> {
   let proot = fs::canonicalize(project).map_err(|e| format!("{}: {}", project.display(), e))?;
   let project_dev = fs::symlink_metadata(&proot)
     .map_err(|e| format!("{}: {e}", proot.display()))?
@@ -801,10 +631,6 @@ fn walk_store_dir(project: &Path, rel: &str, create: bool) -> Result<Option<Path
     dir.push(name);
     let meta = match fs::symlink_metadata(&dir) {
       Ok(meta) => meta,
-      Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
-        fs::create_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        fs::symlink_metadata(&dir).map_err(|e| format!("{}: {e}", dir.display()))?
-      }
       Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
       Err(e) => return Err(format!("{}: {e}", dir.display())),
     };
@@ -838,6 +664,13 @@ mod tests {
     let d = std::env::temp_dir().join(format!("reap-store-{}-{}", std::process::id(), n));
     fs::create_dir_all(&d).unwrap();
     d
+  }
+
+  fn write_marker(store: &Path) -> io::Result<()> {
+    fs::write(
+      store.join(STORE_MARKER),
+      format!("Signature: {STORE_MARKER_SIGNATURE}\n"),
+    )
   }
 
   fn run_dir(store: &Path, name: &str, mtime: i64, size: usize) {
@@ -919,13 +752,16 @@ mod tests {
       r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":1,"min_age_hours":24,"max_age_days":30}}]}"#,
     )
     .unwrap();
-    let result = apply_store(p, &root);
-    assert_eq!(result.removed, 2);
-    assert!(result.errors.is_empty());
-    assert!(!store.join("run-old-1").exists());
+    for candidate in &p.candidates {
+      assert!(checked_candidate(p, &root, candidate, &LeaseFile::default()).is_ok());
+    }
+    assert!(store.join("run-old-1").exists());
     assert!(store.join("run-mid").exists());
     assert!(store.join("run-fresh").exists());
-    assert!(store.join(STORE_MARKER).exists(), "marker survives apply");
+    assert!(
+      store.join(STORE_MARKER).exists(),
+      "assessment preserves the marker"
+    );
     let _ = fs::remove_dir_all(&root);
   }
 
@@ -1016,9 +852,9 @@ mod tests {
     let names = cand_names(&plan);
     assert_eq!(names, vec!["temporary.old", "run.old"]);
     assert!(plan.notes.iter().any(|note| note.contains("1 child(ren)")));
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 2);
-    assert!(result.errors.is_empty());
+    for candidate in &plan.candidates {
+      assert!(checked_candidate(&plan, &root, candidate, &LeaseFile::default()).is_ok());
+    }
     for name in ["run.new", "temporary.latest", "full.latest", "unclaimed"] {
       assert!(store.join(name).is_dir(), "{name} survives");
     }
@@ -1053,8 +889,9 @@ mod tests {
       .notes
       .iter()
       .any(|note| note.contains("over max_bytes")));
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 2);
+    for candidate in &plan.candidates {
+      assert!(checked_candidate(&plan, &root, candidate, &LeaseFile::default()).is_ok());
+    }
     assert!(store.join("unclaimed/out.log").is_file());
     assert!(store.join("run.new/out.log").is_file());
     assert!(store.join("temporary.new/out.log").is_file());
@@ -1113,26 +950,7 @@ mod tests {
   }
 
   #[test]
-  fn init_creates_and_arms() {
-    let root = tmp();
-    let m = manifest_with_store(
-      &root,
-      Retention {
-        max_age_days: Some(1.0),
-        ..Retention::default()
-      },
-    );
-    let out = init_stores(&m).unwrap();
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].1, "armed");
-    assert!(marker_armed(&root.join("bench/results")));
-    let again = init_stores(&m).unwrap();
-    assert_eq!(again[0].1, "already armed");
-    let _ = fs::remove_dir_all(&root);
-  }
-
-  #[test]
-  fn changed_candidate_survives_while_unchanged_older_candidate_is_removed() {
+  fn changed_candidate_refuses_while_unchanged_older_candidate_remains_eligible() {
     let root = tmp();
     let store = root.join("bench/results");
     fs::create_dir_all(&store).unwrap();
@@ -1151,12 +969,12 @@ mod tests {
     assert_eq!(plan.candidates.len(), 2);
 
     fs::write(store.join("changed/out.log"), b"active work").unwrap();
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 1);
-    assert_eq!(result.bytes, 100);
-    assert_eq!(result.errors.len(), 1);
+    for candidate in &plan.candidates {
+      let valid = checked_candidate(&plan, &root, candidate, &LeaseFile::default()).is_ok();
+      assert_eq!(valid, candidate.path.file_name().unwrap() == "old");
+    }
     assert!(store.join("changed/out.log").is_file());
-    assert!(!store.join("old").exists());
+    assert!(store.join("old").exists());
     assert!(store.join("fresh/out.log").is_file());
     let _ = fs::remove_dir_all(root);
   }
@@ -1183,9 +1001,7 @@ mod tests {
       r#"{"version":2,"stores":[{"path":"bench/results","disposition":"quarantine","retention":{"keep_last":0,"max_age_days":30}}]}"#,
     )
     .unwrap();
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 0);
-    assert_eq!(result.errors.len(), 1);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_err());
     assert!(store.join("old/out.log").is_file());
     let _ = fs::remove_dir_all(root);
   }
@@ -1219,8 +1035,7 @@ mod tests {
     fs::write(nested.join("result.log"), b"new data").unwrap();
     set_file_mtime(nested.join("result.log"), old_time).unwrap();
     set_file_mtime(&nested, old_time).unwrap();
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 0);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_err());
     assert_eq!(fs::read(nested.join("result.log")).unwrap(), b"new data");
     let _ = fs::remove_dir_all(root);
   }
@@ -1241,7 +1056,7 @@ mod tests {
     let plan = plan_stores(&manifest, now).unwrap().remove(0);
 
     fs::remove_file(store.join(STORE_MARKER)).unwrap();
-    assert_eq!(apply_store(&plan, &root).removed, 0);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_err());
     assert!(store.join("old/out.log").is_file());
     write_marker(&store).unwrap();
     let plan = plan_stores(&manifest, now).unwrap().remove(0);
@@ -1250,16 +1065,14 @@ mod tests {
       r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":2,"min_age_hours":24,"max_age_days":30}}]}"#,
     )
     .unwrap();
-    assert_eq!(apply_store(&plan, &root).removed, 0);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_err());
     assert!(store.join("old/out.log").is_file());
 
     fs::write(&manifest_path, policy).unwrap();
     let plan = plan_stores(&manifest, now).unwrap().remove(0);
     fs::remove_dir_all(store.join("old")).unwrap();
     run_dir(&store, "old", now as i64 - 40 * DAY, 100);
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 0);
-    assert_eq!(result.errors.len(), 1);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_err());
     assert!(store.join("old/out.log").is_file());
     let _ = fs::remove_dir_all(root);
   }
@@ -1280,14 +1093,14 @@ mod tests {
       },
     );
     assert!(plan_stores(&manifest, now_secs()).is_err());
-    assert!(init_stores(&manifest).is_err());
+    assert!(resolve_store_dir(&root, "bench/results").is_err());
     assert!(!outside.join(STORE_MARKER).exists());
     assert!(outside.join("data").is_file());
     fs::remove_file(root.join("bench/results")).unwrap();
     fs::remove_dir(root.join("bench")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("bench")).unwrap();
     assert!(plan_stores(&manifest, now_secs()).is_err());
-    assert!(init_stores(&manifest).is_err());
+    assert!(resolve_store_dir(&root, "bench/results").is_err());
     assert!(!outside.join("results").exists());
     fs::remove_file(root.join("bench")).unwrap();
     fs::create_dir(root.join("bench")).unwrap();
@@ -1307,8 +1120,7 @@ mod tests {
     let plan = plan_stores(&manifest, now).unwrap().remove(0);
     fs::remove_dir_all(store.join("old")).unwrap();
     std::os::unix::fs::symlink(&outside, store.join("old")).unwrap();
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 0);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_err());
     assert!(store.join("old").is_symlink());
     assert!(outside.join("data").is_file());
 
@@ -1316,10 +1128,11 @@ mod tests {
     fs::remove_file(store.join(STORE_MARKER)).unwrap();
     std::os::unix::fs::symlink(outside.join("data"), store.join(STORE_MARKER)).unwrap();
     assert!(!marker_armed(&store));
-    init_stores(&manifest).unwrap();
-    assert!(marker_armed(&store));
+    assert!(store.join(STORE_MARKER).is_symlink());
     assert_eq!(fs::read(outside.join("data")).unwrap(), b"keep");
 
+    fs::remove_file(store.join(STORE_MARKER)).unwrap();
+    write_marker(&store).unwrap();
     run_dir(&store, "old", now as i64 - 40 * DAY, 100);
     std::os::unix::fs::symlink(outside.join("data"), store.join("old/linked-data")).unwrap();
     let old_time = FileTime::from_unix_time(now as i64 - 40 * DAY, 0);
@@ -1328,7 +1141,7 @@ mod tests {
     let plan = plan_stores(&load_manifest(&root).unwrap(), now)
       .unwrap()
       .remove(0);
-    assert_eq!(apply_store(&plan, &root).removed, 1);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_ok());
     assert!(outside.join("data").is_file());
     assert!(store.join("fresh/out.log").is_file());
     let _ = fs::remove_dir_all(root);
@@ -1338,6 +1151,39 @@ mod tests {
   fn mount_guard_refuses_foreign_devices() {
     assert!(same_fs_candidate(1, 1));
     assert!(!same_fs_candidate(1, 2));
+  }
+
+  #[test]
+  fn selected_store_recheck_does_not_rescan_an_unrelated_live_store() {
+    let root = tmp();
+    let store = root.join("bench/results");
+    let other = root.join("other");
+    fs::create_dir_all(&store).unwrap();
+    fs::create_dir(&other).unwrap();
+    write_marker(&store).unwrap();
+    write_marker(&other).unwrap();
+    let now = now_secs();
+    run_dir(&store, "old", now as i64 - 40 * DAY, 100);
+    run_dir(&other, "live", now as i64 - 40 * DAY, 100);
+    fs::write(root.join(".reap.json"), r#"{"version":2,"stores":[{"path":"bench/results","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}},{"path":"other","retention":{"keep_last":0,"min_age_hours":0,"max_age_days":1}}]}"#).unwrap();
+    let manifest = load_manifest(&root).unwrap();
+    let selected = plan_stores(&manifest, now).unwrap().remove(0);
+    assert_eq!(selected.candidates.len(), 1);
+    let pipe = other.join("live/pipe");
+    let name = std::ffi::CString::new(pipe.to_str().unwrap()).unwrap();
+    // SAFETY: name is terminated; this owned fixture creates one FIFO with a private mode.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    assert!(plan_stores(&manifest, now).is_err());
+    assert!(checked_candidate(
+      &selected,
+      &root,
+      &selected.candidates[0],
+      &LeaseFile::default()
+    )
+    .is_ok());
+    assert!(recheck_projected_candidate(&selected, &root, &selected.candidates[0], now).is_ok());
+    assert!(store.join("old/out.log").is_file());
+    let _ = fs::remove_dir_all(root);
   }
 
   #[test]
@@ -1356,8 +1202,7 @@ mod tests {
     let manifest = load_manifest(&root).unwrap();
     let plan = plan_stores(&manifest, now).unwrap().remove(0);
     assert_eq!(cand_names(&plan), vec!["old"]);
-    let result = apply_store(&plan, &root);
-    assert_eq!(result.removed, 1);
+    assert!(checked_candidate(&plan, &root, &plan.candidates[0], &LeaseFile::default()).is_ok());
     assert!(direct_socket.exists());
 
     run_dir(&store, "old", now as i64 - 40 * DAY, 100);

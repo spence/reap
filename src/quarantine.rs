@@ -24,7 +24,7 @@ use crate::manifest::{load_manifest, MANIFEST_NAME};
 use crate::plan::Guards;
 use crate::provenance::Provenance;
 use crate::util::{
-  default_owner, fmt_rel, git_capture, git_capture_bytes, move_dir, move_unit, new_id,
+  fmt_rel, git_capture, git_capture_bytes, move_dir, move_unit, new_id,
   tree_stats_ignoring_dir_mtimes, write_json_atomic, GitError, Moved,
 };
 
@@ -307,6 +307,50 @@ pub fn entries_dir(qdir: &Path) -> PathBuf {
 
 fn evidence_path(slot: &Path) -> PathBuf {
   slot.join(ENTRY_EVIDENCE)
+}
+
+/// Parse complete recognized index metadata. Unknown fields cannot disappear during a rewrite.
+pub(crate) fn parse_index(bytes: &[u8]) -> Result<IndexFile, String> {
+  let value: serde_json::Value =
+    serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+  let keys = |value: &serde_json::Value, known: &[&str]| {
+    value
+      .as_object()
+      .is_some_and(|fields| fields.keys().all(|key| known.contains(&key.as_str())))
+  };
+  if !keys(&value, &["version", "entries", "held_ids"]) || value["version"].as_u64() != Some(1) {
+    return Err("unrecognized quarantine index schema".into());
+  }
+  let entries = value["entries"]
+    .as_array()
+    .ok_or("quarantine entries are not an array")?;
+  for entry in entries {
+    if !keys(
+      entry,
+      &[
+        "id",
+        "name",
+        "original_path",
+        "owner",
+        "purpose",
+        "scratch",
+        "machine",
+        "bytes",
+        "retired_unix",
+        "provenance",
+        "store",
+      ],
+    ) || entry.get("provenance").is_some_and(|origin| {
+      !origin.is_null()
+        && !keys(
+          origin,
+          &["project", "actor", "session", "host", "creation_method"],
+        )
+    }) {
+      return Err("unrecognized quarantine entry fields".into());
+    }
+  }
+  serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
 pub fn load_index(qdir: &Path) -> Result<IndexFile, String> {
@@ -875,32 +919,6 @@ pub fn execute_retire(
     dest,
     copied: matches!(moved, Moved::Copied),
   })
-}
-
-/// Stage a declared store unit with enough provenance to restore it even when
-/// its producer has already replaced the original pathname.
-pub fn execute_store_retire(
-  source: &Path,
-  bytes: u64,
-  qdir: &Path,
-  machine: &str,
-  now: i64,
-  store: StoreProvenance,
-  provenance: Provenance,
-) -> Result<Retired, String> {
-  let purpose = format!("store {}", store.store);
-  retire_unit(
-    source,
-    bytes,
-    qdir,
-    machine,
-    now,
-    default_owner(),
-    purpose,
-    provenance,
-    Some(store),
-    &mut |source, destination, _| move_unit(source, destination),
-  )
 }
 
 /// Stage a path removed by a `.reap` declaration with the declaration's owner and reason.

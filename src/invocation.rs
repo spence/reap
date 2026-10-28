@@ -96,6 +96,77 @@ impl CargoRequest {
   }
 }
 
+/// Exact legacy store selection, arming and binding intent. Observer waits are not worker input.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StoreRequest {
+  pub path: Option<String>,
+  pub apply: bool,
+  pub init: bool,
+  pub bind: Option<String>,
+  pub to: Option<String>,
+  pub verbose: bool,
+}
+
+impl StoreRequest {
+  pub(crate) fn applying(&self) -> bool {
+    self.apply || self.init || self.bind.is_some()
+  }
+
+  pub(crate) fn argv(&self) -> Vec<String> {
+    let mut argv = vec!["stores".into()];
+    for (flag, enabled) in [
+      ("--apply", self.apply),
+      ("--init", self.init),
+      ("--verbose", self.verbose),
+    ] {
+      if enabled {
+        argv.push(flag.into());
+      }
+    }
+    for (flag, value) in [("--bind", &self.bind), ("--to", &self.to)] {
+      if let Some(value) = value {
+        argv.push(format!("{flag}={value}"));
+      }
+    }
+    if let Some(path) = &self.path {
+      argv.extend(["--".into(), path.clone()]);
+    }
+    argv
+  }
+}
+
+/// Parse store intent without filesystem access or a service-environment default.
+pub(crate) fn store_request(input: &Intent) -> Option<StoreRequest> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "stores" {
+    return None;
+  }
+  let crate::Cmd::Stores {
+    path,
+    apply,
+    init,
+    bind,
+    to,
+    verbose,
+    wait: None,
+  } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  Some(StoreRequest {
+    path,
+    apply,
+    init,
+    bind,
+    to,
+    verbose,
+  })
+}
+
 /// Parse Cargo selection without filesystem access. Other operations and unknown flags refuse.
 pub(crate) fn cargo_request(input: &Intent) -> Option<CargoRequest> {
   use clap::Parser;
@@ -248,7 +319,8 @@ impl Summary {
       || matches!(self.operation.as_str(), "files" | "plan" | "sweep")
         && matches!(self.mode.as_str(), "read" | "apply")
       || self.operation == "clean" && self.mode == "apply"
-      || self.operation == "lease" && matches!(self.mode.as_str(), "read" | "apply"))
+      || matches!(self.operation.as_str(), "lease" | "stores")
+        && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
   }
@@ -258,6 +330,20 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = store_request(input) {
+    return Some(Summary {
+      operation: "stores".into(),
+      mode: if request.applying() { "apply" } else { "read" }.into(),
+      requested_scope: request.path.unwrap_or_else(|| {
+        if request.init || request.bind.is_some() {
+          "."
+        } else {
+          "configured"
+        }
+        .into()
+      }),
+    });
   }
   if let Some(command) = lease_request(input) {
     return Some(Summary {
@@ -438,7 +524,9 @@ pub(crate) fn fresh_with_state_prefix(
   let authority = serde_json::json!({"config": evidence.1, "cleanup_granted": false});
   let mut expected = binding.evidence;
   if !created.is_empty() {
-    if !matches!(lease_request(&intent), Some(crate::LeaseCmd::Add { .. })) {
+    if !matches!(lease_request(&intent), Some(crate::LeaseCmd::Add { .. }))
+      && !store_request(&intent).is_some_and(|request| request.applying())
+    {
       return Err(unavailable("state creation is not part of this operation"));
     }
     let mut anchor: PathBuf = serde_json::from_value(expected["state_anchor"].clone())?;
@@ -812,6 +900,65 @@ mod native {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn store_arguments_keep_scope_modes_binding_and_waits_separate() {
+    for command in [
+      StoreRequest {
+        path: None,
+        apply: false,
+        init: false,
+        bind: None,
+        to: None,
+        verbose: false,
+      },
+      StoreRequest {
+        path: Some("--literal-project".into()),
+        apply: true,
+        init: false,
+        bind: None,
+        to: None,
+        verbose: true,
+      },
+      StoreRequest {
+        path: None,
+        apply: false,
+        init: true,
+        bind: None,
+        to: None,
+        verbose: true,
+      },
+      StoreRequest {
+        path: Some("project with spaces".into()),
+        apply: false,
+        init: false,
+        bind: Some("--literal-resource".into()),
+        to: Some("/existing/path with spaces".into()),
+        verbose: true,
+      },
+    ] {
+      let mut input = intent(&["stores"]);
+      input.argv = command.argv();
+      assert_eq!(store_request(&input), Some(command.clone()));
+      let expected = summary(&input).unwrap();
+      assert_eq!(expected.operation, "stores");
+      assert_eq!(
+        expected.mode,
+        if command.applying() { "apply" } else { "read" }
+      );
+      assert!(expected.valid());
+      input.argv.insert(1, "--wait=30".into());
+      assert!(store_request(&input).is_none());
+    }
+    for argv in [
+      vec!["stores", "--bind=missing-target"],
+      vec!["stores", "--to=/missing-binding"],
+      vec!["stores", "--bind=resource", "--to=/path", "--apply"],
+      vec!["stores", "--unknown"],
+    ] {
+      assert!(store_request(&intent(&argv)).is_none(), "{argv:?}");
+    }
+  }
 
   #[test]
   fn lease_arguments_preserve_intent_and_keep_waits_outside_worker_requests() {

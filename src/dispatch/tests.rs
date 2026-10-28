@@ -4836,3 +4836,7 @@ fn durable_resolver_and_bulk_results_recover_across_each_publication_boundary() 
     }
   }
 }
+
+#[cfg(target_os = "macos")]
+#[path = "tests/stores.rs"]
+mod stores;

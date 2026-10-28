@@ -310,7 +310,7 @@ fn execute(
     if apply && !diagnostic {
       args.push("--apply");
     }
-    let coordinated = matches!(stage, Stage::Cargo | Stage::Files);
+    let coordinated = matches!(stage, Stage::Cargo | Stage::Files | Stage::Stores);
     if coordinated {
       args.extend(["--wait", "30"]);
     }
@@ -489,7 +489,9 @@ mod tests {
 
   #[test]
   fn applying_maintenance_stops_after_unconfirmed_jobs_and_continues_after_completion() {
-    for (selected_command, selected_stage) in [("sweep", "cargo"), ("files", "files")] {
+    for (selected_command, selected_stage) in
+      [("sweep", "cargo"), ("files", "files"), ("stores", "stores")]
+    {
       for state in ["pending", "malformed", "completed", "not_accepted"] {
         let nonce = SystemTime::now()
           .duration_since(UNIX_EPOCH)
@@ -539,7 +541,7 @@ mod tests {
           _ => 0,
         };
         let binary = fixture.0.join("stage");
-        fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"${{0%/*}}/trace\"\nif [ \"$1\" = files ] || [ \"$1\" = sweep ]; then\n  [ -z \"${{REAP_INTERNAL_CONFIG_SNAPSHOT+x}}\" ] || exit 9\n  if [ \"$1\" = {selected_command} ]; then\n    printf '%s\\n' '{stdout}'\n    exit {exit}\n  fi\n  printf '%s\\n' '{completed}'\nfi\n")).unwrap();
+        fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"${{0%/*}}/trace\"\nif [ \"$1\" = files ] || [ \"$1\" = sweep ] || [ \"$1\" = stores ]; then\n  [ -z \"${{REAP_INTERNAL_CONFIG_SNAPSHOT+x}}\" ] || exit 9\n  if [ \"$1\" = {selected_command} ]; then\n    printf '%s\\n' '{stdout}'\n    exit {exit}\n  fi\n  printf '%s\\n' '{completed}'\nfi\n")).unwrap();
         fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
         let mut receipt = Receipt {
           version: 1,

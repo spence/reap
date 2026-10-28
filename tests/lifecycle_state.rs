@@ -73,7 +73,10 @@ impl TestRoot {
       .env_remove("REAP_OWNER")
       .env_remove("REAP_SESSION")
       .current_dir(&self.root);
-    if args.first().is_some_and(|operation| operation == "lease") {
+    if args
+      .first()
+      .is_some_and(|operation| matches!(operation.as_str(), "lease" | "stores"))
+    {
       self.unconfirmed.fetch_add(1, Ordering::SeqCst);
       command.args(["--wait", "30"]);
     }
@@ -97,25 +100,43 @@ impl TestRoot {
 
   fn run(&self, args: Vec<String>) -> Output {
     let output = self.command(&args).output().unwrap();
-    if args.first().is_some_and(|operation| operation == "lease") {
-      self.confirm_lease(&output);
+    if args
+      .first()
+      .is_some_and(|operation| matches!(operation.as_str(), "lease" | "stores"))
+    {
+      self.confirm_job(&output);
     }
     output
   }
 
-  fn confirm_lease(&self, output: &Output) {
-    if let Ok(receipt) = serde_json::from_slice::<Value>(&output.stdout) {
-      if receipt["protocol"] == 2
-        && matches!(receipt["state"].as_str(), Some("completed" | "failed"))
-        && receipt["job"]["completed_at"].as_u64().is_some()
-        && receipt["job"]["result"].is_object()
+  fn confirm_job(&self, output: &Output) {
+    let receipt = match serde_json::from_slice::<Value>(&output.stdout) {
+      Ok(receipt) => receipt,
+      Err(_)
+        if output.status.code() == Some(2)
+          && String::from_utf8_lossy(&output.stderr).contains("error:") =>
       {
         self.unconfirmed.fetch_sub(1, Ordering::SeqCst);
+        return;
       }
+      Err(error) => panic!("coordinated command returned no protocol receipt: {error}"),
+    };
+    assert_eq!(receipt["protocol"], 2, "{receipt}");
+    match receipt["state"].as_str() {
+      Some("completed" | "failed") => {
+        assert!(
+          receipt["job"]["completed_at"].as_u64().is_some(),
+          "{receipt}"
+        );
+        assert!(receipt["job"]["result"].is_object(), "{receipt}");
+      }
+      Some("invalid") => assert!(receipt["reason"].is_string(), "{receipt}"),
+      _ => panic!("coordinated fixture needs completed execution or invalid input: {receipt}"),
     }
+    self.unconfirmed.fetch_sub(1, Ordering::SeqCst);
   }
 
-  fn lease_detail(&self, output: &Output) -> Value {
+  fn job_detail(&self, output: &Output) -> Value {
     success(output.clone());
     let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(receipt["protocol"], 2);
@@ -630,7 +651,11 @@ fn managed_parent_blocks_store_eviction_of_its_tree() {
   ]));
   let apply = root.run(args(&["stores", "--apply", "{path}"], &project));
   assert!(!apply.status.success());
-  assert!(String::from_utf8_lossy(&apply.stderr).contains("managed parent"));
+  let receipt: Value = serde_json::from_slice(&apply.stdout).unwrap();
+  assert!(receipt["job"]["result"]["detail"]
+    .as_str()
+    .unwrap()
+    .contains("managed parent"));
   assert!(child.join("keep").is_file());
 }
 
@@ -707,7 +732,7 @@ fn create_scratch_clone_and_copy_record_a_lease_at_creation() {
   let listed = root.run(vec!["lease".into(), "list".into()]);
   success(listed.clone());
   assert_eq!(
-    root.lease_detail(&listed)["leases"][0]["provenance"]["creation_method"],
+    root.job_detail(&listed)["leases"][0]["provenance"]["creation_method"],
     "scratch"
   );
 
@@ -823,7 +848,7 @@ fn failed_creation_never_arms_a_partial_or_replaces_existing_data() {
       .any(|row| row["path"] == failed.to_string_lossy().as_ref())));
     let listed = root.run(vec!["lease".into(), "list".into()]);
     success(listed.clone());
-    let output = root.lease_detail(&listed);
+    let output = root.job_detail(&listed);
     assert!(output["creating"]
       .as_array()
       .unwrap()
@@ -1846,7 +1871,7 @@ fn lease_provenance_survives_retirement_and_legacy_records_show_unknowns() {
   let listing = root.run(vec!["lease".into(), "list".into()]);
   success(listing.clone());
   assert_eq!(
-    root.lease_detail(&listing)["leases"][0]["provenance"]["actor"],
+    root.job_detail(&listing)["leases"][0]["provenance"]["actor"],
     "agent-bench"
   );
   success(root.run(vec![
@@ -1881,7 +1906,7 @@ fn lease_provenance_survives_retirement_and_legacy_records_show_unknowns() {
   fs::write(&lease_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
   let listing = root.run(vec!["lease".into(), "list".into()]);
   success(listing.clone());
-  assert!(root.lease_detail(&listing)["leases"][0]
+  assert!(root.job_detail(&listing)["leases"][0]
     .get("provenance")
     .is_none());
   success(root.run(vec![
@@ -3053,7 +3078,7 @@ fn lease_renewal_returns_on_a_stuck_state_lock_without_changing_the_lease() {
     thread::sleep(Duration::from_millis(20));
   }
   let output = child.wait_with_output().unwrap();
-  root.confirm_lease(&output);
+  root.confirm_job(&output);
   failure(output.clone());
   assert!(String::from_utf8_lossy(&output.stdout).contains("Reap state is busy"));
   assert_eq!(before, fs::read(root.state().join("leases.json")).unwrap());
@@ -3325,13 +3350,14 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
   assert_eq!(dry["mode"], "dry-run");
   assert_eq!(dry["stages"].as_array().unwrap().len(), 7);
   assert_eq!(dry["stages"][2]["command"], "reap sweep --wait 30");
+  assert_eq!(dry["stages"][3]["command"], "reap stores --wait 30");
   assert_eq!(dry["stages"][4]["command"], "reap files --wait 30");
   assert_eq!(dry["stages"][4]["outcome"], "ok");
   assert_eq!(dry["stages"][6]["outcome"], "skipped");
-  assert!(dry["stages"][3]["stdout"]
-    .as_str()
-    .unwrap()
-    .contains("eligible"));
+  let stores: Value = serde_json::from_str(dry["stages"][3]["stdout"].as_str().unwrap()).unwrap();
+  let detail: Value =
+    serde_json::from_str(stores["job"]["result"]["detail"].as_str().unwrap()).unwrap();
+  assert_eq!(detail["reports"][0]["planned_units"], 1);
 
   success(root.run(vec!["maintain".into(), "--apply".into()]));
   assert!(!old.exists());
@@ -3349,10 +3375,15 @@ fn maintenance_records_all_stages_and_preserves_active_and_unknown_data() {
     applied["stages"][4]["command"],
     "reap files --apply --wait 30"
   );
-  assert!(applied["stages"][3]["stdout"]
-    .as_str()
-    .unwrap()
-    .contains("removed 1 item"));
+  assert_eq!(
+    applied["stages"][3]["command"],
+    "reap stores --apply --wait 30"
+  );
+  let stores: Value =
+    serde_json::from_str(applied["stages"][3]["stdout"].as_str().unwrap()).unwrap();
+  let detail: Value =
+    serde_json::from_str(stores["job"]["result"]["detail"].as_str().unwrap()).unwrap();
+  assert_eq!(detail["reports"][0]["removed_units"], 1);
   assert!(applied["stages"][6]["reason"]
     .as_str()
     .unwrap()

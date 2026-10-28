@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use super::{invalid, Inspector, Scope};
+use super::{destination, invalid, Inspector, Scope};
 use crate::identity::ObjectIdentity;
 use crate::invocation::{Intent, Namespace};
 use crate::journal::{Prepared, Terminal};
@@ -648,38 +648,6 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     bootstrap,
     namespace_missing,
   })
-}
-
-/// Resolve existing physical parents without making a missing destination an immutable read input.
-/// The executor retains each planned absence until its own exact directory publication.
-fn destination(inspector: &mut Inspector<'_>, path: &Path) -> io::Result<(PathBuf, Vec<PathBuf>)> {
-  let mut anchor = path.to_path_buf();
-  let mut missing = vec![];
-  loop {
-    match std::fs::symlink_metadata(&anchor) {
-      Ok(_) => break,
-      Err(error) if error.kind() == io::ErrorKind::NotFound && missing.len() < 128 => {
-        missing.push(
-          anchor
-            .file_name()
-            .ok_or_else(|| invalid("state path has no name"))?
-            .to_owned(),
-        );
-        if !anchor.pop() {
-          return Err(invalid("state path has no anchor"));
-        }
-      }
-      Err(error) => return Err(error),
-    }
-  }
-  let mut physical = inspector.canonical_path(&anchor)?;
-  inspector.directory(&physical)?;
-  let mut planned = vec![];
-  for name in missing.into_iter().rev() {
-    physical.push(name);
-    planned.push(physical.clone());
-  }
-  Ok((physical, planned))
 }
 
 fn stop_at(point: &str) {

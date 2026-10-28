@@ -1,7 +1,6 @@
 //! Cargo selection and exact entry units under the shared worker and mutation grants.
 
 mod applying;
-mod inventory;
 
 use std::collections::BTreeSet;
 use std::fs::File;

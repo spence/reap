@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use super::inventory::Inventory;
 use super::{report, Context, Manifest, Prepared, Scope};
+use crate::dispatch::inventory::Inventory;
 use crate::identity::ObjectIdentity;
 use crate::launch::Grant;
 use crate::mutation::{HeldPublish, HeldUnlink, Phase, Staged};

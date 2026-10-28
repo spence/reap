@@ -26,9 +26,9 @@ class PublicCheck(unittest.TestCase):
     def setUp(self):
         base = ROOT / "target/control-t13"
         base.mkdir(parents=True, exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="public-check-", dir=base)
-        self.addCleanup(temporary.cleanup)
-        self.root = pathlib.Path(temporary.name).resolve()
+        self.root = pathlib.Path(tempfile.mkdtemp(prefix="public-check-", dir=base)).resolve()
+        self.unconfirmed_jobs = 0
+        self.addCleanup(self.close_fixture)
         self.user_home = self.root / "home"
         (self.user_home / ".config/reap").mkdir(parents=True)
         self.state = self.root / "state"
@@ -44,13 +44,27 @@ class PublicCheck(unittest.TestCase):
         for name in ("REAP_INTERNAL_CONFIG_SNAPSHOT", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
             self.environment.pop(name, None)
 
+    def close_fixture(self):
+        if self.unconfirmed_jobs:
+            (self.root / ".reap").write_text(json.dumps({
+                "version": 1, "keep": {"reason": "unconfirmed public check fixture"},
+            }))
+            print(f"Retained unconfirmed public check fixture: {self.root}")
+        else:
+            shutil.rmtree(self.root)
+
     def run_cli(self, *arguments, environment=None, timeout=32):
+        coordinated = arguments and arguments[0] in ("check", "stores")
+        if coordinated:
+            self.unconfirmed_jobs += 1
         started = time.monotonic()
         result = subprocess.run([BINARY, *map(str, arguments)], cwd=self.root,
                                 env=environment or self.environment, capture_output=True, timeout=timeout)
         result.elapsed = time.monotonic() - started
         result.receipt = json.loads(result.stdout)
         self.assertEqual(result.receipt["protocol"], 2, result)
+        if coordinated and result.receipt["state"] in ("completed", "not_accepted", "invalid", "unavailable"):
+            self.unconfirmed_jobs -= 1
         return result
 
     def completed(self, *arguments):
@@ -127,9 +141,9 @@ class PublicCheck(unittest.TestCase):
         (store / "valuable").write_bytes(PAYLOAD)
         (self.project / ".reap.json").write_text(json.dumps({
             "version": 2, "stores": [{"resource": "logs", "retention": {"max_age_days": 1}}]}))
-        bound = subprocess.run([BINARY, "stores", "--bind", "logs", "--to", str(store), str(self.project)],
-                               cwd=self.root, env=self.environment, capture_output=True, timeout=10)
+        bound = self.run_cli("stores", "--bind", "logs", "--to", store, self.project, "--wait", "30")
         self.assertEqual(bound.returncode, 0, bound)
+        self.assertEqual(bound.receipt["state"], "completed", bound)
         result = self.completed(self.project)
         detail = json.loads(result.receipt["job"]["result"]["detail"])
         self.assertEqual(detail["stores"][0]["resource"], "logs")

@@ -57,18 +57,10 @@ impl<'a> Applying<'a> {
     else {
       return Ok((crate::quarantine::IndexFile::default(), None));
     };
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let recognized = value.as_object().is_some_and(|object| {
-      object.get("version").and_then(|v| v.as_u64()) == Some(1)
-        && object.get("entries").is_some_and(|v| v.is_array())
-        && object
-          .keys()
-          .all(|key| matches!(key.as_str(), "version" | "entries" | "held_ids"))
-    });
-    if !recognized {
-      return Err(io::Error::other("unrecognized quarantine index schema"));
-    }
-    Ok((serde_json::from_value(value)?, Some(version)))
+    Ok((
+      crate::quarantine::parse_index(&bytes).map_err(io::Error::other)?,
+      Some(version),
+    ))
   }
 
   /// Prepare bounded index bytes before the payload move. Its upcoming publication follows

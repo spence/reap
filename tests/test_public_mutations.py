@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -129,6 +130,54 @@ class PublicMutations(unittest.TestCase):
                                       "elapsed_seconds": result.elapsed,
                                       "state": result.receipt["state"],
                                       "exit_code": result.returncode}))
+
+    def test_store_commands_do_not_wait_for_manifest_fifo(self):
+        (self.project / "Cargo.toml").write_text("[workspace]\n")
+        manifest = self.project / ".reap.json"
+        os.mkfifo(manifest)
+        external = self.root / "external-store"
+        external.mkdir()
+        commands = [
+            (("stores",), "read"),
+            (("stores", self.project), "read"),
+            (("stores", self.project, "--apply"), "apply"),
+            (("stores", self.project, "--init"), "apply"),
+            (("stores", self.project, "--bind", "runs", "--to", external), "apply"),
+        ]
+        for command, mode in commands:
+            with self.subTest(command=command):
+                result = self.run_cli(*command)
+                self.assertIn(result.returncode, (1, 75))
+                self.assertNotEqual(result.receipt["state"], "completed")
+                self.assertEqual(result.receipt["invocation"]["operation"], "stores")
+                self.assertEqual(result.receipt["invocation"]["mode"], mode)
+                self.assertTrue(stat.S_ISFIFO(manifest.lstat().st_mode))
+                self.assertEqual(list(external.iterdir()), [])
+                print(json.dumps({"command": list(map(str, command)),
+                                  "elapsed_seconds": result.elapsed,
+                                  "state": result.receipt["state"],
+                                  "exit_code": result.returncode}))
+
+    def test_store_apply_does_not_wait_for_configuration_fifo(self):
+        (self.project / "Cargo.toml").write_text("[workspace]\n")
+        (self.project / ".reap.json").write_text(json.dumps({
+            "version": 2, "stores": [{"path": "output", "disposition": "quarantine",
+                "retention": {"keep_last": 0, "min_age_hours": 0, "max_age_days": 0}}],
+        }))
+        store = self.project / "output"
+        store.mkdir()
+        (store / "REAP-STORE.TAG").write_text("Signature: reap-store-marker-v1\n")
+        payload = store / "old-output"
+        payload.write_bytes(PAYLOAD)
+        stamp = time.time() - 86400
+        os.utime(payload, (stamp, stamp))
+        self.config.unlink()
+        os.mkfifo(self.config)
+        result = self.run_cli("stores", self.project, "--apply")
+        self.assertIn(result.returncode, (1, 75))
+        self.assertNotEqual(result.receipt["state"], "completed")
+        self.assertEqual(payload.read_bytes(), PAYLOAD)
+        self.assertTrue(stat.S_ISFIFO(self.config.lstat().st_mode))
 
     def test_remaining_applying_commands_do_not_wait_for_configuration_fifo(self):
         self.config.unlink()

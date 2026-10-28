@@ -1,4 +1,4 @@
-//! Complete Cargo planning evidence and exact retirement of known owned removals.
+//! Complete cleanup planning evidence and exact retirement of known owned removals.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -54,12 +54,42 @@ impl Stamp {
   }
 }
 
-/// A complete finite namespace, not permission to remove it. Child links remain leaves.
+/// A unit snapshot excludes other store units; retention evaluates them before that unit starts.
+#[derive(Clone, serde::Serialize)]
+enum Coverage {
+  Cargo,
+  Unit { name: PathBuf },
+}
+
+impl Coverage {
+  fn includes(&self, root: &Path, path: &Path) -> bool {
+    let Self::Unit { name } = self else {
+      return true;
+    };
+    path == root
+      || path
+        .strip_prefix(root)
+        .ok()
+        .and_then(|path| path.components().next())
+        .is_some_and(|part| part.as_os_str() == name.as_os_str())
+  }
+
+  fn same(&self, root: &Path, path: &Path, before: &Stamp, after: &Stamp) -> bool {
+    if matches!(self, Self::Unit { .. }) && path == root {
+      before.same_object(after)
+    } else {
+      before == after
+    }
+  }
+}
+
+/// Complete finite selection inputs, not permission to remove them. Child links remain leaves.
 pub(super) struct Inventory {
   root: PathBuf,
   nodes: BTreeMap<PathBuf, Stamp>,
   /// Bind the initial inventory and its exact owned-removal prefix, not cached freshness.
   evidence: Sha256,
+  coverage: Coverage,
 }
 
 impl Inventory {
@@ -69,9 +99,37 @@ impl Inventory {
   }
 
   pub(super) fn capture(root: &Path) -> io::Result<Self> {
-    let nodes = Self::observe(root)?;
+    Self::capture_with(root, Coverage::Cargo)
+  }
+
+  /// Capture one direct child and its descendants. Parent identity stays fixed; other units
+  /// remain outside this snapshot and must be evaluated through current retention policy.
+  pub(super) fn capture_unit(parent: &Path, source: &Path) -> io::Result<Self> {
+    if source.parent() != Some(parent) {
+      return Err(io::Error::other("cleanup unit is not a direct child"));
+    }
+    let name = source
+      .file_name()
+      .ok_or_else(|| io::Error::other("cleanup unit has no name"))?;
+    let inventory = Self::capture_with(
+      parent,
+      Coverage::Unit {
+        name: PathBuf::from(name),
+      },
+    )?;
+    if !inventory.nodes.contains_key(source) {
+      return Err(io::Error::other("cleanup unit is absent"));
+    }
+    Ok(inventory)
+  }
+
+  fn capture_with(root: &Path, coverage: Coverage) -> io::Result<Self> {
+    let nodes = Self::observe(root, &coverage)?;
     let mut evidence = Sha256::new();
     evidence.update(b"reap.cargo.inventory.v1");
+    if matches!(coverage, Coverage::Unit { .. }) {
+      evidence.update(serde_json::to_vec(&coverage)?);
+    }
     for (path, stamp) in &nodes {
       bind_entry(&mut evidence, path, stamp)?;
     }
@@ -79,48 +137,68 @@ impl Inventory {
       root: root.into(),
       nodes,
       evidence,
+      coverage,
     })
   }
 
-  fn observe(root: &Path) -> io::Result<BTreeMap<PathBuf, Stamp>> {
+  fn observe(root: &Path, coverage: &Coverage) -> io::Result<BTreeMap<PathBuf, Stamp>> {
     let directory = open_physical(root)?;
     let first = Stamp::read(&descriptor_stat(&directory)?);
     let mut nodes = BTreeMap::from([(root.to_path_buf(), first.clone())]);
     let mut pending = vec![root.to_path_buf()];
+    let mut observed_names = 0usize;
     while let Some(path) = pending.pop() {
       let held = open_relative(&directory, root, &path, first.device)?;
       let before = Stamp::read(&descriptor_stat(&held)?);
-      if nodes.get(&path) != Some(&before) || !before.directory() {
-        return Err(io::Error::other("Cargo directory changed during inventory"));
+      if !nodes
+        .get(&path)
+        .is_some_and(|prior| coverage.same(root, &path, prior, &before))
+        || !before.directory()
+      {
+        return Err(io::Error::other(
+          "cleanup directory changed during inventory",
+        ));
       }
       for_each_preview_name(&held, |name| {
-        if nodes.len() >= MAX_ENTRIES {
-          return Err(io::Error::other("Cargo inventory exceeds its entry bound"));
+        observed_names += 1;
+        if observed_names > MAX_ENTRIES {
+          return Err(io::Error::other("cleanup inventory exceeds its name bound"));
         }
         let name = Path::new(std::ffi::OsStr::from_bytes(name));
+        let child = path.join(name);
+        if !coverage.includes(root, &child) {
+          return Ok(());
+        }
+        if nodes.len() >= MAX_ENTRIES {
+          return Err(io::Error::other(
+            "cleanup inventory exceeds its entry bound",
+          ));
+        }
         let observed = stat_at(&held, name)?;
         let kind = observed.st_mode & libc::S_IFMT;
         if observed.st_dev as u64 != first.device
-          || !matches!(kind, libc::S_IFDIR | libc::S_IFREG | libc::S_IFLNK)
+          || (matches!(coverage, Coverage::Cargo)
+            && !matches!(kind, libc::S_IFDIR | libc::S_IFREG | libc::S_IFLNK))
         {
           return Err(io::Error::other(
-            "Cargo inventory crosses a mount or has a special entry",
+            "cleanup inventory crosses a mount or has a special entry",
           ));
         }
-        let child = path.join(name);
         if nodes
           .insert(child.clone(), Stamp::read(&observed))
           .is_some()
         {
-          return Err(io::Error::other("Cargo inventory repeats an entry"));
+          return Err(io::Error::other("cleanup inventory repeats an entry"));
         }
         if kind == libc::S_IFDIR {
           pending.push(child);
         }
         Ok(())
       })?;
-      if Stamp::read(&descriptor_stat(&held)?) != before {
-        return Err(io::Error::other("Cargo directory changed during inventory"));
+      if !coverage.same(root, &path, &before, &Stamp::read(&descriptor_stat(&held)?)) {
+        return Err(io::Error::other(
+          "cleanup directory changed during inventory",
+        ));
       }
     }
     Ok(nodes)
@@ -132,30 +210,51 @@ impl Inventory {
     let directory = open_physical(&self.root)?;
     let device = self.nodes[&self.root].device;
     let mut count = 1;
+    let mut observed_names = 0usize;
     for (path, before) in self.nodes.iter().filter(|(_, stamp)| stamp.directory()) {
       let held = open_relative(&directory, &self.root, path, device)?;
-      if Stamp::read(&descriptor_stat(&held)?) != *before {
-        return Err(io::Error::other("Cargo planning input changed"));
+      if !self.coverage.same(
+        &self.root,
+        path,
+        before,
+        &Stamp::read(&descriptor_stat(&held)?),
+      ) {
+        return Err(io::Error::other("cleanup planning input changed"));
       }
       let mut names = BTreeSet::new();
       for_each_preview_name(&held, |name| {
-        if count >= self.nodes.len() || !names.insert(name.to_vec()) {
-          return Err(io::Error::other("Cargo planning namespace changed"));
+        observed_names += 1;
+        if observed_names > MAX_ENTRIES {
+          return Err(io::Error::other("cleanup inventory exceeds its name bound"));
         }
         let name = Path::new(std::ffi::OsStr::from_bytes(name));
+        let child = path.join(name);
+        if !self.coverage.includes(&self.root, &child) {
+          return Ok(());
+        }
+        if count >= self.nodes.len() || !names.insert(name.as_os_str().as_bytes().to_vec()) {
+          return Err(io::Error::other("cleanup planning namespace changed"));
+        }
         let observed = Stamp::read(&stat_at(&held, name)?);
-        if self.nodes.get(&path.join(name)) != Some(&observed) {
-          return Err(io::Error::other("Cargo planning input changed"));
+        if self.nodes.get(&child) != Some(&observed) {
+          return Err(io::Error::other("cleanup planning input changed"));
         }
         count += 1;
         Ok(())
       })?;
-      if Stamp::read(&descriptor_stat(&held)?) != *before {
-        return Err(io::Error::other("Cargo directory changed during inventory"));
+      if !self.coverage.same(
+        &self.root,
+        path,
+        before,
+        &Stamp::read(&descriptor_stat(&held)?),
+      ) {
+        return Err(io::Error::other(
+          "cleanup directory changed during inventory",
+        ));
       }
     }
     if count != self.nodes.len() {
-      return Err(io::Error::other("Cargo planning input changed"));
+      return Err(io::Error::other("cleanup planning input changed"));
     }
     Ok(())
   }
@@ -164,7 +263,7 @@ impl Inventory {
   pub(super) fn entries(&self, root: &Path) -> io::Result<Vec<PathBuf>> {
     if !self.nodes.contains_key(root) {
       return Err(io::Error::other(
-        "Cargo selection is outside its captured inventory",
+        "cleanup selection is outside its captured inventory",
       ));
     }
     let mut paths: Vec<_> = self
@@ -173,6 +272,9 @@ impl Inventory {
       .take_while(|(path, _)| path.starts_with(root))
       .map(|(path, _)| path.clone())
       .collect();
+    if paths.iter().any(|path|!matches!(self.nodes[path].mode & libc::S_IFMT as u32,kind if kind==libc::S_IFDIR as u32 || kind==libc::S_IFREG as u32 || kind==libc::S_IFLNK as u32)) {
+      return Err(io::Error::other("selected cleanup unit has an opaque entry"));
+    }
     paths.sort_by(|left, right| {
       right
         .components()
@@ -190,7 +292,9 @@ impl Inventory {
   /// Compare the held source with its original observation before any intent is requested.
   pub(super) fn source(&self, path: &Path, held: &File) -> io::Result<()> {
     if self.nodes.get(path) != Some(&Stamp::read(&descriptor_stat(held)?)) {
-      return Err(io::Error::other("Cargo source differs from its selection"));
+      return Err(io::Error::other(
+        "cleanup source differs from its selection",
+      ));
     }
     Ok(())
   }
@@ -198,43 +302,59 @@ impl Inventory {
   /// Retire exactly one completed unlink. Only its parent and matching hard-link metadata can
   /// change. A later mismatch stops work; it does not erase the already recorded unit effect.
   pub(super) fn removed(&mut self, path: &Path, original: &File) -> io::Result<()> {
+    self.retired(path, original, false)
+  }
+
+  /// Retire one atomically renamed subtree. Other entries must match the original inventory.
+  pub(super) fn renamed(&mut self, path: &Path, original: &File) -> io::Result<()> {
+    self.retired(path, original, true)
+  }
+
+  fn retired(&mut self, path: &Path, original: &File, renamed: bool) -> io::Result<()> {
     let before = self
       .nodes
       .get(path)
-      .ok_or_else(|| io::Error::other("removed Cargo source was not inventoried"))?;
+      .ok_or_else(|| io::Error::other("removed cleanup source was not inventoried"))?;
     let after = Stamp::read(&descriptor_stat(original)?);
     let mut expected_source = before.clone();
     expected_source.changed = after.changed;
-    expected_source.links = if before.directory() {
+    expected_source.links = if renamed {
+      before.links
+    } else if before.directory() {
       after.links
     } else {
       before
         .links
         .checked_sub(1)
-        .ok_or_else(|| io::Error::other("Cargo source had no links"))?
+        .ok_or_else(|| io::Error::other("cleanup source had no links"))?
     };
-    if before.directory() {
+    if before.directory() && !renamed {
       expected_source.size = after.size;
     }
     if after != expected_source {
-      return Err(io::Error::other("Cargo source changed during its unlink"));
+      return Err(io::Error::other("cleanup source changed during its unlink"));
     }
-    let current = Self::observe(&self.root)?;
+    let current = Self::observe(&self.root, &self.coverage)?;
     let parent = path
       .parent()
-      .ok_or_else(|| io::Error::other("Cargo source has no parent"))?;
+      .ok_or_else(|| io::Error::other("cleanup source has no parent"))?;
     let prior_parent = self
       .nodes
       .get(parent)
-      .ok_or_else(|| io::Error::other("Cargo source parent was not inventoried"))?;
+      .ok_or_else(|| io::Error::other("cleanup source parent was not inventoried"))?;
     let next_parent = current
       .get(parent)
       .filter(|next| prior_parent.same_object(next) && next.directory())
-      .ok_or_else(|| io::Error::other("Cargo source parent changed identity"))?;
-    if current.len() + 1 != self.nodes.len()
+      .ok_or_else(|| io::Error::other("cleanup source parent changed identity"))?;
+    let retired = self
+      .nodes
+      .keys()
+      .filter(|name| **name == path || (renamed && name.starts_with(path)))
+      .count();
+    if current.len() + retired != self.nodes.len()
       || current.contains_key(path)
       || self.nodes.iter().any(|(name, prior)| {
-        if name == path {
+        if name == path || (renamed && name.starts_with(path)) {
           return false;
         }
         let mut expected = prior.clone();
@@ -245,17 +365,23 @@ impl Inventory {
           expected.changed = after.changed;
           expected.links = after.links;
         }
-        current.get(name) != Some(&expected)
+        !current
+          .get(name)
+          .is_some_and(|actual| self.coverage.same(&self.root, name, &expected, actual))
       })
     {
       return Err(io::Error::other(
-        "Cargo input differs from its exact owned removal prefix",
+        "cleanup input differs from its exact owned removal prefix",
       ));
     }
 
     // the prior commitment identifies every alias; this delta binds its exact permitted changes
     let mut evidence = self.evidence.clone();
-    evidence.update(b"reap.cargo.inventory.removed.v1");
+    evidence.update(if renamed {
+      b"reap.cleanup.inventory.renamed.v1".as_slice()
+    } else {
+      b"reap.cargo.inventory.removed.v1".as_slice()
+    });
     bind_entry(&mut evidence, path, &after)?;
     bind_entry(&mut evidence, parent, next_parent)?;
     self.nodes = current;

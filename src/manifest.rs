@@ -79,7 +79,7 @@ pub struct Store {
 }
 
 /// Whether eligible store units are deleted now or moved into quarantine.
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StoreDisposition {
   #[default]
@@ -358,17 +358,6 @@ where
   D: Deserializer<'de>,
 {
   Vec::<StoreSeries>::deserialize(deserializer).map(Some)
-}
-
-/// Walk up from `start` to the nearest dir with a `.reap.json` or `Cargo.toml`.
-pub fn find_project_root(start: &Path) -> Option<PathBuf> {
-  let mut cur = start.to_path_buf();
-  loop {
-    if cur.join(MANIFEST_NAME).is_file() || cur.join("Cargo.toml").is_file() {
-      return Some(cur);
-    }
-    cur = cur.parent()?.to_path_buf();
-  }
 }
 
 #[cfg(test)]

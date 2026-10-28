@@ -64,6 +64,7 @@ Use `reap files [PATH] --wait 30` before a dependent step. PATH can select a wor
 Use `reap files [PATH] --apply --wait 30` to await authorized cleanup through the shared executor.
 Use `reap plan [PATH] --wait 30` for completed Cargo assessment, or `reap clean [PATH] --wait 30` for completed cleanup.
 Use `reap lease add`, `renew`, `release`, or `list` with `--wait 30` before a dependent step.
+Use `reap stores [PATH] --wait 30`, including `--init`, `--bind`, or `--apply`, before a dependent step.
 Observe the original key after interruption; do not resubmit to obtain progress.
 Lease listing reads metadata only. It does not establish workspace availability.
 Use TTL only for expressly disposable work, not an estimated completion time. Do not add a lease over a co-located lifetime.
@@ -85,6 +86,7 @@ macOS installation registers the three fixed on-demand roles. Ordinary commands 
 Cargo commands use that client and executor, including journaled lock publication and exact removal units.
 Lease commands also use that client. Directory, marker and index publications retain separate unit intent.
 Release removes only its matching marker after index publication; it keeps the workspace.
+Store commands use the same client and executor. Read structured `reports` or retained pages, not foreground diagnostic text.
 Other applying commands retain their foreground routes; full fleet migration remains open.
 Complete zero-effect Files jobs in either mode can publish journal grace credit. Legacy cache credit is not imported.
 
@@ -350,8 +352,8 @@ declare it in `.reap.json` (version 2) and arm it once:
 ```
 
 ```bash
-reap stores --init [dir]   # create + arm (writes the REAP-STORE.TAG marker)
-reap stores [--apply]      # all projects under the roots, or one dir
+reap stores --init [dir] --wait 30 # create and arm; require completed success
+reap stores [dir] [--apply] --wait 30 # inspect the structured result before a dependent step
 ```
 
 Units are direct children only. Optional `series` matches basenames with one
@@ -363,6 +365,9 @@ single global sequence. `min_age_hours` always protects;
 `max_age_days`/`max_bytes` are the only eviction triggers (≥1 required).
 Unknown fields under `stores` are hard errors (a typo'd protection must not
 vanish silently). Unarmed stores are reported but never applied.
+Retention assessment does not traverse unmatched children; their bytes remain unknown.
+Compare `known_bytes` and `unknown_children`, not nullable `total_bytes` alone.
+Keep mutable output outside eligible retention ranges. A pending receipt or partial deletion is not completed cleanup.
 
 Existing v2 stores default to direct deletion. To make an individual store
 recoverable, add `"disposition":"quarantine"` to its declaration; unknown
@@ -377,6 +382,7 @@ the move does not free disk until purge; an external quarantine must already
 exist. Bare purge obeys machine `auto_purge` and grace; explicit selectors
 still require owner authorization. Legacy manifests stay on direct deletion
 until explicitly changed.
+The coordinated Store path currently refuses cross-volume quarantine and retains the source; do not bypass this refusal.
 
 Optional `"creation_method":"benchmark-run"` on a store records a project-
 supplied label for its runs; it does not arm the store or change eligibility.

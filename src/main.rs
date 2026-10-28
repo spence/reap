@@ -62,10 +62,10 @@ use clap::{Args, Parser, Subcommand};
 
 use config::{config_path, load_config, write_default_config};
 use create::CreateCmd;
-use discover::{discover_manifests, discover_targets};
+use discover::discover_targets;
 use inventory::scan_projects;
 use lease::{find_by_path, load_leases, save_leases, LEASE_MARKER};
-use manifest::{find_project_root, load_manifest, Policy, StoreDisposition, MANIFEST_NAME};
+use manifest::{Policy, MANIFEST_NAME};
 use parents::ParentsCmd;
 use plan::{human, now_secs};
 use provenance::Provenance;
@@ -75,7 +75,6 @@ use quarantine::{
   restore_entry, rollback_restore, save_index, select_purge, EntryDiagnosis, PurgeSelect,
   RetireOpts, RetirePass,
 };
-use stores::{apply_store, init_stores, plan_stores, quarantine_store, StorePlan, StoreState};
 use util::{fmt_rel, hostname, lock_state, state_dir};
 
 #[derive(Parser)]
@@ -218,6 +217,9 @@ enum Cmd {
     to: Option<String>,
     #[arg(long)]
     verbose: bool,
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// Assess `.reap` lifetimes through a bounded read job, or apply with --apply.
   Files {
@@ -492,7 +494,19 @@ fn main() {
       bind,
       to,
       verbose,
-    }) => cmd_stores(path, apply, init, bind, to, verbose),
+      wait,
+    }) => client::run_stores(
+      invocation::StoreRequest {
+        path,
+        apply,
+        init,
+        bind,
+        to,
+        verbose,
+      },
+      wait,
+      entered,
+    ),
     Some(Cmd::Files { path, apply, wait }) => client::run_files(path, apply, wait, entered),
     Some(Cmd::Lease { cmd, wait }) => {
       client::run_lease(cmd.unwrap_or(LeaseCmd::List), wait, entered)
@@ -642,258 +656,6 @@ fn cmd_config(init: bool) -> i32 {
   println!("  purge_after_days: {}", cfg.quarantine.purge_after_days);
   println!("state: {}", state_dir().display());
   0
-}
-
-// --------------------------------------------------------------------------- //
-// Stores
-// --------------------------------------------------------------------------- //
-
-fn cmd_stores(
-  path: Option<String>,
-  apply: bool,
-  init: bool,
-  bind: Option<String>,
-  to: Option<String>,
-  verbose: bool,
-) -> i32 {
-  if init {
-    return cmd_stores_init(path);
-  }
-  if let Some(resource) = bind {
-    return cmd_stores_bind(
-      path,
-      &resource,
-      Path::new(to.as_deref().unwrap_or_default()),
-    );
-  }
-  let now = now_secs();
-  let (projects, single) = match &path {
-    Some(p) => {
-      let abs = absolutize(&PathBuf::from(p));
-      (vec![find_project_root(&abs).unwrap_or(abs)], true)
-    }
-    None => {
-      let (cfg, _) = load_config();
-      let mut exclude = cfg.exclude.clone();
-      exclude.push(format!("{}*", cfg.quarantine_dir().display()));
-      let (found, errs) = discover_manifests(&cfg.expanded_roots(), &exclude);
-      for e in errs {
-        eprintln!("  discovery warning: {}", e);
-      }
-      (found, false)
-    }
-  };
-  println!(
-    "reap stores -- {}\n",
-    if apply {
-      "APPLY (evicting)"
-    } else {
-      "DRY-RUN (nothing evicted)"
-    }
-  );
-  let mut grand = 0u64;
-  let mut any = false;
-  let mut rc = 0;
-  for proot in &projects {
-    let manifest = match load_manifest(proot) {
-      Ok(m) => m,
-      Err(e) => {
-        eprintln!("  {}: INVALID manifest: {}", proot.display(), e);
-        rc = 1;
-        continue;
-      }
-    };
-    if manifest.stores.is_empty() {
-      if single {
-        println!("  {}: no stores declared (nothing to do)", proot.display());
-      }
-      continue;
-    }
-    any = true;
-    match plan_stores(&manifest, now) {
-      Err(e) => {
-        eprintln!("  {}: {}", proot.display(), e);
-        rc = 1;
-      }
-      Ok(plans) => {
-        println!("  {}", proot.display());
-        for p in &plans {
-          let (bytes, failed) = print_and_apply_store(p, proot, apply, verbose);
-          grand += bytes;
-          if failed {
-            rc = 1;
-          }
-        }
-      }
-    }
-  }
-  if !any && !single {
-    println!("no projects with declared stores under the configured roots.");
-  }
-  println!(
-    "\n TOTAL {} (armed stores): {}",
-    if apply { "affected" } else { "eligible" },
-    human(grand)
-  );
-  rc
-}
-
-fn cmd_stores_init(path: Option<String>) -> i32 {
-  let raw = path
-    .map(PathBuf::from)
-    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-  let abs = absolutize(&raw);
-  let root = find_project_root(&abs).unwrap_or(abs);
-  let manifest = match load_manifest(&root) {
-    Ok(m) => m,
-    Err(e) => {
-      eprintln!("error: {}", e);
-      return 1;
-    }
-  };
-  if manifest.stores.is_empty() {
-    eprintln!(
-      "{}: no stores declared in {} (needs \"version\": 2 and a \"stores\" list)",
-      root.display(),
-      MANIFEST_NAME
-    );
-    return 1;
-  }
-  match init_stores(&manifest) {
-    Ok(out) => {
-      for (dir, what) in out {
-        println!("  {:<13} {}", what, dir.display());
-      }
-      0
-    }
-    Err(e) => {
-      eprintln!("error: {}", e);
-      1
-    }
-  }
-}
-
-fn cmd_stores_bind(path: Option<String>, resource: &str, to: &Path) -> i32 {
-  let raw = path
-    .map(PathBuf::from)
-    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-  let abs = absolutize(&raw);
-  let root = find_project_root(&abs).unwrap_or(abs);
-  let manifest = match load_manifest(&root) {
-    Ok(manifest) => manifest,
-    Err(e) => {
-      eprintln!("error: {e}");
-      return 1;
-    }
-  };
-  match store_bindings::bind(&manifest, resource, to) {
-    Ok(dir) => {
-      println!("bound and armed resource:{resource} -> {}", dir.display());
-      0
-    }
-    Err(e) => {
-      eprintln!("error: {e}");
-      1
-    }
-  }
-}
-
-fn print_and_apply_store(
-  p: &StorePlan,
-  project_dir: &Path,
-  apply: bool,
-  verbose: bool,
-) -> (u64, bool) {
-  match p.state {
-    StoreState::Missing => {
-      println!("    {:<28} (missing -- nothing to do)", p.rel);
-      return (0, false);
-    }
-    StoreState::Unbound => {
-      println!(
-        "    {:<28} UNBOUND -- `reap stores --bind` to allow apply",
-        p.rel
-      );
-      return (0, false);
-    }
-    StoreState::Unarmed => {
-      println!(
-        "    {:<28} {:>3} candidate(s) {:>12}   UNARMED -- `reap stores --init` to allow apply",
-        p.rel,
-        p.candidates.len(),
-        human(p.reclaimable())
-      );
-      return (0, false);
-    }
-    StoreState::Armed => {}
-  }
-  println!(
-    "    {:<28} {:>3}/{} children  {:>12} of {}   <- {}",
-    p.rel,
-    p.candidates.len(),
-    p.total_children,
-    human(p.reclaimable()),
-    human(p.total_bytes),
-    if apply {
-      match p.disposition {
-        StoreDisposition::Delete => "deleting",
-        StoreDisposition::Quarantine => "quarantining",
-      }
-    } else {
-      "eligible"
-    }
-  );
-  for n in &p.notes {
-    println!("      note: {}", n);
-  }
-  if verbose {
-    for c in &p.candidates {
-      println!(
-        "        {}  ({}, {} old, {})",
-        c.path.display(),
-        c.reason,
-        fmt_rel(c.age_secs),
-        human(c.bytes)
-      );
-    }
-  }
-  if apply {
-    let result = match p.disposition {
-      StoreDisposition::Delete => apply_store(p, project_dir),
-      StoreDisposition::Quarantine => {
-        let (cfg, _) = load_config();
-        let qdir = cfg.quarantine_dir();
-        if cfg
-          .quarantine
-          .dir
-          .as_ref()
-          .is_none_or(|dir| dir.trim().is_empty())
-        {
-          if let Err(e) = std::fs::create_dir_all(&qdir) {
-            eprintln!("      warning: cannot create {}: {e}", qdir.display());
-            return (0, true);
-          }
-        }
-        quarantine_store(p, project_dir, &qdir)
-      }
-    };
-    let failed = !result.errors.is_empty();
-    for e in result.errors {
-      eprintln!("      warning: {}", e);
-    }
-    if p.disposition == StoreDisposition::Quarantine {
-      println!(
-        "      quarantined {} item(s): {}",
-        result.removed,
-        result.quarantined.join(", ")
-      );
-    } else {
-      println!("      removed {} item(s)", result.removed);
-    }
-    (result.bytes, failed)
-  } else {
-    (p.reclaimable(), false)
-  }
 }
 
 // --------------------------------------------------------------------------- //

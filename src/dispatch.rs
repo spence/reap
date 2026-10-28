@@ -21,12 +21,15 @@ use crate::worker::{self, Owned, Report, Start, Task};
 
 mod cargo_job;
 mod files_job;
+mod inventory;
 mod lease_job;
+mod store_job;
 
 pub(crate) use cargo_job::{assess as assess_cargo, resolve as resolve_cargo};
 pub(crate) use files_job::FilesBatch;
 pub(crate) use files_job::{assess as assess_files, resolve as resolve_files};
 pub(crate) use lease_job::{assess as assess_lease, resolve as resolve_lease};
+pub(crate) use store_job::{assess as assess_stores, resolve as resolve_stores};
 
 const MAX_PENDING: usize = 16;
 const MAX_OBJECTS: usize = 128;
@@ -41,6 +44,7 @@ pub enum Progress {
   ResolvingFiles,
   ResolvingCargo,
   ResolvingLease,
+  ResolvingStores,
   Resolved {
     scope: Scope,
   },
@@ -57,6 +61,12 @@ pub enum Progress {
     scope: Scope,
   },
   RunningLease {
+    scope: Scope,
+  },
+  StoresResolved {
+    scope: Scope,
+  },
+  RunningStores {
     scope: Scope,
   },
   Checking {
@@ -91,6 +101,11 @@ impl Progress {
       (Self::LeaseResolved { scope: previous }, Self::RunningLease { scope: next }) => {
         previous == next
       }
+      (Self::Queued, Self::ResolvingStores)
+      | (Self::ResolvingStores, Self::StoresResolved { .. }) => true,
+      (Self::StoresResolved { scope: previous }, Self::RunningStores { scope: next }) => {
+        previous == next
+      }
       (Self::CargoResolved { scope: previous }, Self::RunningCargo { scope: next }) => {
         previous == next
       }
@@ -106,8 +121,11 @@ impl Progress {
         | Self::ResolvingFiles
         | Self::ResolvingCargo
         | Self::ResolvingLease
+        | Self::ResolvingStores
         | Self::LeaseResolved { .. }
+        | Self::StoresResolved { .. }
         | Self::RunningLease { .. }
+        | Self::RunningStores { .. }
         | Self::Resolved { .. }
         | Self::FilesResolved { .. }
         | Self::CargoResolved { .. }
@@ -152,6 +170,7 @@ struct Job {
   files: bool,
   cargo: bool,
   lease: bool,
+  stores: bool,
   progress: Progress,
   launch: Option<Launch>,
   owned: Option<Owned>,
@@ -208,6 +227,7 @@ impl Scheduler {
         .as_deref()
         .is_some_and(|operation| matches!(operation, "plan" | "clean" | "sweep")),
       lease: operation.as_deref() == Some("lease"),
+      stores: operation.as_deref() == Some("stores"),
       key,
       input,
       progress,
@@ -247,7 +267,9 @@ impl Scheduler {
         | Progress::CargoResolved { scope }
         | Progress::RunningCargo { scope }
         | Progress::LeaseResolved { scope }
+        | Progress::StoresResolved { scope }
         | Progress::RunningLease { scope }
+        | Progress::RunningStores { scope }
         | Progress::Checking { scope }
         | Progress::PreviewingFiles { scope }
         | Progress::FilesYielded { scope, .. } => Some(Resources::Bulk {
@@ -365,6 +387,21 @@ impl Job {
           (
             Progress::RunningLease { .. },
             Ok(Report::LeaseFinished {
+              terminal,
+              pages: output,
+            }),
+          ) if done.exit_code == 0 => {
+            pages = output;
+            Progress::Result { terminal }
+          }
+          (Progress::ResolvingStores, Ok(Report::StoresResolved { scope }))
+            if done.exit_code == 0 =>
+          {
+            Progress::StoresResolved { scope }
+          }
+          (
+            Progress::RunningStores { .. },
+            Ok(Report::StoresFinished {
               terminal,
               pages: output,
             }),
@@ -524,6 +561,12 @@ impl Job {
           input: self.input.clone(),
         }
       }
+      Progress::Queued if self.stores => {
+        self.persist(journal, Progress::ResolvingStores)?;
+        Task::ResolveStores {
+          input: self.input.clone(),
+        }
+      }
       Progress::Queued => {
         self.persist(journal, Progress::Resolving)?;
         Task::ResolveCheck {
@@ -562,6 +605,32 @@ impl Job {
           .is_none_or(|launch| matches!(launch.resources, Resources::Resolver)) =>
       {
         Task::Lease {
+          input: self.input.clone(),
+          scope,
+        }
+      }
+      Progress::ResolvingStores if self.launch.is_none() => Task::ResolveStores {
+        input: self.input.clone(),
+      },
+      Progress::StoresResolved { scope } => {
+        self.persist(
+          journal,
+          Progress::RunningStores {
+            scope: scope.clone(),
+          },
+        )?;
+        Task::Stores {
+          input: self.input.clone(),
+          scope,
+        }
+      }
+      Progress::RunningStores { scope }
+        if self
+          .launch
+          .as_ref()
+          .is_none_or(|launch| matches!(launch.resources, Resources::Resolver)) =>
+      {
+        Task::Stores {
           input: self.input.clone(),
           scope,
         }
@@ -1331,6 +1400,38 @@ fn refused(reason: &str) -> Terminal {
 
 fn invalid(reason: &str) -> io::Error {
   io::Error::new(io::ErrorKind::InvalidData, reason)
+}
+
+/// Resolve existing physical parents without making a missing destination an immutable read input.
+/// The executor retains each planned absence until its own exact directory publication.
+fn destination(inspector: &mut Inspector<'_>, path: &Path) -> io::Result<(PathBuf, Vec<PathBuf>)> {
+  let mut anchor = path.to_path_buf();
+  let mut missing = vec![];
+  loop {
+    match std::fs::symlink_metadata(&anchor) {
+      Ok(_) => break,
+      Err(error) if error.kind() == io::ErrorKind::NotFound && missing.len() < 128 => {
+        missing.push(
+          anchor
+            .file_name()
+            .ok_or_else(|| invalid("state path has no name"))?
+            .to_owned(),
+        );
+        if !anchor.pop() {
+          return Err(invalid("state path has no anchor"));
+        }
+      }
+      Err(error) => return Err(error),
+    }
+  }
+  let mut physical = inspector.canonical_path(&anchor)?;
+  inspector.directory(&physical)?;
+  let mut planned = vec![];
+  for name in missing.into_iter().rev() {
+    physical.push(name);
+    planned.push(physical.clone());
+  }
+  Ok((physical, planned))
 }
 
 #[cfg(test)]
