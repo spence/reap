@@ -311,7 +311,7 @@ reap create scratch <new-dir> --ttl 48h --owner NAME --purpose TEXT
 reap create worktree <source-repo> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--ref REF] [--scratch]
 reap create clone <source-repo-or-url> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--scratch]
 reap create copy <source-dir> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--scratch]
-reap parents arm <existing-parent> --project <source-project> --owner NAME
+reap parents arm <existing-parent> --project <source-project> --owner NAME --wait 30
 reap parents list [parent]
 reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT] [--wait [SECONDS]]
 reap lease renew <dir> [--ttl DURATION] [--wait [SECONDS]]
@@ -778,12 +778,14 @@ To keep track of a stable parent where an editor or another tool creates
 worktrees, explicitly arm that existing directory on each machine:
 
 ```bash
-reap parents arm ../worktrees/reap --project . --owner spencer
+reap parents arm ../worktrees/reap --project . --owner spencer --wait 30
 reap parents list ../worktrees/reap
 ```
 
 Arming records the canonical parent and source-project identities in local
-state and writes a `.reap-parent` marker. `parents list` checks both identities
+state and writes a `.reap-parent` marker through a job. Require a completed job
+before using the registration; a partial result is not complete arming.
+`parents list` remains a foreground read. It examines both identities
 and the marker, then reports direct children without following symlinks.
 Unregistered children are visible but never become retirement candidates from
 their age or location. Review a particular child and use `reap lease add`

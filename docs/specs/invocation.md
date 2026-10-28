@@ -55,7 +55,7 @@ it persists the job. Invalid or expired proof cannot create a job. Ticket expiry
 retained job's native caller identity. Workers must retain its containment guard and validate native
 identity again before target or namespace effects; serialized context is not an execution grant.
 
-An explicit lease add or applying store request may create absent state-directory components through journaled units.
+An explicit lease add, parent arm, or applying store request may create absent state-directory components through journaled units.
 Only that worker's durably observed publication prefix can advance the original missing-path evidence.
 Every created component retains its exact current native identity. The original caller, home,
 configuration and remaining absence stay bound. The admitted input is not rewritten.
@@ -65,6 +65,7 @@ Bindings: `native_lease_first_use_add_renew_list_release_and_replay_keep_workspa
 `native_lease_original_prepared_receipt_replays_after_state_creation_and_writer_restart`.
 Store bindings: `native_stores_init_assess_delete_and_replay_keep_newest_and_unmatched_units`,
 `native_stores_binding_quarantine_and_replay_keep_payload_evidence_and_newest_output`.
+Parent binding: `native_parent_arm_publishes_marker_and_index_without_leasing_children_and_replays`.
 
 ## Executable bindings and limits
 

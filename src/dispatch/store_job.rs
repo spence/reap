@@ -1164,6 +1164,9 @@ fn discover(
 fn stop_at(point: &str) {
   #[cfg(test)]
   if std::env::var("REAP_NATIVE_STORES_UNIT_STOP").as_deref() == Ok(point) {
+    if let Some(evidence) = std::env::var_os("REAP_NATIVE_STORES_STOP_EVIDENCE") {
+      std::fs::write(evidence, point).expect("owned interruption evidence");
+    }
     std::process::exit(85);
   }
   #[cfg(not(test))]

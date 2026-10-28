@@ -202,7 +202,7 @@ impl Fixture {
       }
     }
     let mut result = std::collections::BTreeMap::new();
-    for directory in ["home", "state", "project", "external", "outside"] {
+    for directory in ["home", "state", "project", "external", "outside", "parent"] {
       let path = self.0.join(directory);
       if path.is_dir() {
         files(&path, &mut result);

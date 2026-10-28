@@ -73,10 +73,10 @@ impl TestRoot {
       .env_remove("REAP_OWNER")
       .env_remove("REAP_SESSION")
       .current_dir(&self.root);
-    if args
-      .first()
-      .is_some_and(|operation| matches!(operation.as_str(), "lease" | "stores"))
-    {
+    if args.first().is_some_and(|operation| {
+      matches!(operation.as_str(), "lease" | "stores")
+        || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
+    }) {
       self.unconfirmed.fetch_add(1, Ordering::SeqCst);
       command.args(["--wait", "30"]);
     }
@@ -100,10 +100,10 @@ impl TestRoot {
 
   fn run(&self, args: Vec<String>) -> Output {
     let output = self.command(&args).output().unwrap();
-    if args
-      .first()
-      .is_some_and(|operation| matches!(operation.as_str(), "lease" | "stores"))
-    {
+    if args.first().is_some_and(|operation| {
+      matches!(operation.as_str(), "lease" | "stores")
+        || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
+    }) {
       self.confirm_job(&output);
     }
     output

@@ -94,6 +94,34 @@ class PublicMutations(unittest.TestCase):
         self.assertEqual((self.kept / "valuable").read_bytes(), PAYLOAD)
         return result
 
+    def test_parent_arm_does_not_wait_for_configuration_fifo(self):
+        parent = self.root / "managed-parent"
+        parent.mkdir()
+        self.config.unlink()
+        os.mkfifo(self.config)
+        result = self.run_cli("parents", "arm", parent, "--project", self.project,
+                              "--owner", "owned native fixture")
+        self.assertIn(result.receipt["state"], ("failed", "unavailable"))
+        self.assertFalse((parent / ".reap-parent").exists())
+
+    def test_parent_listing_does_not_create_state_or_wait_for_a_busy_lock(self):
+        absent = self.root / "absent-state"
+        environment = dict(self.environment, XDG_STATE_HOME=str(absent))
+        result = subprocess.run([BINARY, "parents", "list"], cwd=self.root,
+                                env=environment, capture_output=True, timeout=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(absent.exists())
+        lock_path = self.root / "state/reap/state.lock"
+        with lock_path.open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            before = lock_path.stat()
+            result = subprocess.run([BINARY, "parents", "list"], cwd=self.root,
+                                    env=self.environment, capture_output=True, timeout=2)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            after = lock_path.stat()
+            self.assertEqual((before.st_dev, before.st_ino, before.st_mtime_ns),
+                             (after.st_dev, after.st_ino, after.st_mtime_ns))
+
     def test_files_apply_does_not_wait_for_configuration_fifo(self):
         self.config.unlink()
         os.mkfifo(self.config)

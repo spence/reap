@@ -1,4 +1,4 @@
-//! Legacy lease metadata under the shared journal, physical reservations and native unit guards.
+//! Legacy lease and parent metadata under shared reservations and native unit guards.
 
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
@@ -21,14 +21,26 @@ use crate::mutation::{
 use crate::worker::Helpers;
 use crate::LeaseCmd;
 
+enum Command {
+  Lease(LeaseCmd),
+  ParentArm(crate::invocation::ParentArm),
+}
+
+impl Command {
+  fn creates_state(&self) -> bool {
+    matches!(self, Self::Lease(LeaseCmd::Add { .. }) | Self::ParentArm(_))
+  }
+}
+
 struct Context<'a> {
   inspector: Inspector<'a>,
   intent: Intent,
-  command: LeaseCmd,
+  command: Command,
   caller: File,
   base: PathBuf,
   state: PathBuf,
   target: Option<PathBuf>,
+  project: Option<PathBuf>,
   forbidden: Vec<PathBuf>,
   bootstrap: Vec<PathBuf>,
   namespace_missing: Vec<PathBuf>,
@@ -395,7 +407,7 @@ pub(crate) fn assess(
     return Err(invalid("lease scope or grant changed after resolution"));
   }
   context.enter()?;
-  if matches!(context.command, LeaseCmd::List) {
+  if matches!(context.command, Command::Lease(LeaseCmd::List)) {
     context.inspector.revalidate()?;
     let file = if context.bootstrap.is_empty() {
       load(&context.state, &grant.resources)?.1
@@ -411,7 +423,7 @@ pub(crate) fn assess(
       }))?,
     });
   }
-  if !matches!(context.command, LeaseCmd::Add { .. }) && !context.bootstrap.is_empty() {
+  if !context.command.creates_state() && !context.bootstrap.is_empty() {
     return Err(invalid("no lease state exists for this request"));
   }
   let position = helpers.next_mutation_sequence()?;
@@ -429,6 +441,7 @@ pub(crate) fn assess(
     lock: None,
   };
   let mut selected = None;
+  let mut selected_parent = None;
   let mut action = "";
   let result = (|| -> io::Result<()> {
     applying.initialize(helpers)?;
@@ -438,7 +451,46 @@ pub(crate) fn assess(
       .target
       .as_deref()
       .ok_or_else(|| invalid("lease target is absent"))?;
-    let lease = match &context.command {
+    if let Command::ParentArm(request) = &context.command {
+      action = "arm";
+      let record = crate::parents::prepare_arm(
+        &leases,
+        path,
+        context
+          .project
+          .as_deref()
+          .ok_or_else(|| invalid("parent project is absent"))?,
+        &request.owner,
+        &context.intent.namespace.home,
+        &context.forbidden,
+        now,
+      )
+      .map_err(|reason| invalid(&reason))?;
+      let marker_path = path.join(crate::parents::PARENT_MARKER);
+      if crate::mutation::read_metadata(&marker_path, &grant.resources)?.is_some() {
+        return Err(invalid(
+          "managed parent marker already exists; marker remains",
+        ));
+      }
+      let bytes =
+        serde_json::to_vec_pretty(&serde_json::json!({"id":record.id,"token":record.token}))?;
+      applying.publish("marker", &marker_path, &bytes, None, helpers)?;
+      leases.parents.push(record.clone());
+      leases.guard_extended_state();
+      selected_parent = Some(record);
+      applying.publish(
+        "index",
+        &crate::lease::leases_path(&context.state),
+        &serde_json::to_vec_pretty(&leases)?,
+        previous,
+        helpers,
+      )?;
+      return applying.fresh();
+    }
+    let Command::Lease(command) = &context.command else {
+      unreachable!()
+    };
+    let lease = match command {
       LeaseCmd::Add {
         ttl,
         scratch,
@@ -524,18 +576,25 @@ pub(crate) fn assess(
       previous,
       helpers,
     )?;
-    if matches!(context.command, LeaseCmd::Release { .. }) {
+    if matches!(command, LeaseCmd::Release { .. }) {
       applying.release_marker(&lease, helpers)?;
     }
     applying.fresh()
   })();
+  let mut detail = serde_json::json!({
+    "command":if matches!(context.command, Command::ParentArm(_)) {"parents"} else {"lease"},
+    "action":action,"error":result.as_ref().err().map(|error| error.to_string()),
+    "worker_observation":{"completed_units":applying.effects,"unknown_effects":applying.unknown},
+  });
+  if matches!(context.command, Command::ParentArm(_)) {
+    detail["parent"] = serde_json::to_value(selected_parent)?;
+  } else {
+    detail["lease"] = serde_json::to_value(selected)?;
+  }
   Ok(Terminal {
     exit_code: u8::from(result.is_err() || applying.unknown),
     effects: applying.effects,
-    detail: serde_json::to_string(&serde_json::json!({
-      "command":"lease","action":action,"lease":selected,"error":result.err().map(|error| error.to_string()),
-      "worker_observation":{"completed_units":applying.effects,"unknown_effects":applying.unknown},
-    }))?,
+    detail: serde_json::to_string(&detail)?,
   })
 }
 
@@ -566,8 +625,13 @@ fn load(
 
 fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Context<'a>> {
   let (intent, caller, directory) = crate::invocation::fresh(input)?;
-  let command = crate::invocation::lease_request(&intent)
-    .ok_or_else(|| invalid("unsupported lease arguments"))?;
+  let command = if let Some(command) = crate::invocation::lease_request(&intent) {
+    Command::Lease(command)
+  } else if let Some(request) = crate::invocation::parent_arm_request(&intent) {
+    Command::ParentArm(request)
+  } else {
+    return Err(invalid("unsupported lease metadata arguments"));
+  };
   let mut inspector = Inspector {
     allowed,
     objects: vec![],
@@ -590,10 +654,11 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   let (_, namespace_missing) = destination(&mut inspector, &raw_state)?;
   let (state, bootstrap) = destination(&mut inspector, &raw_state.join("reap"))?;
   let raw_target = match &command {
-    LeaseCmd::List => None,
-    LeaseCmd::Add { path, .. } | LeaseCmd::Renew { path, .. } | LeaseCmd::Release { path } => {
-      Some(PathBuf::from(path))
-    }
+    Command::Lease(LeaseCmd::List) => None,
+    Command::Lease(
+      LeaseCmd::Add { path, .. } | LeaseCmd::Renew { path, .. } | LeaseCmd::Release { path },
+    ) => Some(PathBuf::from(path)),
+    Command::ParentArm(request) => Some(PathBuf::from(&request.path)),
   };
   let target = raw_target
     .map(|path| {
@@ -606,12 +671,29 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     .transpose()?;
   if let Some(target) = &target {
     inspector.optional_directory(target)?;
-    if matches!(command, LeaseCmd::Add { .. }) {
+    if matches!(command, Command::Lease(LeaseCmd::Add { .. })) {
       inspector.bytes(&target.join(crate::lifetime::FILE_NAME))?;
     }
   }
+  let project = if let Command::ParentArm(request) = &command {
+    inspector.directory(
+      target
+        .as_deref()
+        .ok_or_else(|| invalid("parent target is absent"))?,
+    )?;
+    let raw = PathBuf::from(&request.project);
+    let path = inspector.canonical_path(&if raw.is_absolute() {
+      raw
+    } else {
+      caller.base.join(raw)
+    })?;
+    inspector.directory(&path)?;
+    Some(path)
+  } else {
+    None
+  };
   let mut forbidden = vec![state.clone()];
-  if matches!(command, LeaseCmd::Add { .. }) {
+  if command.creates_state() {
     let home = intent.namespace.home.to_string_lossy();
     let raw_quarantine = configuration
       .quarantine
@@ -644,6 +726,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     base: caller.base,
     state: state.clone(),
     target,
+    project,
     forbidden,
     bootstrap,
     namespace_missing,
@@ -653,6 +736,9 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
 fn stop_at(point: &str) {
   #[cfg(test)]
   if std::env::var("REAP_NATIVE_LEASE_UNIT_STOP").as_deref() == Ok(point) {
+    if let Some(evidence) = std::env::var_os("REAP_NATIVE_LEASE_STOP_EVIDENCE") {
+      std::fs::write(evidence, point).expect("owned interruption evidence");
+    }
     std::process::exit(85);
   }
   #[cfg(not(test))]
@@ -683,6 +769,15 @@ fn unit_fixture(label: &str, path: &Path) -> io::Result<()> {
     ("late-role", "marker") => {
       std::fs::write(path.parent().expect("marker parent").join(crate::lifetime::FILE_NAME),
         br#"{"version":2,"role":"permanent_archive","keep":{"reason":"owned late-role fixture"},"seal":true}"#)?;
+    }
+    ("parent-project-replacement", "marker") => {
+      let project = PathBuf::from(
+        std::env::var_os("REAP_NATIVE_PARENT_PROJECT")
+          .ok_or_else(|| invalid("parent fixture project is absent"))?,
+      );
+      std::fs::rename(&project, project.with_extension("retained-original"))?;
+      std::fs::create_dir(&project)?;
+      std::fs::write(project.join("valuable"), b"replacement source project")?;
     }
     ("config-change", "index") => {
       let config = crate::config::home().join(".config/reap");

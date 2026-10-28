@@ -1958,7 +1958,7 @@ impl Job {
         && self.view.invocation.as_ref().is_some_and(|summary| {
           matches!(
             summary.operation.as_str(),
-            "files" | "plan" | "clean" | "sweep" | "lease" | "stores"
+            "files" | "plan" | "clean" | "sweep" | "lease" | "stores" | "parents"
           ) && summary.mode == "apply"
         });
       if (!applying
@@ -2062,7 +2062,7 @@ impl Job {
         .view
         .invocation
         .as_ref()
-        .is_some_and(|summary| summary.operation == "lease");
+        .is_some_and(|summary| matches!(summary.operation.as_str(), "lease" | "parents"));
       let stores = self
         .view
         .invocation
@@ -2265,7 +2265,7 @@ fn record_limit(executing: bool, invocation: Option<&crate::invocation::Summary>
     && invocation.is_some_and(|summary| {
       matches!(
         summary.operation.as_str(),
-        "files" | "plan" | "clean" | "sweep" | "lease" | "stores"
+        "files" | "plan" | "clean" | "sweep" | "lease" | "stores" | "parents"
       )
     })
   {

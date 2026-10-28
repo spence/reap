@@ -110,7 +110,8 @@ impl Task {
         .ok()
         .and_then(|intent| crate::invocation::summary(&intent))
         .is_some_and(|summary| {
-          summary.operation == "lease" && (summary.mode == "apply" || terminal.effects == 0)
+          matches!(summary.operation.as_str(), "lease" | "parents")
+            && (summary.mode == "apply" || terminal.effects == 0)
         });
     }
     if let (Self::Stores { input, .. }, Report::StoresFinished { terminal, .. }) = (self, report) {
@@ -1104,8 +1105,20 @@ fn spawn(
     command.env("REAP_NATIVE_LEASE_UNIT_STOP", stop);
   }
   #[cfg(test)]
+  if let Some(project) = std::env::var_os("REAP_NATIVE_PARENT_PROJECT") {
+    command.env("REAP_NATIVE_PARENT_PROJECT", project);
+  }
+  #[cfg(test)]
+  if let Some(evidence) = std::env::var_os("REAP_NATIVE_LEASE_STOP_EVIDENCE") {
+    command.env("REAP_NATIVE_LEASE_STOP_EVIDENCE", evidence);
+  }
+  #[cfg(test)]
   if let Some(stop) = std::env::var_os("REAP_NATIVE_STORES_UNIT_STOP") {
     command.env("REAP_NATIVE_STORES_UNIT_STOP", stop);
+  }
+  #[cfg(test)]
+  if let Some(evidence) = std::env::var_os("REAP_NATIVE_STORES_STOP_EVIDENCE") {
+    command.env("REAP_NATIVE_STORES_STOP_EVIDENCE", evidence);
   }
   let child = command
     .current_dir("/")

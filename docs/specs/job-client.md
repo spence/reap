@@ -30,7 +30,7 @@
   Invalid identifiers do not produce executable command suggestions.
 - **C7** — A successful writer observation includes its supplied observation time when available.
   Missing freshness is explicit; the client does not invent a filesystem observation time.
-- **C8** — `check`, `files`, `plan`, `clean`, `sweep`, `lease`, `stores`, and bare `reap` use native preparation and durable admission, not a foreground
+- **C8** — `check`, `files`, `plan`, `clean`, `sweep`, `lease`, `stores`, `parents arm`, and bare `reap` use native preparation and durable admission, not a foreground
   filesystem route. Its ordinary response budget starts at application entry and is one second.
   Each named command's `--wait [SECONDS]` permits a longer observation deadline; an omitted value means
   30 seconds. Preparation and admission retain their one-second budget. Waiting observes the same
@@ -45,7 +45,7 @@
   Attribution values must have at most 1024 UTF-8 bytes and contain no control characters.
   Invalid actor values and overlong attribution values refuse admission.
   Empty session values and session values with control characters are omitted.
-- **C9** — A valid public invocation supplies its exact operation (`check`, `files`, `plan`, `clean`, `sweep`, `lease`, or `stores`), mode, and the requested
+- **C9** — A valid public invocation supplies its exact operation (`check`, `files`, `plan`, `clean`, `sweep`, `lease`, `stores`, or `parents`), mode, and the requested
   scope in its receipt. New executable jobs retain this summary with their immutable input. Restart, lookup,
   and exact replay preserve it. A mismatched summary cannot establish success. The requested
   scope is presentation metadata, not native target identity or cleanup permission.

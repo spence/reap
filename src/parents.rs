@@ -1,20 +1,18 @@
 //! Locally armed scratch parents make externally created children visible.
 //! A parent marker is an identity check, never authority to retire a child.
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{home, load_config};
-use crate::lease::{load_leases, read_marker, save_leases, LeaseFile, ManagedParent};
-use crate::plan::now_secs;
-use crate::util::{lock_state, new_id, new_token, state_dir};
+use crate::lease::{load_leases, read_marker, LeaseFile, ManagedParent};
+use crate::util::{new_id, new_token, state_dir};
 
-const PARENT_MARKER: &str = ".reap-parent";
+pub(crate) const PARENT_MARKER: &str = ".reap-parent";
 
 #[derive(Subcommand)]
 pub enum ParentsCmd {
@@ -27,6 +25,9 @@ pub enum ParentsCmd {
     /// Accountable owner of this local registration
     #[arg(long)]
     owner: String,
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = crate::client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// Show direct children and whether they have an intact, separate lease
   List { path: Option<String> },
@@ -38,31 +39,17 @@ struct ParentMarker {
   token: String,
 }
 
-pub fn run(cmd: Option<ParentsCmd>) -> i32 {
+/// Inspect managed children without changing the state file or creating a lifecycle lock.
+pub fn run_list(path: Option<&str>) -> i32 {
   let state = state_dir();
-  let _lock = match lock_state(&state) {
-    Ok(lock) => lock,
-    Err(e) => {
-      eprintln!("error: locking state: {e}");
-      return 1;
-    }
-  };
-  let mut leases = match load_leases(&state) {
+  let leases = match load_leases(&state) {
     Ok(leases) => leases,
     Err(e) => {
       eprintln!("error: {e}");
       return 1;
     }
   };
-  let result = match cmd.unwrap_or(ParentsCmd::List { path: None }) {
-    ParentsCmd::Arm {
-      path,
-      project,
-      owner,
-    } => arm(&state, &mut leases, &path, &project, &owner),
-    ParentsCmd::List { path } => list(&leases, path.as_deref()),
-  };
-  match result {
+  match list(&leases, path) {
     Ok(()) => 0,
     Err(e) => {
       eprintln!("error: {e}");
@@ -71,37 +58,43 @@ pub fn run(cmd: Option<ParentsCmd>) -> i32 {
   }
 }
 
-fn arm(
-  state: &Path,
-  leases: &mut LeaseFile,
-  raw_path: &str,
-  raw_project: &str,
+/// Assess one canonical parent registration without publishing its marker or state record.
+pub(crate) fn prepare_arm(
+  leases: &LeaseFile,
+  parent: &Path,
+  project: &Path,
   raw_owner: &str,
-) -> Result<(), String> {
+  home: &Path,
+  forbidden: &[PathBuf],
+  now: i64,
+) -> Result<ManagedParent, String> {
   let owner = raw_owner.trim();
   if owner.is_empty() {
     return Err("owner must not be empty".to_string());
   }
-  let parent = canonical_dir(raw_path)?;
-  let project = canonical_dir(raw_project)?;
-  let home = fs::canonicalize(home()).unwrap_or_else(|_| home());
-  if parent == Path::new("/") || parent == home || home.starts_with(&parent) {
+  for path in [parent, project] {
+    if !fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
+      || !fs::canonicalize(path).is_ok_and(|canonical| canonical == path)
+    {
+      return Err(format!("{} is not a canonical directory", path.display()));
+    }
+  }
+  let home = fs::canonicalize(home).map_err(|e| format!("{}: {e}", home.display()))?;
+  if parent == Path::new("/") || parent == home || home.starts_with(parent) {
     return Err(format!(
       "refusing broad managed parent {}",
       parent.display()
     ));
   }
-  if project.starts_with(&parent) {
+  if project.starts_with(parent) {
     return Err(format!(
       "managed parent {} contains the source project {}",
       parent.display(),
       project.display()
     ));
   }
-  let (cfg, _) = load_config();
-  for protected in [state.to_path_buf(), cfg.quarantine_dir()] {
-    let protected = fs::canonicalize(&protected).unwrap_or(protected);
-    if parent.starts_with(&protected) || protected.starts_with(&parent) {
+  for protected in forbidden {
+    if parent.starts_with(protected) || protected.starts_with(parent) {
       return Err(format!(
         "managed parent {} overlaps protected {}",
         parent.display(),
@@ -109,7 +102,7 @@ fn arm(
       ));
     }
   }
-  if leases.overlaps_managed_parent(&parent) {
+  if leases.overlaps_managed_parent(parent) {
     return Err(format!(
       "{} overlaps an existing managed parent",
       parent.display()
@@ -119,17 +112,17 @@ fn arm(
     .leases
     .iter()
     .any(|lease| parent.starts_with(Path::new(&lease.path)))
-    || leases.overlaps_creation(&parent)
+    || leases.overlaps_creation(parent)
   {
     return Err(format!(
       "{} overlaps a broad lease or pending creation",
       parent.display()
     ));
   }
-  let meta = fs::symlink_metadata(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+  let meta = fs::symlink_metadata(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
   let project_meta =
-    fs::symlink_metadata(&project).map_err(|e| format!("{}: {e}", project.display()))?;
-  let record = ManagedParent {
+    fs::symlink_metadata(project).map_err(|e| format!("{}: {e}", project.display()))?;
+  Ok(ManagedParent {
     id: new_id(&parent.to_string_lossy()),
     path: parent.to_string_lossy().into_owned(),
     dev: meta.dev(),
@@ -139,58 +132,8 @@ fn arm(
     project_dev: project_meta.dev(),
     project_ino: project_meta.ino(),
     owner: owner.to_string(),
-    created_unix: now_secs() as i64,
-  };
-  write_marker(&parent, &record)?;
-  leases.parents.push(record.clone());
-  leases.guard_extended_state();
-  if let Err(e) = save_leases(state, leases) {
-    if valid_identity(&record) {
-      let _ = crate::preservation::remove(&parent.join(PARENT_MARKER));
-    }
-    return Err(format!("saving managed parent: {e}"));
-  }
-  println!(
-    "armed managed parent {}  (project {}, owner {}; children require separate leases)",
-    record.path, record.project, record.owner
-  );
-  Ok(())
-}
-
-fn canonical_dir(raw: &str) -> Result<PathBuf, String> {
-  let path = fs::canonicalize(raw).map_err(|e| format!("{raw}: {e}"))?;
-  let meta = fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-  if !meta.is_dir() {
-    return Err(format!("{} is not a directory", path.display()));
-  }
-  Ok(path)
-}
-
-fn write_marker(parent: &Path, record: &ManagedParent) -> Result<(), String> {
-  crate::preservation::check_container(parent).map_err(|e| e.to_string())?;
-  let marker = parent.join(PARENT_MARKER);
-  let mut file = OpenOptions::new()
-    .write(true)
-    .create_new(true)
-    .open(&marker)
-    .map_err(|e| format!("{}: {e}", marker.display()))?;
-  let content = serde_json::to_vec_pretty(&ParentMarker {
-    id: record.id.clone(),
-    token: record.token.clone(),
+    created_unix: now,
   })
-  .map_err(|e| format!("{}: {e}", marker.display()))?;
-  if let Err(e) = file
-    .write_all(&content)
-    .and_then(|()| file.write_all(b"\n"))
-  {
-    let _ = crate::preservation::remove(&marker);
-    return Err(format!("{}: {e}", marker.display()));
-  }
-  if let Err(e) = file.sync_all() {
-    let _ = crate::preservation::remove(&marker);
-    return Err(format!("{}: {e}", marker.display()));
-  }
-  Ok(())
 }
 
 pub fn valid_identity(record: &ManagedParent) -> bool {

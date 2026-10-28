@@ -729,6 +729,10 @@ pub(crate) struct ActivityFields {
   process: bool,
   file: bool,
   kind: Option<Vec<u8>>,
+  #[cfg(test)]
+  diagnostic_pid: Vec<u8>,
+  #[cfg(test)]
+  diagnostic_name: Vec<u8>,
 }
 
 impl ActivityFields {
@@ -745,6 +749,10 @@ impl ActivityFields {
       process: false,
       file: false,
       kind: None,
+      #[cfg(test)]
+      diagnostic_pid: Vec::new(),
+      #[cfg(test)]
+      diagnostic_name: Vec::new(),
     }
   }
 
@@ -764,9 +772,18 @@ impl ActivityFields {
       let field = field.strip_prefix(b"\n").unwrap_or(field);
       match field.split_first() {
         Some((b'p', pid)) if !pid.is_empty() && pid.iter().all(u8::is_ascii_digit) => {
+          #[cfg(test)]
+          {
+            self.diagnostic_pid = pid.to_vec();
+            self.diagnostic_name.clear();
+          }
           self.process = true;
           self.file = false;
           self.kind = None;
+        }
+        #[cfg(test)]
+        Some((b'c', name)) if self.process && !self.file => {
+          self.diagnostic_name = name.to_vec();
         }
         Some((b'f', descriptor)) if self.process && !descriptor.is_empty() => {
           self.file = true;
@@ -803,6 +820,15 @@ impl ActivityFields {
           if path.is_absolute() {
             for (directory, active) in self.directories.iter().zip(&mut self.active) {
               if path.starts_with(directory) {
+                #[cfg(test)]
+                if !*active {
+                  eprintln!(
+                    "native scoped handle match: process {}, name {:?}, type {:?}",
+                    String::from_utf8_lossy(&self.diagnostic_pid),
+                    String::from_utf8_lossy(&self.diagnostic_name),
+                    kind
+                  );
+                }
                 *active = true;
                 if self.first.is_none() {
                   self.first = Some(path.to_path_buf());

@@ -40,6 +40,336 @@ fn add(fixture: &Fixture) -> Prepared {
   )
 }
 
+fn parent_arm(fixture: &Fixture, path: &Path) -> Prepared {
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = crate::invocation::ParentArm {
+    path: path.to_string_lossy().into(),
+    project: fixture.0.join("project").to_string_lossy().into(),
+    owner: "parent-owner".into(),
+  }
+  .argv();
+  input.request = serde_json::to_string(&intent).unwrap();
+  input
+}
+
+fn metadata_snapshot(path: &Path) -> Option<(crate::identity::ObjectIdentity, Vec<u8>)> {
+  match fs::symlink_metadata(path) {
+    Ok(metadata) => {
+      assert!(metadata.is_file(), "{}", path.display());
+      Some((
+        crate::identity::ObjectIdentity::read(&File::open(path).unwrap()).unwrap(),
+        fs::read(path).unwrap(),
+      ))
+    }
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+    Err(error) => panic!("{}: {error}", path.display()),
+  }
+}
+
+#[test]
+fn native_parent_arm_publishes_marker_and_index_without_leasing_children_and_replays() {
+  let fixture = Fixture::new();
+  let parent = fixture.0.join("parent");
+  fs::create_dir_all(parent.join("unfinished-child")).unwrap();
+  fs::write(
+    parent.join("unfinished-child/valuable"),
+    b"unfinished child",
+  )
+  .unwrap();
+  let input = parent_arm(&fixture, &parent);
+  let root = fixture.0.join("journal");
+  let mut journal = Journal::open(&root).unwrap();
+  let (key, result) = submit(&mut journal, &input);
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 5);
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["command"], "parents");
+  assert_eq!(detail["action"], "arm");
+  assert_eq!(detail["parent"]["owner"], "parent-owner");
+  let state = fixture.0.join("state/reap");
+  let leases = crate::lease::load_leases(&state).unwrap();
+  assert!(leases.leases.is_empty() && leases.creating.is_empty());
+  assert_eq!(leases.parents.len(), 1);
+  assert!(crate::parents::valid_identity(&leases.parents[0]));
+  assert!(!parent.join("unfinished-child/.reap-lease").exists());
+  let before = fixture.survivors();
+  let view = journal.lookup(&key).unwrap();
+  drop(journal);
+  let mut journal = Journal::open(&root).unwrap();
+  assert_eq!(journal.admit_execution(key, input, 5).unwrap(), view);
+  assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+  assert_eq!(fixture.survivors(), before);
+  let duplicate = parent_arm(&fixture, &parent);
+  let (_, refused) = submit(&mut journal, &duplicate);
+  assert_eq!(refused.exit_code, 1, "{}", refused.detail);
+  assert_eq!(refused.effects, 0);
+  assert_eq!(fixture.survivors(), before);
+  assert_eq!(
+    fs::read(parent.join("unfinished-child/valuable")).unwrap(),
+    b"unfinished child"
+  );
+  assert_eq!(
+    fs::read(fixture.0.join("project/valuable")).unwrap(),
+    b"protected survivor"
+  );
+}
+
+#[test]
+fn native_parent_arm_refuses_busy_unknown_overlapping_and_protected_inputs() {
+  for mode in [
+    "busy",
+    "marker",
+    "index",
+    "home",
+    "source",
+    "quarantine",
+    "role",
+  ] {
+    let fixture = Fixture::new();
+    let state = fixture.0.join("state/reap");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(state.join("state.lock"), b"").unwrap();
+    let index = if mode == "index" {
+      br#"{"version":1,"leases":[],"future_protection":true}"#.as_slice()
+    } else {
+      br#"{"version":1,"leases":[]}"#.as_slice()
+    };
+    fs::write(state.join("leases.json"), index).unwrap();
+    let parent = match mode {
+      "home" => fixture.0.join("home"),
+      "source" => fixture.0.join("project"),
+      "quarantine" => state.join("quarantine"),
+      _ => fixture.0.join("parent"),
+    };
+    fs::create_dir_all(&parent).unwrap();
+    fs::write(parent.join("valuable-parent"), b"parent survives").unwrap();
+    let marker = parent.join(crate::parents::PARENT_MARKER);
+    if mode == "marker" {
+      fs::write(&marker, b"unrecognized parent marker").unwrap();
+    }
+    if mode == "role" {
+      fs::write(parent.join(".reap"), br#"{"version":2,"role":"permanent_archive","keep":{"reason":"permanent fixture"},"seal":true}"#).unwrap();
+    }
+    let lock = File::open(state.join("state.lock")).unwrap();
+    if mode == "busy" {
+      lock.try_lock().unwrap();
+    }
+    let input = parent_arm(&fixture, &parent);
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let (_, result) = submit(&mut journal, &input);
+    assert_eq!(result.exit_code, 1, "{mode}: {}", result.detail);
+    assert_eq!(result.effects, 0, "{mode}: {}", result.detail);
+    assert_eq!(
+      fs::read(state.join("leases.json")).unwrap(),
+      index,
+      "{mode}"
+    );
+    if mode == "marker" {
+      assert_eq!(fs::read(&marker).unwrap(), b"unrecognized parent marker");
+    } else {
+      assert!(!marker.exists(), "{mode}");
+    }
+    assert_eq!(
+      fs::read(parent.join("valuable-parent")).unwrap(),
+      b"parent survives"
+    );
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"protected survivor"
+    );
+  }
+}
+
+#[test]
+fn native_parent_arm_interrupted_publications_preserve_children_and_exact_replay() {
+  const ENTRY: &str = "dispatch::tests::lease::native_parent_arm_interrupted_publications_preserve_children_and_exact_replay";
+  if std::env::var_os("REAP_PARENT_RECOVERY_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture"])
+      .env("REAP_PARENT_RECOVERY_FIXTURE", "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}\n{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  for point in [
+    "directory-intended",
+    "directory-published",
+    "directory-observed",
+    "lock-intended",
+    "lock-published",
+    "lock-observed",
+    "marker-intended",
+    "marker-published",
+    "marker-observed",
+    "index-intended",
+    "index-published",
+    "index-observed",
+  ] {
+    let fixture = Fixture::new();
+    let parent = fixture.0.join("parent");
+    fs::create_dir_all(parent.join("unfinished-child")).unwrap();
+    fs::write(
+      parent.join("unfinished-child/valuable"),
+      b"unfinished child",
+    )
+    .unwrap();
+    let input = parent_arm(&fixture, &parent);
+    let root = fixture.0.join("journal");
+    let mut journal = Journal::open(&root).unwrap();
+    let evidence = fixture.0.join("parent-stop-evidence");
+    std::env::set_var("REAP_NATIVE_LEASE_STOP_EVIDENCE", &evidence);
+    std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", point);
+    let (key, result) = submit(&mut journal, &input);
+    std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+    std::env::remove_var("REAP_NATIVE_LEASE_STOP_EVIDENCE");
+    assert_eq!(fs::read_to_string(&evidence).unwrap(), point);
+    assert_eq!(result.exit_code, 1, "{point}: {}", result.detail);
+    assert!(journal.launch(&key).unwrap().unwrap().released(), "{point}");
+    let state = fixture.0.join("state/reap");
+    let marker = parent.join(crate::parents::PARENT_MARKER);
+    let index = state.join("leases.json");
+    let (sequence, destination) = if point.starts_with("directory-") {
+      (1, fixture.0.join("state"))
+    } else if point.starts_with("lock-") {
+      (3, state.join("state.lock"))
+    } else if point.starts_with("marker-") {
+      (4, marker.clone())
+    } else {
+      (5, index.clone())
+    };
+    let moved = !point.ends_with("-intended");
+    let completed = sequence - u64::from(!moved);
+    let ledger = journal.mutation(&key).unwrap().unwrap();
+    assert!(
+      ledger.unresolved_resources().is_none(),
+      "{point}: {ledger:?}"
+    );
+    assert_eq!(ledger.completed_units, completed, "{point}");
+    assert_eq!(result.effects, completed, "{point}: {}", result.detail);
+    let record = ledger.current.as_ref().unwrap();
+    assert_eq!(record.sequence, sequence, "{point}");
+    assert_eq!(
+      record.phase,
+      if moved {
+        crate::mutation::Phase::Moved
+      } else {
+        crate::mutation::Phase::Refused
+      },
+      "{point}"
+    );
+    match &record.intent {
+      crate::mutation::Intent::Rename(rename) if sequence == 1 => {
+        assert_eq!(rename.destination, destination, "{point}")
+      }
+      crate::mutation::Intent::Publish(publish) if sequence != 1 => {
+        assert_eq!(publish.rename.destination, destination, "{point}")
+      }
+      intent => panic!("{point}: unexpected unit {intent:?}"),
+    }
+    assert_eq!(
+      fixture.0.join("state").is_dir(),
+      sequence != 1 || moved,
+      "{point}"
+    );
+    assert_eq!(state.is_dir(), sequence > 1, "{point}");
+    assert_eq!(
+      state.join("state.lock").exists(),
+      sequence > 3 || sequence == 3 && moved,
+      "{point}"
+    );
+    assert_eq!(
+      marker.exists(),
+      sequence > 4 || sequence == 4 && moved,
+      "{point}"
+    );
+    assert_eq!(index.exists(), sequence == 5 && moved, "{point}");
+    let marker_before = metadata_snapshot(&marker);
+    if let Some((_, bytes)) = &marker_before {
+      let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+      assert_eq!(value["id"].as_str().unwrap().len(), 8);
+      assert_eq!(value["token"].as_str().unwrap().len(), 32);
+      if index.exists() {
+        let index: serde_json::Value = serde_json::from_slice(&fs::read(&index).unwrap()).unwrap();
+        assert_eq!(index["parents"][0]["id"], value["id"]);
+        assert_eq!(index["parents"][0]["token"], value["token"]);
+        assert!(index["leases"].as_array().unwrap().is_empty());
+      }
+    }
+    let before = fixture.survivors();
+    let view = journal.lookup(&key).unwrap();
+    drop(journal);
+    let mut journal = Journal::open(&root).unwrap();
+    assert_eq!(
+      journal.admit_execution(key.clone(), input, 5).unwrap(),
+      view,
+      "{point}"
+    );
+    assert!(
+      !Scheduler::recover(&mut journal).unwrap().pending(),
+      "{point}"
+    );
+    assert_eq!(fixture.survivors(), before, "{point}");
+    assert_eq!(metadata_snapshot(&marker), marker_before, "{point}");
+    assert_eq!(journal.mutation(&key).unwrap().unwrap(), ledger, "{point}");
+    assert_eq!(
+      fs::read(parent.join("unfinished-child/valuable")).unwrap(),
+      b"unfinished child"
+    );
+  }
+}
+
+#[test]
+fn native_parent_arm_preserves_a_replaced_source_project_before_marker_publication() {
+  const ENTRY: &str = "dispatch::tests::lease::native_parent_arm_preserves_a_replaced_source_project_before_marker_publication";
+  if std::env::var_os("REAP_PARENT_REPLACEMENT_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture"])
+      .env("REAP_PARENT_REPLACEMENT_FIXTURE", "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}\n{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  let fixture = Fixture::new();
+  let parent = fixture.0.join("parent");
+  fs::create_dir(&parent).unwrap();
+  let input = parent_arm(&fixture, &parent);
+  std::env::set_var("REAP_NATIVE_PARENT_PROJECT", fixture.0.join("project"));
+  std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", "parent-project-replacement");
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let (_, result) = submit(&mut journal, &input);
+  std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+  std::env::remove_var("REAP_NATIVE_PARENT_PROJECT");
+  assert_eq!(result.exit_code, 1, "{}", result.detail);
+  assert!(!parent.join(crate::parents::PARENT_MARKER).exists());
+  assert!(!fixture.0.join("state/reap/leases.json").exists());
+  assert!(
+    fixture.0.join("project.retained-original").is_dir(),
+    "{}",
+    result.detail
+  );
+  assert_eq!(
+    fs::read(fixture.0.join("project/valuable")).unwrap(),
+    b"replacement source project"
+  );
+  assert_eq!(
+    fs::read(fixture.0.join("project.retained-original/valuable")).unwrap(),
+    b"protected survivor"
+  );
+}
+
 #[test]
 fn native_lease_first_use_add_renew_list_release_and_replay_keep_workspace_bytes() {
   let fixture = Fixture::new();
@@ -364,9 +694,13 @@ fn native_lease_interrupted_units_keep_sources_and_never_repeat_after_reopen() {
     } else {
       add(&fixture)
     };
+    let evidence = fixture.0.join("lease-stop-evidence");
+    std::env::set_var("REAP_NATIVE_LEASE_STOP_EVIDENCE", &evidence);
     std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", point);
     let (key, result) = submit(&mut journal, &input);
     std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+    std::env::remove_var("REAP_NATIVE_LEASE_STOP_EVIDENCE");
+    assert_eq!(fs::read_to_string(&evidence).unwrap(), point);
     assert_eq!(result.exit_code, 1, "{point}: {}", result.detail);
     assert!(journal.launch(&key).unwrap().unwrap().released(), "{point}");
     let ledger = journal.mutation(&key).unwrap().unwrap();

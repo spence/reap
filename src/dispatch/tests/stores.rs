@@ -619,9 +619,13 @@ fn native_stores_interrupted_units_preserve_payloads_and_never_repeat_after_reop
       operation.apply = true;
     }
     let input = request(&fixture, operation);
+    let evidence = fixture.0.join("store-stop-evidence");
+    std::env::set_var("REAP_NATIVE_STORES_STOP_EVIDENCE", &evidence);
     std::env::set_var("REAP_NATIVE_STORES_UNIT_STOP", point);
     let (key, result) = submit(&mut journal, &input);
     std::env::remove_var("REAP_NATIVE_STORES_UNIT_STOP");
+    std::env::remove_var("REAP_NATIVE_STORES_STOP_EVIDENCE");
+    assert_eq!(fs::read_to_string(&evidence).unwrap(), point);
     assert_eq!(result.exit_code, 1, "{point}: {}", result.detail);
     assert!(journal.launch(&key).unwrap().unwrap().released(), "{point}");
     let ledger = journal.mutation(&key).unwrap().unwrap();

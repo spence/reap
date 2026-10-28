@@ -512,7 +512,24 @@ fn main() {
       client::run_lease(cmd.unwrap_or(LeaseCmd::List), wait, entered)
     }
     Some(Cmd::Create { cmd }) => create::run(cmd),
-    Some(Cmd::Parents { cmd }) => parents::run(cmd),
+    Some(Cmd::Parents { cmd }) => match cmd {
+      Some(ParentsCmd::Arm {
+        path,
+        project,
+        owner,
+        wait,
+      }) => client::run_parent_arm(
+        invocation::ParentArm {
+          path,
+          project,
+          owner,
+        },
+        wait,
+        entered,
+      ),
+      Some(ParentsCmd::List { path }) => parents::run_list(path.as_deref()),
+      None => parents::run_list(None),
+    },
     Some(Cmd::Retire {
       path,
       apply,

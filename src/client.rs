@@ -102,6 +102,15 @@ pub(crate) fn run_lease(command: crate::LeaseCmd, wait: Option<Duration>, entere
   run_argv(invocation::lease_argv(&command), applying, wait, entered)
 }
 
+/// Submit managed-parent registration through the shared lease-metadata job family.
+pub(crate) fn run_parent_arm(
+  request: invocation::ParentArm,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  run_argv(request.argv(), true, wait, entered)
+}
+
 fn run_prepared(
   operation: &str,
   path: Option<String>,

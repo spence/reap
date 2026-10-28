@@ -136,6 +136,21 @@
   `stores::tests::selected_store_recheck_does_not_rescan_an_unrelated_live_store`;
   `tests/test_public_mutations.py::PublicMutations::test_store_apply_does_not_wait_for_configuration_fifo`.
 
+- **C15 — Parent arming does not release children.** Explicit `parents arm` uses the lease-metadata
+  job family and its stable state lock. Parent and source-project identities are current before publication.
+  The marker precedes the index; each publication has its own durable unit intent and observation.
+  Existing markers, unknown index fields, protected roles, overlapping registrations and replaced
+  directories prevent the affected publication. Partial publication remains recoverable and is not complete arming.
+  A registration supplies visibility, not a lease, an expiry, or child disposal permission.
+  Exact replay cannot repeat publication. Parent listing remains a separate read-only operation.
+  Binding: `dispatch::tests::lease::native_parent_arm_publishes_marker_and_index_without_leasing_children_and_replays`;
+  `dispatch::tests::lease::native_parent_arm_refuses_busy_unknown_overlapping_and_protected_inputs`;
+  `dispatch::tests::lease::native_parent_arm_interrupted_publications_preserve_children_and_exact_replay`;
+  `dispatch::tests::lease::native_parent_arm_preserves_a_replaced_source_project_before_marker_publication`;
+  `invocation::tests::parent_arm_keeps_literal_paths_owner_and_observer_wait_separate`;
+  `tests/test_public_mutations.py::PublicMutations::test_parent_arm_does_not_wait_for_configuration_fifo`;
+  `tests/test_public_mutations.py::PublicMutations::test_parent_listing_does_not_create_state_or_wait_for_a_busy_lock`.
+
 ## Conformance boundary
 
 The public mutation fixtures contain both refusal controls and actual allowed effects with protected

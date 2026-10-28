@@ -312,6 +312,59 @@ pub(crate) fn lease_request(input: &Intent) -> Option<crate::LeaseCmd> {
   Some(command)
 }
 
+/// Explicit managed-parent registration. It grants no child lifetime or disposal permission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParentArm {
+  pub path: String,
+  pub project: String,
+  pub owner: String,
+}
+
+impl ParentArm {
+  pub(crate) fn argv(&self) -> Vec<String> {
+    vec![
+      "parents".into(),
+      "arm".into(),
+      format!("--project={}", self.project),
+      format!("--owner={}", self.owner),
+      "--".into(),
+      self.path.clone(),
+    ]
+  }
+}
+
+/// Parse only parent arming without an observer wait or filesystem access.
+pub(crate) fn parent_arm_request(input: &Intent) -> Option<ParentArm> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "parents" {
+    return None;
+  }
+  let crate::Cmd::Parents {
+    cmd:
+      Some(crate::parents::ParentsCmd::Arm {
+        path,
+        project,
+        owner,
+        wait: None,
+      }),
+  } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  if owner.len() > 1024 || crate::provenance::clean(&owner).is_none() {
+    return None;
+  }
+  Some(ParentArm {
+    path,
+    project,
+    owner,
+  })
+}
+
 impl Summary {
   /// Validate supported presentation metadata without treating it as execution permission.
   pub fn valid(&self) -> bool {
@@ -319,6 +372,7 @@ impl Summary {
       || matches!(self.operation.as_str(), "files" | "plan" | "sweep")
         && matches!(self.mode.as_str(), "read" | "apply")
       || self.operation == "clean" && self.mode == "apply"
+      || self.operation == "parents" && self.mode == "apply"
       || matches!(self.operation.as_str(), "lease" | "stores")
         && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
@@ -330,6 +384,13 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = parent_arm_request(input) {
+    return Some(Summary {
+      operation: "parents".into(),
+      mode: "apply".into(),
+      requested_scope: request.path,
+    });
   }
   if let Some(request) = store_request(input) {
     return Some(Summary {
@@ -526,6 +587,7 @@ pub(crate) fn fresh_with_state_prefix(
   if !created.is_empty() {
     if !matches!(lease_request(&intent), Some(crate::LeaseCmd::Add { .. }))
       && !store_request(&intent).is_some_and(|request| request.applying())
+      && parent_arm_request(&intent).is_none()
     {
       return Err(unavailable("state creation is not part of this operation"));
     }
@@ -900,6 +962,38 @@ mod native {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn parent_arm_keeps_literal_paths_owner_and_observer_wait_separate() {
+    for path in [".", "--literal-parent", "parent with spaces"] {
+      let request = ParentArm {
+        path: path.into(),
+        project: "../source project".into(),
+        owner: "accountable owner".into(),
+      };
+      let mut input = intent(&["parents"]);
+      input.argv = request.argv();
+      assert_eq!(parent_arm_request(&input), Some(request));
+      let metadata = summary(&input).unwrap();
+      assert_eq!(metadata.operation, "parents");
+      assert_eq!(metadata.mode, "apply");
+      assert_eq!(metadata.requested_scope, path);
+      assert!(metadata.valid());
+      input.argv.insert(2, "--wait=1".into());
+      assert!(parent_arm_request(&input).is_none());
+    }
+    for owner in ["", " ", "owner\nother"] {
+      let request = ParentArm {
+        path: "parent".into(),
+        project: "project".into(),
+        owner: owner.into(),
+      };
+      let mut input = intent(&["parents"]);
+      input.argv = request.argv();
+      assert!(parent_arm_request(&input).is_none());
+    }
+    assert!(parent_arm_request(&intent(&["parents", "list"])).is_none());
+  }
 
   #[test]
   fn store_arguments_keep_scope_modes_binding_and_waits_separate() {

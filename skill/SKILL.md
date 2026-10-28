@@ -158,7 +158,8 @@ closed on the guarded file. Install the matching binary and skill together.
 
 For a stable parent used by an editor or another external tool, first get the
 parent owner's approval, then `reap parents arm <existing-parent> --project
-<source-project> --owner <name>`. `reap parents list [parent]` checks the
+<source-project> --owner <name> --wait 30`. Require a completed job before using that registration.
+Arming grants no child lease or cleanup permission. `reap parents list [parent]` checks the
 parent/project identity and `.reap-parent` marker, and reports direct children
 without following symlinks. Unregistered children are **not** retirable.
 Review each child with its creator before `lease add`; a parent marker never

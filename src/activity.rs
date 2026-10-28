@@ -123,7 +123,11 @@ impl Probe {
       }
       Self::Handles { .. } | Self::HandlesForWorker { .. } => (
         "/usr/sbin/lsof",
-        vec!["-n".into(), "-P".into(), "-F0tn".into()],
+        vec![
+          "-n".into(),
+          "-P".into(),
+          if cfg!(test) { "-F0ctn" } else { "-F0tn" }.into(),
+        ],
       ),
     };
     let output = match pipe.try_clone() {
