@@ -1,0 +1,339 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "stage": "source_checkpoint",
+  "source_commit": "ac8c600b195add4915290a28f3bf534b223ed566",
+  "source_parent": "9e8593f26083e1d4a91f7389f63154108de22ee2",
+  "source_files": {
+    "README.md": "265e70933f4c28384c0ba502dbb09e85ba2851c73a575e9c1e8e7ab78f40fda7",
+    "docs/specs/executable-activity.md": "d72673ecba897cb8b61789d0dfdde6013663e12dd722b2d607fb658fc3375c4c",
+    "docs/specs/job-client.md": "7cd788905b3deaeb5d74d7d632d9e79dfccb66b564ed3df2441f5a0cb334f4e8",
+    "docs/specs/mutation-execution.md": "1a3d4b6994d7057a4f306f7200c5d2f33caf17181886679dbaef9a900380112c",
+    "skill/SKILL.md": "c0db16cd402ce05544142f388706ff345265992272c4f3c8d85059635e241d82",
+    "src/activity.rs": "f6ecbb03b9917f57d92925d64da4fde06c784e3a2b012c2dd11d65a43dea6d39",
+    "src/activity/executable_paths.rs": "7308a270812bc42127a06f27b2395fe459df1c32a6d111fc3b06da4f9168c260",
+    "src/activity/executable_paths/mapped_paths.rs": "5e70f8708993934965744c5a27d80b24e87c820adcdccc35506349da617223c5",
+    "src/client.rs": "e441300f6840520f4c99c43723b9ff42eb8998cd9954018234df0743ed09564e",
+    "src/dispatch/cargo_job.rs": "f0f2aa967e4f623f8a87a329fe117633e7e7ef8cf954419409dfa296b79414b8",
+    "src/dispatch/cargo_job/applying.rs": "e9b39cf764103dff5081c6393d01cc2384be45d38466bb9d7a483a94b11d8361",
+    "src/dispatch/tests.rs": "f070e5a81b3c5bcabe299d577510612db10f00773c06dcec3bff7f15ac0e8d55",
+    "src/files/applying.rs": "c0e39a06220e7db2e30403d3a5ac56c2554ba2ae05859babe219dd730ed9325f",
+    "src/invocation.rs": "eec00fd10ee7d4052706ce80edeccf9da0e8049b901b2d0258c3b4a8e384d911",
+    "src/main.rs": "630282f852a248737f9db74c3cff2c48204e72df870e760aed18841dc084e056",
+    "src/maintenance.rs": "bac03e811ed95c65dbff19dc7332d3e0cd8ebcf1192dcce8c87ac053774620bd",
+    "src/plan.rs": "f1fd1218a44b2162e27f2c6366d562c5597b19c13ffec6bf96a665ac8297ed97",
+    "src/preservation.rs": "6e8f9344c3d03430fb1909229cd3f23e05145ab88ce91c4772e8d4dea6598e43",
+    "src/service/tests.rs": "bc6d3f277f6710d250d30526909bcb79c79a09d1f08f98aac8076407e33007ed",
+    "tests/lifecycle_state.rs": "1e2c5c58cb814427bb52175e5d953f13d10ccf45a77191099834fcb709913403",
+    "tests/test_preservation.py": "99815c4760184f44970f743117692b69cebaa2349e50f2e39a9bd6e78755fd6e",
+    "tests/test_public_mutations.py": "54be5ba7ec2cddd8c474394b5ca725ad559627cff033f30755281e3da3a9763b"
+  },
+  "source_binary_suite": {
+    "command": "env -u CARGO_TARGET_DIR CARGO_BUILD_JOBS=1 TMPDIR=/private/tmp cargo test --target-dir target/control-t13/mutation-bridge/private-target --bin reap -- --test-threads=1 --nocapture",
+    "passed": 383,
+    "failed": 0,
+    "ignored": 5,
+    "elapsed_seconds": 500.89,
+    "evidence": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-source-unit-v5.log",
+      "sha256": "4dbb07241fa56f6e18f0c6a77b88ce46ae249b3948dd9d3dcda91192ceedaf36"
+    },
+    "executed_unit": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9",
+    "executed_unit_sha256": "8f19100ddcc04733c02a7fdaec985e0ff77a962707226ae78c2ac17cb87feba2",
+    "cargo_recompiled_signed_unit": false
+  },
+  "all_targets_compile": {
+    "command": "env -u CARGO_TARGET_DIR CARGO_BUILD_JOBS=1 TMPDIR=/private/tmp cargo test --target-dir target/control-t13/mutation-bridge/private-target --no-run",
+    "test_targets": 3,
+    "evidence": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-all-targets-compile-v7.log",
+      "sha256": "ae9220b878e2513cdeacd6afbfcad662a864b2c12d2ba789f855b200e5a517c8"
+    },
+    "integration_targets_executed": false
+  },
+  "native_catalyst": {
+    "cargo_case_functions": 13,
+    "controlled_files_case_functions": 1,
+    "covered_by_signed_full_binary_suite": true,
+    "files_controlled_veto_markers": 1,
+    "parent_retry_markers": 0,
+    "role_retry_markers": 0
+  },
+  "native_mini": {
+    "passed": 14,
+    "failed": 0,
+    "elapsed_seconds": 112.43,
+    "command": "env REAP_NATIVE_CONTROL_FIXTURE_ROOT=/private/tmp/reap-cores-transport-8yjfimnx/cargo-client-t19-v1/fixtures-v5 TMPDIR=/private/tmp ./unit native_cargo_ native_files_apply_client_commits_payload_and_index_and_replays_one_result --test-threads=1 --nocapture",
+    "evidence": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-mini-v5/native-cargo-files-v5.log",
+      "sha256": "0f90205bb67a2253cc01579d36849124329d3bb36ced988e8630cf03b130da3b"
+    },
+    "files_controlled_veto_markers": 1,
+    "parent_retry_markers": 0,
+    "role_retry_markers": 0
+  },
+  "public_cargo_frontend": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 REAP_TEST_BIN=<frozen-app-v5> PYTHONPATH=tests python3 -m unittest test_public_mutations.PublicMutations.test_cargo_commands_do_not_wait_for_target_marker_fifo",
+    "evidence": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-marker-green-v5.log",
+      "sha256": "49d02f224185681fb9c9fb026dc49e9cf6e9ec85888d88794a1e607290a7f683"
+    },
+    "forms": [
+      {
+        "command": [
+          "plan",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture"
+        ],
+        "elapsed_seconds": 0.6866549579426646,
+        "exit_code": 1,
+        "state": "failed",
+        "invocation": {
+          "operation": "plan",
+          "mode": "read",
+          "requested_scope": "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture"
+        }
+      },
+      {
+        "command": [
+          "plan",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture",
+          "--apply"
+        ],
+        "elapsed_seconds": 0.24105683295056224,
+        "exit_code": 1,
+        "state": "failed",
+        "invocation": {
+          "operation": "plan",
+          "mode": "apply",
+          "requested_scope": "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture"
+        }
+      },
+      {
+        "command": [
+          "clean",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture"
+        ],
+        "elapsed_seconds": 0.19133295794017613,
+        "exit_code": 1,
+        "state": "failed",
+        "invocation": {
+          "operation": "clean",
+          "mode": "apply",
+          "requested_scope": "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture"
+        }
+      },
+      {
+        "command": [
+          "clean",
+          "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture",
+          "--apply"
+        ],
+        "elapsed_seconds": 0.16078554186969995,
+        "exit_code": 1,
+        "state": "failed",
+        "invocation": {
+          "operation": "clean",
+          "mode": "apply",
+          "requested_scope": "/Users/spencer/src/reap/target/control-t13/public-mutations-r17c0eyp/home/projects/fixture"
+        }
+      },
+      {
+        "command": [
+          "sweep"
+        ],
+        "elapsed_seconds": 0.2604644170496613,
+        "exit_code": 1,
+        "state": "failed",
+        "invocation": {
+          "operation": "sweep",
+          "mode": "read",
+          "requested_scope": "configured"
+        }
+      },
+      {
+        "command": [
+          "sweep",
+          "--apply"
+        ],
+        "elapsed_seconds": 0.24156212504021823,
+        "exit_code": 1,
+        "state": "failed",
+        "invocation": {
+          "operation": "sweep",
+          "mode": "apply",
+          "requested_scope": "configured"
+        }
+      },
+      {
+        "command": [],
+        "elapsed_seconds": 0.18199025001376867,
+        "exit_code": 1,
+        "state": "failed",
+        "invocation": {
+          "operation": "sweep",
+          "mode": "read",
+          "requested_scope": "configured"
+        }
+      }
+    ],
+    "scope": "Actual source CLI timing and refusal against the existing broker; not positive installed Cargo execution."
+  },
+  "identities": {
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-client-frozen-v5/unit",
+      "sha256": "8f19100ddcc04733c02a7fdaec985e0ff77a962707226ae78c2ac17cb87feba2",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 35152624,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-client-app-v5/app",
+      "sha256": "aea5bf78dc70ee88949c352e34d0e0d530510950c3acc9ffb8281bf90653a997",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 26619072,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "receipts": [
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-client-native-identity-v5.json",
+        "sha256": "ed8ee87cacdebedd4703be8e5b58bfc6436f63dd7f4fcd942f01754588952ddd"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-client-native-identity-after-v5.json",
+        "sha256": "8ded481f4c3a4dcebeafbe517508ebfa9c8823237fe21e4ed57f7d68307aaa44"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-client-cargo-unit-identity-before-v5.json",
+        "sha256": "8542428478e7fc38a8d2193d36605afff45053fceedb1caabce493deb46c11d0"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-client-cargo-unit-identity-after-v5.json",
+        "sha256": "8542428478e7fc38a8d2193d36605afff45053fceedb1caabce493deb46c11d0"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-client-mini-v5/identity-before.json",
+        "sha256": "46a9e2486a79cc7b6ac06c6ece3bed44aafe533b4720120abb0da84b12335b93"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-client-mini-v5/identity-after.json",
+        "sha256": "46a9e2486a79cc7b6ac06c6ece3bed44aafe533b4720120abb0da84b12335b93"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-client-app-identity-v5.json",
+        "sha256": "43870cbe8f9a240489a8764d1fb64115d6a3059a819b04349149c9ffd77b7cc3"
+      }
+    ]
+  },
+  "regressions": {
+    "fifo_legacy": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-marker-red-v1.log",
+      "sha256": "fe3748916e8d3ed9bc307ebc862f9c8f92fb8a93f6c97d724a317d0dac64e786"
+    },
+    "fifo_baseline": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-baseline-v1.json",
+      "sha256": "99a4439261421b1ffdbbb7b9ff093c5e456b5aa989113aec3d8c945c6c167180"
+    },
+    "native_path_and_isolation_red": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-regressions-red-v1.log",
+      "sha256": "18eeefd707ab708ef438a2d73cb488615b2817d11248ce68b82c4f4f56a52e61"
+    },
+    "native_path_and_isolation_green": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-regressions-green-v2.log",
+      "sha256": "f63677f21d34e4f9924a175a1fad22be525eeeb8207c19bb2cbf363912caddd3"
+    },
+    "unobserved_unit": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-unobserved-native-v3.log",
+      "sha256": "a6ab3300dc5e5f4c2f1e4236ad39fa9a8d23fc2ab03dbac9d58bb973cd61b65f"
+    },
+    "controlled_files_veto": {
+      "path": "target/control-t13/mutation-bridge/cargo-client-files-closed-veto-native-v5.log",
+      "sha256": "c75f3e22726ce04328146b8e41c90d7699531320f7b3106bebffd0b504a81130"
+    }
+  },
+  "reviews": [
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-review-wait-v1d.json",
+      "sha256": "d789113bc38e2a9c9906c9278d8ced99c333c1356cc097694362ce8316d10c63",
+      "request_message_id": "cmsg-18e2926569efff18-506794",
+      "outcome": "REJECTED"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-review-wait-v2b.json",
+      "sha256": "3a005f47b7c7e6385eda0c2ab6f10414b37cdefba4533aff999d72749f439c44",
+      "request_message_id": "cmsg-18e293bd983db690-509745",
+      "outcome": "REJECTED"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-review-wait-v3a.json",
+      "sha256": "64032a9b05513099c5e4e831038bca81e1b029abe7e5061aee9b36ebed1b6731",
+      "request_message_id": "cmsg-18e2946a6ec14d88-510295",
+      "outcome": "ACCEPTED"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-review-wait-v4a.json",
+      "sha256": "2581723ea57b1c0cab59967afed72853a2090ccdf04b029149674f5a06f6cbb7",
+      "request_message_id": "cmsg-18e295695b7049c8-510686",
+      "outcome": "ACCEPTED"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-final-review-wait-v5b.json",
+      "sha256": "a7a274d600604d2bbe4614e1aed546aa3a96986fcc886401535c1d15004f6752",
+      "request_message_id": "cmsg-18e297a3dfb813c8-512389",
+      "outcome": "Accepted"
+    }
+  ],
+  "review_route_failure": {
+    "path": "target/control-t13/mutation-bridge/cargo-client-review-wait-v5a.json",
+    "sha256": "70ba961b4a9faf1c84b67f882c7edd562e0dd83eb5a9ea54b5d83d2d5cee6c59"
+  },
+  "retained_failed_runs": [
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-source-unit-v2.log",
+      "sha256": "76f2a11cd1b3bf909cc5489574b4411776e3cff8971074432a370ea5e0e4bd1d"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-source-unit-v3.log",
+      "sha256": "747e5dfd76d1c1d74a63ac6518caa2704cde644b397da5025b7359967db4a40d"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-role-failure-v3.json",
+      "sha256": "dfaa3572448261918879619d9dd3202edf68c1509684e2a85f6f95ef7967c7e1"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-source-unit-v4.log",
+      "sha256": "eee416f1aa412365dec29f463b183233f8b8f0a3c00aff84b968cd82b4cc1895"
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/cargo-client-files-failure-v4.json",
+      "sha256": "513edc878a1686df74815ec931e3607f3a0546d91718f33c24e603c7b6e8cb61"
+    }
+  ],
+  "issues": {
+    "path_regression": "ISS-CARGO-ADAPTER-REJECTS-VALID-PARENT-COMPO",
+    "isolation_regression": "ISS-CARGO-REFUSALS-PREVENT-INDEPENDENT-CLEAN",
+    "unresolved_holder": "ISS-POSITIVE-FILES-FIXTURE-CAN-ENCOUNTER-AN"
+  },
+  "open_gates": [
+    "Quadratic Cargo inventory/fingerprint cost, entry/object bounds, and Cargo fairness.",
+    "All applying families, old-reader fences, and stable-lock/native-process drains.",
+    "Full cargo test runtime including both integration targets.",
+    "Current installed positive outer CLI, preservation, workspaces and native fault checks on both Macs.",
+    "Installed executable fixture receipt and worker-fault migration; native nested-mount sweep refusal.",
+    "Retained default creation, safe co-located lifetime migration and recovery.",
+    "Permanent native provider captures, independent retrieval and separate fail-closed source release.",
+    "Actual same-Micro product installation and consumer verification on both Macs."
+  ],
+  "activation": {
+    "product_installation_performed_by_this_work": false,
+    "operator_guides_deployed": false,
+    "lifetime_conversion_activated": false,
+    "conversation_source_pruning_activated": false,
+    "T19_complete": false,
+    "full_goal_complete": false
+  }
+}
