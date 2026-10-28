@@ -1,0 +1,289 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "stage": "source_checkpoint",
+  "source_commit": "50a4cdee877aa5d379b9c5a637806b776185f4cc",
+  "source_parent": "a9814204e650632aa637d8100b45e014b27c1e3a",
+  "source_files": {
+    "src/dispatch/cargo_job/inventory.rs": "f021b71cfc84e3a43e0512b829e95c93ac28e2701769c875c3bb61e4dcbd298f",
+    "src/dispatch/cargo_job/applying.rs": "c912bf37b6d3e7d41250b7b198e08df5f7d0ab46b5b2173438f417e5c6a20eda"
+  },
+  "runtime_scope": "Cargo adapter and inventory source; not installed product or completed T19",
+  "source_binary_suite": {
+    "passed": 386,
+    "failed": 0,
+    "ignored": 6,
+    "elapsed_seconds": 487.7,
+    "markers": {
+      "files": 1,
+      "parent": 0,
+      "role": 0
+    },
+    "cargo_recompiled": false,
+    "executed_sha256": "042d55ff2b607647b5f348c695b1e58a82a30501b3cbabe2b0b1e7cd421eb6fa",
+    "command": "env -u CARGO_TARGET_DIR CARGO_BUILD_JOBS=1 TMPDIR=/private/tmp cargo test --target-dir target/control-t13/mutation-bridge/private-target --bin reap -- --test-threads=1 --nocapture",
+    "evidence": {
+      "path": "target/control-t13/mutation-bridge/cargo-inventory-source-unit-v2.log",
+      "sha256": "b0bf3862a5c905c10da312aeb2cc02733204cf4f12e2d07f11b4ffd65416323f"
+    },
+    "actual_executed_path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+  },
+  "all_targets_compile": {
+    "targets": 3,
+    "integration_targets_executed": false,
+    "evidence": {
+      "path": "target/control-t13/mutation-bridge/cargo-inventory-all-targets-compile-v2.log",
+      "sha256": "746b7e9e2dd78bb5189c2aaa3e2c0f64e814bfa23f4eda048d30084ff21abfc3"
+    }
+  },
+  "native_mini": {
+    "passed": 19,
+    "failed": 0,
+    "ignored": 1,
+    "elapsed_seconds": 78.34,
+    "markers": {
+      "files": 1,
+      "parent": 0,
+      "role": 0
+    },
+    "same_micro_bytes": true,
+    "sha256": "042d55ff2b607647b5f348c695b1e58a82a30501b3cbabe2b0b1e7cd421eb6fa",
+    "command": "env REAP_NATIVE_CONTROL_FIXTURE_ROOT=/private/tmp/reap-cores-transport-8yjfimnx/cargo-inventory-t19-v1/fixtures TMPDIR=/private/tmp ./unit dispatch::cargo_job::inventory::tests native_cargo_ native_files_apply_client_commits_payload_and_index_and_replays_one_result --test-threads=1 --nocapture",
+    "evidence": {
+      "path": "target/control-t13/mutation-bridge/cargo-inventory-mini-v1/native-cargo-inventory.log",
+      "sha256": "eeda12e90b52ea9df8210a02a404532db53f2e098734a126242ded233af47914"
+    },
+    "remote_root": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-inventory-t19-v1"
+  },
+  "native_identity": {
+    "manifest": {
+      "artifacts": {
+        "unit": {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-inventory-frozen-v2/unit",
+          "sha256": "042d55ff2b607647b5f348c695b1e58a82a30501b3cbabe2b0b1e7cd421eb6fa",
+          "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+          "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+          "identifier": "dev.micro.reap.native-tests",
+          "bytes": 35215248,
+          "storage_device": 16777232,
+          "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+        }
+      }
+    },
+    "evidence": [
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cargo-unit-before-v2.json",
+        "sha256": "cabfaff8652db7289acada4b3084286bd05e8df5f557ee889d2d61940b285d22"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cargo-unit-after-v2.json",
+        "sha256": "a40fc46934b68b2fffc1aa123e630bd9eac4ae8cfb2aaa5e4226d8e85b3f7bf1"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-native-identity-before-v2.json",
+        "sha256": "5c4cb2f517feae34eb857d2a98cfeeffbf0542f3cdd2aad1790f570ae978db10"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-native-identity-after-v2.json",
+        "sha256": "5c4cb2f517feae34eb857d2a98cfeeffbf0542f3cdd2aad1790f570ae978db10"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-mini-v1/identity-before.json",
+        "sha256": "9700ff775989a7a138f2dc5f0c710c7d1b58297f604f98f68bdbc1c6607efe04"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-mini-v1/identity-after.json",
+        "sha256": "9700ff775989a7a138f2dc5f0c710c7d1b58297f604f98f68bdbc1c6607efe04"
+      }
+    ]
+  },
+  "cost_measurement": {
+    "profile": "unoptimized debug test drivers; not installed release binaries",
+    "corpus": {
+      "files": 4096,
+      "directories": 65,
+      "bindings": 128,
+      "standalone_fresh_checks": 4,
+      "removal_prefix": 16
+    },
+    "pairs": 3,
+    "execution": "serial alternating pairs; current catalyst under host load",
+    "baseline": {
+      "revision": "a9814204e650632aa637d8100b45e014b27c1e3a",
+      "baseline_source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-inventory-baseline-source-v1",
+      "optimized_source": "/Users/spencer/src/reap",
+      "inventory_original_sha256": "c9f3ddbed94229dcdf3dbdd513efb8adaa4713777fd8f7a23eb97791efcb7370",
+      "inventory_baseline_with_fixture_sha256": "feeae1a9c43520eecdce0ae9b7a4f8cf9a96b227784a19d6c3010adb0a1b0476",
+      "inventory_optimized_sha256": "dee2377a09cf64baf2ee267e19b2497378cd4ce213a4c89508600be266b9b3d2",
+      "fixture_sha256": "4495393588c37fcf0ed64144549130a2d578aed143f1658f3fb80adec1702811",
+      "fixture_adaptation": "old bind returns io::Result; unwrap in measurement helper",
+      "storage_device": 16777232,
+      "internal_device": 16777232,
+      "build_rs_sha256": "b533200ef221a29d332f578607405cbc366d3fa2f8198d7c12e900c208280fbe",
+      "retained_setup_failure": "cargo-inventory-baseline-compile-v1.log: source copy omitted build.rs; no benchmark executed"
+    },
+    "source_reconciliation": {
+      "measured_inventory_sha256": "dee2377a09cf64baf2ee267e19b2497378cd4ce213a4c89508600be266b9b3d2",
+      "final_inventory_sha256": "f021b71cfc84e3a43e0512b829e95c93ac28e2701769c875c3bb61e4dcbd298f",
+      "only_difference": "one blank line before the removal-prefix scanning comment",
+      "median_ms": {
+        "baseline": {
+          "capture_ms": 19.447791,
+          "bind_ms": 9594.697333,
+          "fresh_ms": 74.75975,
+          "prefix_ms": 1830.006958
+        },
+        "optimized": {
+          "capture_ms": 94.563416,
+          "bind_ms": 1.487958,
+          "fresh_ms": 78.672666,
+          "prefix_ms": 712.2867080000001
+        }
+      }
+    },
+    "measured_source": {
+      "path": "target/control-t13/mutation-bridge/cargo-inventory-measured-source-v1.rs",
+      "sha256": "dee2377a09cf64baf2ee267e19b2497378cd4ce213a4c89508600be266b9b3d2"
+    },
+    "summary": {
+      "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-summary-v1.json",
+      "sha256": "a848eea4f7113c00a0991e087e2a16e375c066504dfb3bc1946bc33a2344cce9"
+    },
+    "runs": {
+      "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-pairs-v1.json",
+      "sha256": "d256d8e033ac6bb0d6df186be5d4bd3e889aa2e7c2f0d63250f9bb03087c30ee"
+    },
+    "logs": [
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-baseline-pair-1.log",
+        "sha256": "1cd407ca552590467e3794c25557d969fd0fdfd2681567344bead357c9fcd0a7"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-optimized-pair-1.log",
+        "sha256": "38370dc4bd38a90d8872d6fce997a14487859eb413d2a3c2d95ba2002afbbb3d"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-optimized-pair-2.log",
+        "sha256": "665f5335fa6cfd675c3adeae77664ae7880ea43e98f0b5f0ff32a4ec4e014d0c"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-baseline-pair-2.log",
+        "sha256": "871c70bb2e455bb7b7bd840b4a6cbfb97dd60f3d9425d1d842b8aeea21a39dea"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-baseline-pair-3.log",
+        "sha256": "7bb152b83455c7e4cc96eff9674e7c9b62be25ede7931126ede0a578bb9f945a"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-cost-optimized-pair-3.log",
+        "sha256": "3bf65558f3c7102843dbd2d7291e4cbaa31fe5203f709e88eb1d452089640023"
+      }
+    ],
+    "drivers": {
+      "baseline": {
+        "artifacts": {
+          "unit": {
+            "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-inventory-baseline-frozen-v1/unit",
+            "sha256": "3d69f34dc83c402522ac622f03433e14dc3dd82a1c65fb4a482a5785af25462b",
+            "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+            "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+            "identifier": "dev.micro.reap.native-tests",
+            "bytes": 35192400,
+            "storage_device": 16777232,
+            "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+          }
+        }
+      },
+      "optimized_before_whitespace": {
+        "artifacts": {
+          "unit": {
+            "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-inventory-frozen-v1/unit",
+            "sha256": "9a3ac8f8db07bcafed5749fe2969c03e0e18fb6ea8225c8f3392177fd6275ba5",
+            "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+            "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+            "identifier": "dev.micro.reap.native-tests",
+            "bytes": 35215248,
+            "storage_device": 16777232,
+            "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+          }
+        }
+      }
+    },
+    "excluded": [
+      "native process census and helper cost",
+      "production guard walk multiplicity",
+      "installed CLI and release performance",
+      "external storage",
+      "large-target scaling and fairness"
+    ],
+    "limits": [
+      "Initial capture costs more because it now creates the commitment.",
+      "Standalone freshness is not faster.",
+      "Every completed unlink still requires two whole-target walks.",
+      "The 128-binding loop is synthetic and is not cleanup elapsed time.",
+      "Measured optimized source precedes the final blank-line-only edit; the exact measured text is retained and its hash was re-derived."
+    ]
+  },
+  "independent_review": {
+    "provider": "claude-code",
+    "account": "gmail",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "cwd": "/Users/spencer/src/reap",
+    "execution_profile": "workspace",
+    "peer": "peer-18e298f9ef991b50-512811",
+    "conversation": "conversation-18e298f9f0c041e8-512815",
+    "requests": [
+      "cmsg-18e298f9f1c9f958-512818",
+      "cmsg-18e299439bfdbdf8-513630"
+    ],
+    "accepted": true,
+    "runtime_acceptance_claimed": false,
+    "evidence": [
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-review-peer-v1.json",
+        "sha256": "138435c93202a9913038037fccaf23b1ee81eb286494afec5e1d514a12eec5e7"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-review-wait-v1c.json",
+        "sha256": "eb5398c8543f3dd8f5d10ed796f2986123210acb435a2cc5224ddc4f9382d81e"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-review-peer-v2.json",
+        "sha256": "98a8e7231625403702ae85c4dcb4405de041057811ae2c9d5b4ff158734441a0"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-review-wait-v2b.json",
+        "sha256": "ae11ebb2a19ba3b6c5f57d324624fda91a2924282408725179158d81d9477d56"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-review-peer-final.json",
+        "sha256": "78882338a08e11ab5f27883aafe4fdd73b00b3a5ff5eda67ac87ada24c33eb49"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-review-conversation-closed.json",
+        "sha256": "6c54bf7eeca7e4857c81ce466b8f0ca7c170462f06e4eed673ac907ae08a5ec7"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/cargo-inventory-review-peer-closed.json",
+        "sha256": "e0318b81bfe50f75020ddcafa17b476ab22cf59cb20828d422aa4f7b59642233"
+      }
+    ]
+  },
+  "retained_setup_failure": {
+    "path": "target/control-t13/mutation-bridge/cargo-inventory-baseline-compile-v1.log",
+    "sha256": "84b82dd2a40ca3fe126383aa6c89f9c02f78da48a2792fe443e94cc25153688e"
+  },
+  "product_installation_performed": false,
+  "operator_guides_deployed": false,
+  "lifetime_conversion_activated": false,
+  "conversation_source_pruning_activated": false,
+  "open_delivery_gates": [
+    "Cargo dependency work remains quadratic; capacity, fair scheduling and complete broad discovery remain open.",
+    "All remaining applying families require shared-executor integration and old-reader fences/drains.",
+    "Full cargo test runtime, installed preservation/workspace and native fault matrix remain required.",
+    "Worker-boundary executable faults and native nested-mount sweep proof remain open.",
+    "Retained-default creation, lease/store migration and recovery remain required.",
+    "Real native conversation capture, independent retrieval and separate fail-closed source release remain required.",
+    "Actual same-Micro product installation and consumer verification on both Macs remain required."
+  ]
+}
