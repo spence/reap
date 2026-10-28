@@ -213,7 +213,6 @@ impl<'a, 'b> Applying<'a, 'b> {
     }
     for path in entries {
       self.fresh()?;
-      inventory.fresh()?;
       let fingerprint = self.fingerprint(&path, &physical, inventory)?;
       let held = HeldUnlink::prepare(&path, &self.grant.resources, fingerprint.clone())?;
       inventory.source(&path, held.source())?;
@@ -271,7 +270,7 @@ impl<'a, 'b> Applying<'a, 'b> {
     digest.update(serde_json::to_vec(&serde_json::json!({
       "input":self.input,"scope":self.scope,"sequence":self.sequence,"source":path,"selection":selection,
     }))?);
-    inventory.bind(&mut digest)?;
+    inventory.bind(&mut digest);
     Ok(format!("{:x}", digest.finalize()))
   }
 
@@ -286,7 +285,6 @@ impl<'a, 'b> Applying<'a, 'b> {
     helpers: &mut Helpers<'_>,
   ) -> io::Result<Option<String>> {
     self.fresh()?;
-    inventory.fresh()?;
     for lock in locks {
       lock.fresh()?;
     }

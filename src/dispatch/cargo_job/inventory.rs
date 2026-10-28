@@ -1,6 +1,6 @@
 //! Complete Cargo planning evidence and exact retirement of known owned removals.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -58,23 +58,31 @@ impl Stamp {
 pub(super) struct Inventory {
   root: PathBuf,
   nodes: BTreeMap<PathBuf, Stamp>,
+  /// Bind the initial inventory and its exact owned-removal prefix, not cached freshness.
+  evidence: Sha256,
 }
 
 impl Inventory {
-  /// Bind the complete current evidence without one aggregate serialization buffer.
-  pub(super) fn bind(&self, digest: &mut Sha256) -> io::Result<()> {
-    for (path, stamp) in &self.nodes {
-      let name = path.as_os_str().as_bytes();
-      digest.update((name.len() as u64).to_be_bytes());
-      digest.update(name);
-      let bytes = serde_json::to_vec(stamp)?;
-      digest.update((bytes.len() as u64).to_be_bytes());
-      digest.update(bytes);
-    }
-    Ok(())
+  /// Bind the complete selection and owned-removal history without another inventory scan.
+  pub(super) fn bind(&self, digest: &mut Sha256) {
+    digest.update(self.evidence.clone().finalize());
   }
 
   pub(super) fn capture(root: &Path) -> io::Result<Self> {
+    let nodes = Self::observe(root)?;
+    let mut evidence = Sha256::new();
+    evidence.update(b"reap.cargo.inventory.v1");
+    for (path, stamp) in &nodes {
+      bind_entry(&mut evidence, path, stamp)?;
+    }
+    Ok(Self {
+      root: root.into(),
+      nodes,
+      evidence,
+    })
+  }
+
+  fn observe(root: &Path) -> io::Result<BTreeMap<PathBuf, Stamp>> {
     let directory = open_physical(root)?;
     let first = Stamp::read(&descriptor_stat(&directory)?);
     let mut nodes = BTreeMap::from([(root.to_path_buf(), first.clone())]);
@@ -115,16 +123,38 @@ impl Inventory {
         return Err(io::Error::other("Cargo directory changed during inventory"));
       }
     }
-    Ok(Self {
-      root: root.into(),
-      nodes,
-    })
+    Ok(nodes)
   }
 
   /// Refuse additions, replacements, content changes and incomplete namespace observations.
-  /// This full comparison has linear cost in the captured target for each call.
+  /// Compare every entry without constructing another complete inventory.
   pub(super) fn fresh(&self) -> io::Result<()> {
-    if Self::capture(&self.root)?.nodes != self.nodes {
+    let directory = open_physical(&self.root)?;
+    let device = self.nodes[&self.root].device;
+    let mut count = 1;
+    for (path, before) in self.nodes.iter().filter(|(_, stamp)| stamp.directory()) {
+      let held = open_relative(&directory, &self.root, path, device)?;
+      if Stamp::read(&descriptor_stat(&held)?) != *before {
+        return Err(io::Error::other("Cargo planning input changed"));
+      }
+      let mut names = BTreeSet::new();
+      for_each_preview_name(&held, |name| {
+        if count >= self.nodes.len() || !names.insert(name.to_vec()) {
+          return Err(io::Error::other("Cargo planning namespace changed"));
+        }
+        let name = Path::new(std::ffi::OsStr::from_bytes(name));
+        let observed = Stamp::read(&stat_at(&held, name)?);
+        if self.nodes.get(&path.join(name)) != Some(&observed) {
+          return Err(io::Error::other("Cargo planning input changed"));
+        }
+        count += 1;
+        Ok(())
+      })?;
+      if Stamp::read(&descriptor_stat(&held)?) != *before {
+        return Err(io::Error::other("Cargo directory changed during inventory"));
+      }
+    }
+    if count != self.nodes.len() {
       return Err(io::Error::other("Cargo planning input changed"));
     }
     Ok(())
@@ -139,9 +169,9 @@ impl Inventory {
     }
     let mut paths: Vec<_> = self
       .nodes
-      .keys()
-      .filter(|path| path.starts_with(root))
-      .cloned()
+      .range::<Path, _>((std::ops::Bound::Included(root), std::ops::Bound::Unbounded))
+      .take_while(|(path, _)| path.starts_with(root))
+      .map(|(path, _)| path.clone())
       .collect();
     paths.sort_by(|left, right| {
       right
@@ -189,7 +219,7 @@ impl Inventory {
     if after != expected_source {
       return Err(io::Error::other("Cargo source changed during its unlink"));
     }
-    let current = Self::capture(&self.root)?;
+    let current = Self::observe(&self.root)?;
     let parent = path
       .parent()
       .ok_or_else(|| io::Error::other("Cargo source has no parent"))?;
@@ -198,34 +228,56 @@ impl Inventory {
       .get(parent)
       .ok_or_else(|| io::Error::other("Cargo source parent was not inventoried"))?;
     let next_parent = current
-      .nodes
       .get(parent)
       .filter(|next| prior_parent.same_object(next) && next.directory())
       .ok_or_else(|| io::Error::other("Cargo source parent changed identity"))?;
-    let removed = before.clone();
-    let mut expected = self.nodes.clone();
-    expected.remove(path);
-    expected.insert(parent.into(), next_parent.clone());
-    for stamp in expected.values_mut() {
-      if stamp.device == removed.device && stamp.inode == removed.inode {
-        stamp.changed = after.changed;
-        stamp.links = after.links;
-      }
-    }
-    if expected != current.nodes {
+    if current.len() + 1 != self.nodes.len()
+      || current.contains_key(path)
+      || self.nodes.iter().any(|(name, prior)| {
+        if name == path {
+          return false;
+        }
+        let mut expected = prior.clone();
+        if name == parent {
+          expected = next_parent.clone();
+        }
+        if expected.device == before.device && expected.inode == before.inode {
+          expected.changed = after.changed;
+          expected.links = after.links;
+        }
+        current.get(name) != Some(&expected)
+      })
+    {
       return Err(io::Error::other(
         "Cargo input differs from its exact owned removal prefix",
       ));
     }
-    self.nodes = current.nodes;
+
+    // the prior commitment identifies every alias; this delta binds its exact permitted changes
+    let mut evidence = self.evidence.clone();
+    evidence.update(b"reap.cargo.inventory.removed.v1");
+    bind_entry(&mut evidence, path, &after)?;
+    bind_entry(&mut evidence, parent, next_parent)?;
+    self.nodes = current;
+    self.evidence = evidence;
     Ok(())
   }
+}
+
+fn bind_entry(digest: &mut Sha256, path: &Path, stamp: &Stamp) -> io::Result<()> {
+  let name = path.as_os_str().as_bytes();
+  digest.update((name.len() as u64).to_be_bytes());
+  digest.update(name);
+  let bytes = serde_json::to_vec(stamp)?;
+  digest.update((bytes.len() as u64).to_be_bytes());
+  digest.update(bytes);
+  Ok(())
 }
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
   use std::fs;
-  use std::os::unix::fs::MetadataExt;
+  use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
   use super::*;
 
@@ -250,6 +302,96 @@ mod tests {
     }
   }
 
+  fn binding(inventory: &Inventory) -> String {
+    let mut digest = Sha256::new();
+    inventory.bind(&mut digest);
+    format!("{:x}", digest.finalize())
+  }
+
+  #[test]
+  fn freshness_refuses_changes_in_unselected_descendants_without_replacing_its_evidence() {
+    for change in [
+      "write",
+      "replace",
+      "missing",
+      "add",
+      "link",
+      "mode",
+      "directory",
+    ] {
+      let fixture = Fixture::new();
+      let target = fixture.0.join("target");
+      let nested = target.join("unselected/nested");
+      fs::create_dir_all(&nested).unwrap();
+      let kept = nested.join("kept");
+      fs::write(&kept, b"kept bytes").unwrap();
+      let outside = fixture.0.join("outside");
+      fs::write(&outside, b"outside bytes").unwrap();
+      let link = nested.join("link");
+      std::os::unix::fs::symlink(&outside, &link).unwrap();
+      fs::create_dir(nested.join("empty")).unwrap();
+      let inventory = Inventory::capture(&target).unwrap();
+      let original = binding(&inventory);
+      inventory.fresh().unwrap();
+      match change {
+        "write" => fs::write(&kept, b"new! bytes").unwrap(),
+        "replace" => {
+          fs::rename(&kept, fixture.0.join("retained-original")).unwrap();
+          fs::write(&kept, b"kept bytes").unwrap();
+        }
+        "missing" => fs::rename(&kept, fixture.0.join("retained-original")).unwrap(),
+        "add" => fs::write(nested.join("new"), b"new work").unwrap(),
+        "link" => {
+          fs::remove_file(&link).unwrap();
+          std::os::unix::fs::symlink(&kept, &link).unwrap();
+        }
+        "mode" => fs::set_permissions(&kept, fs::Permissions::from_mode(0o700)).unwrap(),
+        "directory" => fs::remove_dir(nested.join("empty")).unwrap(),
+        _ => unreachable!(),
+      }
+      assert!(inventory.fresh().is_err(), "{change}");
+      assert_eq!(binding(&inventory), original, "{change}");
+      assert_eq!(fs::read(&outside).unwrap(), b"outside bytes", "{change}");
+    }
+  }
+
+  #[test]
+  fn rejected_removal_prefix_cannot_rebind_unrelated_changes() {
+    let fixture = Fixture::new();
+    let target = fixture.0.join("target");
+    fs::create_dir(&target).unwrap();
+    let old = target.join("old");
+    let kept = target.join("kept");
+    fs::write(&old, b"obsolete output").unwrap();
+    fs::write(&kept, b"kept output").unwrap();
+    let mut inventory = Inventory::capture(&target).unwrap();
+    let evidence = binding(&inventory);
+    let original = File::open(&old).unwrap();
+    fs::remove_file(&old).unwrap();
+    fs::write(&kept, b"new output").unwrap();
+    assert!(inventory.removed(&old, &original).is_err());
+    assert_eq!(binding(&inventory), evidence);
+    assert!(inventory.nodes.contains_key(&old));
+    assert!(inventory.fresh().is_err());
+    assert_eq!(fs::read(&kept).unwrap(), b"new output");
+  }
+
+  #[test]
+  fn postorder_range_excludes_adjacent_component_prefixes() {
+    let fixture = Fixture::new();
+    let target = fixture.0.join("target");
+    for name in ["a", "a-b", "a.hidden", "b"] {
+      fs::create_dir_all(target.join(name)).unwrap();
+      fs::write(target.join(name).join("output"), b"retained output").unwrap();
+    }
+    let inventory = Inventory::capture(&target).unwrap();
+    assert_eq!(
+      inventory.entries(&target.join("a")).unwrap(),
+      vec![target.join("a/output"), target.join("a")]
+    );
+    inventory.fresh().unwrap();
+  }
+
   #[test]
   fn exact_owned_prefix_preserves_hard_links_and_refuses_new_or_changed_inputs() {
     let fixture = Fixture::new();
@@ -262,10 +404,13 @@ mod tests {
     let outside = fixture.0.join("outside");
     fs::hard_link(&old, &outside).unwrap();
     let mut inventory = Inventory::capture(&target).unwrap();
+    let before = binding(&inventory);
     inventory.fresh().unwrap();
+    assert_eq!(binding(&inventory), before);
     let original = File::open(&old).unwrap();
     fs::remove_file(&old).unwrap();
     inventory.removed(&old, &original).unwrap();
+    assert_ne!(binding(&inventory), before);
     inventory.fresh().unwrap();
     assert_eq!(fs::read(&outside).unwrap(), b"retained bytes");
     assert_eq!(fs::read(&kept).unwrap(), b"retained bytes");
@@ -317,5 +462,59 @@ mod tests {
     assert_eq!(fs::read(&outside).unwrap(), b"survivor");
     assert!(!target.join("selected").exists());
     inventory.fresh().unwrap();
+  }
+
+  #[test]
+  #[ignore = "explicit Cargo inventory cost measurement"]
+  fn inventory_cost_keeps_complete_validation_and_an_exact_removal_prefix() {
+    use std::time::Instant;
+
+    let fixture = Fixture::new();
+    let target = fixture.0.join("target");
+    for group in 0..64 {
+      let directory = target.join(format!("group-{group:02}"));
+      fs::create_dir_all(&directory).unwrap();
+      for entry in 0..64 {
+        fs::write(directory.join(format!("entry-{entry:02}")), b"build output").unwrap();
+      }
+    }
+    let started = Instant::now();
+    let mut inventory = Inventory::capture(&target).unwrap();
+    let capture = started.elapsed();
+    let started = Instant::now();
+    for _ in 0..128 {
+      std::hint::black_box(binding(&inventory));
+    }
+    let bind = started.elapsed();
+    let started = Instant::now();
+    for _ in 0..4 {
+      inventory.fresh().unwrap();
+    }
+    let fresh = started.elapsed();
+    let started = Instant::now();
+    for entry in 0..16 {
+      let path = target.join(format!("group-00/entry-{entry:02}"));
+      inventory.fresh().unwrap();
+      std::hint::black_box(binding(&inventory));
+      let original = File::open(&path).unwrap();
+      inventory.source(&path, &original).unwrap();
+      fs::remove_file(&path).unwrap();
+      inventory.removed(&path, &original).unwrap();
+    }
+    let prefix = started.elapsed();
+    inventory.fresh().unwrap();
+    assert_eq!(inventory.nodes.len(), 1 + 64 + 4096 - 16);
+    assert_eq!(
+      fs::read(target.join("group-63/entry-63")).unwrap(),
+      b"build output"
+    );
+    eprintln!(
+      "{}",
+      serde_json::json!({
+        "files":4096,"directories":65,"bindings":128,"fresh_checks":4,"removals":16,
+        "capture_ms":capture.as_secs_f64()*1000.0,"bind_ms":bind.as_secs_f64()*1000.0,
+        "fresh_ms":fresh.as_secs_f64()*1000.0,"prefix_ms":prefix.as_secs_f64()*1000.0,
+      })
+    );
   }
 }
