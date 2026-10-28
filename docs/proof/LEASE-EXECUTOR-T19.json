@@ -1,0 +1,378 @@
+{
+  "schema": "reap.proof.lease-executor/v1",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "work_state": "active",
+  "boundary": "Source checkpoint and native fixture proof, not full T19 or fleet product delivery.",
+  "source_revision": "564ab8057e7e24a90f4088c58b50add405ea5c2d",
+  "source_files_sha256": {
+    "README.md": "4fd07465133c9ce73b3aba05816731ce27d8be656cc3e7c61721b3b59148578b",
+    "docs/specs/invocation.md": "0c5f70860f7d3bf1b5ea066f593da4233346436d847a2ad705d2c914bb705532",
+    "docs/specs/job-client.md": "efa269a1b463f896ab6491354a92cfe4e21cb4b6ec7bc973733bbeb241ec9ad9",
+    "docs/specs/mutation-execution.md": "a155ad4d5253513c2347040bd605236e95be8b3a271d7b61ed8439529f9f3b6e",
+    "skill/SKILL.md": "7d03d977ac7a680a46c41fd6ea65755ccfa758d1dbe9c5a4d0493e6c7880c4e8",
+    "src/client.rs": "1fb3a7c09d9ce173c1afc45d75affa727ba6690f418824c19250c9aaea4b635e",
+    "src/client/tests.rs": "bbd4f9fb59fe024a9225c9a5a496842869637b0b2825d730fd8a622852b426d1",
+    "src/dispatch.rs": "149716b305f647e6a801b6c28ff5e866a1bc57597cdc24ac18dfbcc023e2a477",
+    "src/dispatch/lease_job.rs": "9cc34cca5cfddbed65325a9794172cf3fa47a9144006f774b9b988ce7566189c",
+    "src/dispatch/tests.rs": "c52b5d3451ebd86d01c481fbb550397c178a16320d6a7c8074e2fb956325f3b0",
+    "src/dispatch/tests/lease.rs": "30f9f0be2ff9be2c230179abfe53f02804f4028c84c16a07695085e9ca4e848d",
+    "src/invocation.rs": "03fe44787489b3f3a4135924e6a81d7744eb71ad608dd955a6419534048e4a0a",
+    "src/journal.rs": "38a63f3c8337fde348a349d255a44edc811c012b405dd83316ca127dbc6698cc",
+    "src/lease.rs": "611eaf4298b534dd1d932747922e95b0231728ab03506dd38ca761b8f73008b1",
+    "src/main.rs": "d57293bb6a0bc4aae8b177ab7fcce2b12ebbc653780a2f055518250c394e7366",
+    "src/mutation.rs": "30fff18573aa8dad79ccea3a6a21b1d13213c20d5776414b47af1292a2ac88b9",
+    "src/mutation/native.rs": "f01444a80fa44864599e8e9bdb3857964186f418013d6a4a9ea3fd17ecfc6e97",
+    "src/mutation/native/publish.rs": "12b5e25cc8f876644686e504f6c4180c202a291eeb5d4abfbd509d9e68e4a4a7",
+    "src/service/tests.rs": "7e76d2e59d7cb8ca0b663e14aab55a6e41e8c4482422cb94462f0d8839c660d4",
+    "src/worker.rs": "261191572c75d50bcd66655d6a0be9489b995a3665ceda9f56a28ff801d3154d",
+    "src/worker/tests.rs": "2ec14ee4935b5a5c84a1124f2586b12d6877a9062bc9c2594911ecfd16a35f13",
+    "tests/lifecycle_state.rs": "38634804068d13d712066e60a217f1d8dc68b36290c9c3c8086d2c8e27fc8fb5",
+    "tests/reap_files.rs": "ca7b7c6d70cea66529d053f58b45852f2a29b1c599e6e0d3153662d12841e468",
+    "tests/skill_workspaces.py": "2913d721050cd4f9e91d5589f8b9f431f66a3f42b80a75673b58f15229278e41",
+    "tests/test_preservation.py": "5a516c6a089d55093d113eb41558d12208160b07ea73cba90433e92278853a42",
+    "tests/test_public_mutations.py": "6a3bd28913e8b8d9195ddc1cb632d5931c09eb25724f39790e24f978ced800e1"
+  },
+  "behavior": [
+    "Lease list/add/renew/release use the bounded prepared client and shared durable writer; no foreground fallback.",
+    "Legacy explicit TTL authority remains. This checkpoint introduces no workspace expiry default or lifetime conversion.",
+    "List reads complete bounded index metadata and retained pages without target or quarantine probes and without the legacy lock.",
+    "Native directory, stable-lock, marker and index units retain intent before effect. Marker/index edits hold the unchanged legacy lock; a busy lock refuses promptly.",
+    "Add publishes marker before index. Release publishes index before matching marker removal and never removes the workspace.",
+    "Only durably observed, exact owned state-directory publications may advance the original prepared missing namespace prefix. Caller, home, config and remaining inputs stay bound.",
+    "Unknown index schemas, markers, roles and replacements refuse affected writes. A copied recognized marker requires fresh explicit add intent.",
+    "Uncertain effects retain exclusion after worker exit and writer reopen; original receipt replay never repeats a unit.",
+    "Lease actor attribution uses explicit actor, explicit owner, then explicit REAP_OWNER. The fallback owner label does not identify a creator.",
+    "Renew and release resolution do not read .reap. A final preservation veto can retain a marker after index release; that outcome is partial, not completed success.",
+    "Edited integration harnesses require terminal lease completion and preserve unconfirmed fixtures. Fixture Git commits retain configured authorship and disable hooks."
+  ],
+  "frozen_artifacts": {
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/lease-executor-frozen-v2/app",
+      "sha256": "f063a0c5905e95085156985b18158b9727161bab17d75f0194f01d50482d9286",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27076272,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/lease-executor-frozen-v2/unit",
+      "sha256": "5feb84b42fe3b8311765b8065502ffb6eaddaf6a58de297482300517c511c9dc",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 35868960,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    }
+  },
+  "focused": {
+    "state": "ok",
+    "passed": 18,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 42.65,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/lease-executor-focused-v8.log",
+      "sha256": "6065f4c04c3550795fdae93d2606d1c650c9e5cd981972ba4aa45de02e6f9351",
+      "bytes": 2296
+    }
+  },
+  "whole_binary_unit_suite": {
+    "state": "ok",
+    "passed": 401,
+    "failed": 0,
+    "ignored": 6,
+    "seconds": 532.61,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/lease-whole-unit-v2.log",
+      "sha256": "cd8ef98153d9587447f4c904d6b32bfa1f48487e5dfd14725b131494f707c928",
+      "bytes": 41330
+    }
+  },
+  "mini_selected_native_cases": {
+    "state": "ok",
+    "passed": 30,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 108.8,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/lease-mini-native-v2.log",
+      "sha256": "ec4bae52e7002e652e7130f9cc1ab698f3ae8dc261438c36d64cd14a58d6e96f",
+      "bytes": 3568
+    }
+  },
+  "mini_scope": {
+    "host": "catalyst-mini",
+    "root": "/private/tmp/reap-cores-transport-8yjfimnx/lease-executor-t19-v2",
+    "distinct_native_lease_cases": 14,
+    "distinct_native_cargo_cases": 13,
+    "controlled_files_cases": 1,
+    "pure_cases": 2
+  },
+  "native_signature_evidence": [
+    {
+      "path": "target/control-t13/mutation-bridge/lease-executor-root-signature-before-v2.json",
+      "sha256": "098d51e7fae0fde647ce9a78dfebd233ea45bac20ddfee4bd06593ecbac5ffbe",
+      "bytes": 1368
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/lease-executor-root-signature-after-v2.json",
+      "sha256": "098d51e7fae0fde647ce9a78dfebd233ea45bac20ddfee4bd06593ecbac5ffbe",
+      "bytes": 1368
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/lease-executor-cached-signature-before-v2.json",
+      "sha256": "562c13f96ebe8a5138a9fe8dd999acd2ce0e5ae47d4120274d8933ee42dce47c",
+      "bytes": 659
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/lease-executor-cached-signature-after-v2.json",
+      "sha256": "562c13f96ebe8a5138a9fe8dd999acd2ce0e5ae47d4120274d8933ee42dce47c",
+      "bytes": 659
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/lease-mini-signature-before-v2.json",
+      "sha256": "0176e0583c2f19f4a3c9a602d158a058331214ea3e2d6f64147c944ffe7103de",
+      "bytes": 1330
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/lease-mini-signature-after-v2.json",
+      "sha256": "0176e0583c2f19f4a3c9a602d158a058331214ea3e2d6f64147c944ffe7103de",
+      "bytes": 1330
+    }
+  ],
+  "native_log_markers": {
+    "lease-whole-unit-v2.log": {
+      "controlled_files_veto": 1,
+      "incidental_parent_veto": 0,
+      "incidental_role_veto": 0
+    },
+    "lease-mini-native-v2.log": {
+      "controlled_files_veto": 1,
+      "incidental_parent_veto": 0,
+      "incidental_role_veto": 0
+    }
+  },
+  "all_rust_test_targets_compile": {
+    "count": 3,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/lease-all-targets-compile-v2.log",
+      "sha256": "ff385b343670e2e6865d16845dcc0d1b83f07e46b9e9009fce50c21acacb0d70",
+      "bytes": 864
+    },
+    "integration_targets_executed": false
+  },
+  "outer_cli": {
+    "red": {
+      "log": {
+        "path": "target/control-t13/mutation-bridge/lease-client-lock-red-v1.log",
+        "sha256": "d5f60448bc1394415ef83ce0ec22dbac2677937ce3bf702ab3984d3806d6f9b4",
+        "bytes": 10730
+      },
+      "baseline_app": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-client-app-v5/app",
+        "sha256": "aea5bf78dc70ee88949c352e34d0e0d530510950c3acc9ffb8281bf90653a997",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap",
+        "bytes": 26619072,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+      },
+      "watchdog_seconds": 2,
+      "timed_out_forms": 5
+    },
+    "current": {
+      "log": {
+        "path": "target/control-t13/mutation-bridge/lease-client-lock-green-v2.log",
+        "sha256": "fa55464ee7602d6c98e7b8b8a61224e22721706ca667fb4b66ea25c4361d5fad",
+        "bytes": 1047
+      },
+      "responses": [
+        {
+          "command": [
+            "lease"
+          ],
+          "elapsed_seconds": 0.24548425013199449,
+          "state": "failed",
+          "exit_code": 1
+        },
+        {
+          "command": [
+            "lease",
+            "list"
+          ],
+          "elapsed_seconds": 0.28696145792491734,
+          "state": "failed",
+          "exit_code": 1
+        },
+        {
+          "command": [
+            "lease",
+            "add",
+            "/Users/spencer/src/reap/target/control-t13/public-mutations-iy05zb7e/home/projects/fixture",
+            "--ttl",
+            "24h"
+          ],
+          "elapsed_seconds": 0.012125458801165223,
+          "state": "unavailable",
+          "exit_code": 1
+        },
+        {
+          "command": [
+            "lease",
+            "renew",
+            "/Users/spencer/src/reap/target/control-t13/public-mutations-iy05zb7e/home/projects/fixture"
+          ],
+          "elapsed_seconds": 0.012615291867405176,
+          "state": "unavailable",
+          "exit_code": 1
+        },
+        {
+          "command": [
+            "lease",
+            "release",
+            "/Users/spencer/src/reap/target/control-t13/public-mutations-iy05zb7e/home/projects/fixture"
+          ],
+          "elapsed_seconds": 0.008720209123566747,
+          "state": "unavailable",
+          "exit_code": 1
+        }
+      ]
+    },
+    "scope": "Current outer CLI observations are bounded failure/unavailable responses through the existing broker only. They do not prove positive installed execution."
+  },
+  "crash_points": [
+    "directory-intended",
+    "directory-published",
+    "directory-observed",
+    "lock-intended",
+    "lock-published",
+    "lock-observed",
+    "marker-intended",
+    "marker-published",
+    "marker-observed",
+    "index-intended",
+    "index-published",
+    "index-observed",
+    "release-intended",
+    "release-unlinked",
+    "release-observed"
+  ],
+  "independent_source_review": {
+    "provider": "claude-code",
+    "account": "gmail",
+    "model": "claude-opus-5-5",
+    "effort": "high",
+    "profile": "workspace",
+    "peer": "peer-18e29f20b9141a58-521461",
+    "conversation": "conversation-18e29f20bbea44c8-521465",
+    "acceptance": "Final source accepted; R1-R5 resolved. Runtime and fleet gates remain separate.",
+    "receipts": {
+      "lease-review-wait-v1b.json": {
+        "receipt": {
+          "path": "target/control-t13/mutation-bridge/lease-review-wait-v1b.json",
+          "sha256": "85e17cd63b8e6f1cb5f216e52135c5ee3668dc58f3937a334f6f447816dd643d",
+          "bytes": 9314
+        },
+        "request": "cmsg-18e29f20bcd07e48-521468",
+        "reply": "cmsg-18e29f20bcd07e48-521468-outcome",
+        "state": "completed"
+      },
+      "lease-review-wait-v2b.json": {
+        "receipt": {
+          "path": "target/control-t13/mutation-bridge/lease-review-wait-v2b.json",
+          "sha256": "43fa26d835eeb1254fe9e2c1f3f1b84178c0be789c94e485e8b855e18ad35f04",
+          "bytes": 6579
+        },
+        "request": "cmsg-18e2a0e6a931f340-522677",
+        "reply": "cmsg-18e2a0e6a931f340-522677-outcome",
+        "state": "completed"
+      },
+      "lease-review-wait-v3a.json": {
+        "receipt": {
+          "path": "target/control-t13/mutation-bridge/lease-review-wait-v3a.json",
+          "sha256": "0f3a41d91a00312d042876c4e09f12b96471f8d0941ba2b64860c47642b67cb3",
+          "bytes": 3702
+        },
+        "request": "cmsg-18e2a12ef99d0700-523127",
+        "reply": "cmsg-18e2a12ef99d0700-523127-outcome",
+        "state": "completed"
+      },
+      "lease-review-wait-v4a.json": {
+        "receipt": {
+          "path": "target/control-t13/mutation-bridge/lease-review-wait-v4a.json",
+          "sha256": "bcbe15c5c11be7c0635f0c2a3b489ab599758d2559b28aac0e0411a5d6defa04",
+          "bytes": 1741
+        },
+        "request": "cmsg-18e2a16a8b8d72b8-523322",
+        "reply": "cmsg-18e2a16a8b8d72b8-523322-outcome",
+        "state": "completed"
+      }
+    },
+    "closure": [
+      {
+        "path": "target/control-t13/mutation-bridge/lease-review-conversation-close-v4.json",
+        "sha256": "17443add159048bddeb9c58765645ec82c8fef381d648e40d2163ecade7c99c3",
+        "state": "closed"
+      },
+      {
+        "path": "target/control-t13/mutation-bridge/lease-review-peer-close-v4.json",
+        "sha256": "e6fa2fd1d9a218473f529bebdb09b379366bf56972677a1a7913cca90c244930",
+        "state": "closed"
+      }
+    ]
+  },
+  "open_findings": [
+    {
+      "citation": "ISS-REFUSED-LEASE-PUBLICATIONS-RETAIN-WORKSP",
+      "state": "new",
+      "title": "Refused lease publications retain workspace staging files without a cleanup path",
+      "receipt": {
+        "path": "target/control-t13/mutation-bridge/lease-staging-issue-readback-v1.json",
+        "sha256": "f2a4dd9447956081efe02b62fdd22e8ca189fd79dbb95a56b5b7501977ff2db6",
+        "bytes": 2901
+      }
+    },
+    {
+      "citation": "ISS-CONCURRENT-FIRST-USE-STATE-CREATION-CAN",
+      "state": "new",
+      "title": "Concurrent first-use state creation can retain an indefinite uncertain volume exclusion",
+      "receipt": {
+        "path": "target/control-t13/mutation-bridge/lease-race-issue-readback-v1.json",
+        "sha256": "b8d5946e4989df0eeeac0b2f336039f813286e5e82f39f56dd69da9295887e53",
+        "bytes": 3017
+      }
+    },
+    {
+      "citation": "ISS-LEASE-ADMISSION-PERMITS-ANCESTORS-OF-REA",
+      "state": "new",
+      "title": "Lease admission permits ancestors of Reap state or quarantine directories",
+      "receipt": {
+        "path": "target/control-t13/mutation-bridge/lease-ancestor-issue-readback-v1.json",
+        "sha256": "05553071d49c60c1b925e996d792c1c3b582c74687d950b6efa8f2c6e4c9c946",
+        "bytes": 2800
+      }
+    }
+  ],
+  "open_gates": [
+    "Full cargo test runtime, including both actual installed integration targets.",
+    "Five native fault-library cases and required installed control/ingress fault proof on both Macs.",
+    "Installed preservation, workspace and public positive applying-consumer proof on both Macs.",
+    "Other applying families, unified old-reader fences and process/lock drains before activation.",
+    "Cargo discovery/capacity/fairness and remaining repeated validation cost.",
+    "Retained-default workspace creation and co-located .reap lifetime adoption/conversion/recovery.",
+    "Permanent native Codex/Claude conversation capture, independent retrieval and separate fail-closed source release.",
+    "Docs/operator guide migration and actual same-Micro product delivery on both Macs."
+  ],
+  "activation": {
+    "product_installation": false,
+    "production_service_replacement": false,
+    "operator_guide_deployment": false,
+    "lifetime_conversion": false,
+    "conversation_source_prune": false
+  },
+  "quick_check_storage": "All executables, working directories, source inputs, fixtures, temporary files, build output and logs use internal storage."
+}
