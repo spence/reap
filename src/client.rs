@@ -86,6 +86,12 @@ pub(crate) fn run_cargo(
   run_argv(request.argv(), request.apply, wait, entered)
 }
 
+/// Submit explicit legacy lease metadata work without caller-side state reads or lock waits.
+pub(crate) fn run_lease(command: crate::LeaseCmd, wait: Option<Duration>, entered: Instant) -> i32 {
+  let applying = !matches!(command, crate::LeaseCmd::List);
+  run_argv(invocation::lease_argv(&command), applying, wait, entered)
+}
+
 fn run_prepared(
   operation: &str,
   path: Option<String>,
@@ -130,6 +136,16 @@ fn run_argv(argv: Vec<String>, apply: bool, wait: Option<Duration>, entered: Ins
       Some("internal configuration snapshots are not a public invocation override".into()),
     ));
   }
+  let provenance = if apply {
+    attribution(
+      argv.first().is_some_and(|operation| operation == "lease"),
+      crate::util::default_owner(),
+      crate::provenance::from_env("REAP_OWNER"),
+      crate::provenance::from_env("REAP_SESSION"),
+    )
+  } else {
+    serde_json::json!({})
+  };
   let input = Intent {
     argv,
     namespace: invocation::Namespace {
@@ -137,14 +153,7 @@ fn run_argv(argv: Vec<String>, apply: bool, wait: Option<Duration>, entered: Ins
       xdg_state_home: std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from),
       config_snapshot: None,
     },
-    provenance: if apply {
-      serde_json::json!({
-        "actor": crate::util::default_owner(),
-        "session": crate::provenance::from_env("REAP_SESSION"),
-      })
-    } else {
-      serde_json::json!({})
-    },
+    provenance,
   };
   let summary = invocation::summary(&input);
   let client = Client::default();
@@ -158,6 +167,20 @@ fn run_argv(argv: Vec<String>, apply: bool, wait: Option<Duration>, entered: Ins
     receipt.invocation = summary;
   }
   emit(receipt)
+}
+
+/// Lease creator attribution excludes the fallback owner label.
+fn attribution(
+  lease: bool,
+  owner: String,
+  explicit_owner: Option<String>,
+  session: Option<String>,
+) -> serde_json::Value {
+  if lease {
+    serde_json::json!({"owner":owner,"actor":explicit_owner,"session":session})
+  } else {
+    serde_json::json!({"actor":owner,"session":session})
+  }
 }
 
 fn emit(receipt: Receipt) -> i32 {

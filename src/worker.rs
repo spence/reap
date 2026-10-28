@@ -35,6 +35,9 @@ pub enum Task {
   ResolveCargo {
     input: crate::journal::Prepared,
   },
+  ResolveLease {
+    input: crate::journal::Prepared,
+  },
   ResolveFiles {
     input: crate::journal::Prepared,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,6 +48,10 @@ pub enum Task {
     scope: crate::dispatch::Scope,
   },
   Cargo {
+    input: crate::journal::Prepared,
+    scope: crate::dispatch::Scope,
+  },
+  Lease {
     input: crate::journal::Prepared,
     scope: crate::dispatch::Scope,
   },
@@ -91,6 +98,14 @@ pub enum Task {
 impl Task {
   /// Require the result kind belonging to this exact operation.
   fn accepts(&self, report: &Report) -> bool {
+    if let (Self::Lease { input, .. }, Report::LeaseFinished { terminal, .. }) = (self, report) {
+      return serde_json::from_str::<crate::invocation::Intent>(&input.request)
+        .ok()
+        .and_then(|intent| crate::invocation::summary(&intent))
+        .is_some_and(|summary| {
+          summary.operation == "lease" && (summary.mode == "apply" || terminal.effects == 0)
+        });
+    }
     if let (Self::Cargo { input, .. }, Report::CargoFinished { terminal, .. }) = (self, report) {
       return serde_json::from_str::<crate::invocation::Intent>(&input.request)
         .ok()
@@ -150,6 +165,7 @@ impl Task {
       (Self::Resolve { .. }, Report::Resolved { .. })
         | (Self::ResolveCheck { .. }, Report::CheckResolved { .. })
         | (Self::ResolveCargo { .. }, Report::CargoResolved { .. })
+        | (Self::ResolveLease { .. }, Report::LeaseResolved { .. })
         | (Self::ResolveFiles { .. }, Report::FilesResolved { .. })
         | (Self::Check { .. }, Report::Checked { .. })
         | (Self::PreviewFiles { .. }, Report::FilesCheckpointed { .. })
@@ -164,11 +180,12 @@ impl Task {
   /// Return the complete physical reservation required by this task.
   fn resources(&self) -> Resources {
     match self {
-      Self::Check { scope, .. } | Self::PreviewFiles { scope, .. } | Self::Cargo { scope, .. } => {
-        Resources::Bulk {
-          physical_volumes: scope.physical_volumes.clone(),
-        }
-      }
+      Self::Check { scope, .. }
+      | Self::PreviewFiles { scope, .. }
+      | Self::Cargo { scope, .. }
+      | Self::Lease { scope, .. } => Resources::Bulk {
+        physical_volumes: scope.physical_volumes.clone(),
+      },
       Self::FirstSeen {
         physical_volumes, ..
       }
@@ -246,10 +263,12 @@ impl Task {
       Self::Resolve { directory } => directory,
       Self::ResolveCheck { input }
       | Self::ResolveFiles { input, .. }
-      | Self::ResolveCargo { input } => return crate::journal::validate_input(input),
+      | Self::ResolveCargo { input }
+      | Self::ResolveLease { input } => return crate::journal::validate_input(input),
       Self::Check { input, scope }
       | Self::PreviewFiles { input, scope, .. }
-      | Self::Cargo { input, scope } => {
+      | Self::Cargo { input, scope }
+      | Self::Lease { input, scope } => {
         crate::journal::validate_input(input)?;
         return scope.validate();
       }
@@ -312,6 +331,9 @@ impl Task {
       Self::ResolveCargo { input } if grant.resources == Resources::Resolver => {
         return crate::dispatch::resolve_cargo(input).map(|scope| Report::CargoResolved { scope });
       }
+      Self::ResolveLease { input } if grant.resources == Resources::Resolver => {
+        return crate::dispatch::resolve_lease(input).map(|scope| Report::LeaseResolved { scope });
+      }
       Self::ResolveFiles {
         input,
         directory: Some(directory),
@@ -339,6 +361,19 @@ impl Task {
         let (detail, pages) = crate::result_pages::prepare(terminal.detail)?;
         terminal.detail = detail;
         return Ok(Report::CargoFinished { terminal, pages });
+      }
+      Self::Lease { input, scope }
+        if grant.resources
+          == (Resources::Bulk {
+            physical_volumes: scope.physical_volumes.clone(),
+          }) =>
+      {
+        let helpers =
+          helpers.ok_or_else(|| invalid("lease execution requires its owned channel"))?;
+        let mut terminal = crate::dispatch::assess_lease(input, scope, grant, helpers)?;
+        let (detail, pages) = crate::result_pages::prepare(terminal.detail)?;
+        terminal.detail = detail;
+        return Ok(Report::LeaseFinished { terminal, pages });
       }
       Self::PreviewFiles {
         input,
@@ -426,6 +461,14 @@ pub enum Report {
     scope: crate::dispatch::Scope,
   },
   CargoFinished {
+    terminal: crate::journal::Terminal,
+    #[serde(skip)]
+    pages: Vec<String>,
+  },
+  LeaseResolved {
+    scope: crate::dispatch::Scope,
+  },
+  LeaseFinished {
     terminal: crate::journal::Terminal,
     #[serde(skip)]
     pages: Vec<String>,
@@ -886,6 +929,7 @@ pub struct Owned {
   page_bytes: usize,
   observations: BTreeSet<String>,
   output_allowed: bool,
+  files_profile: bool,
   yield_requested: bool,
   probe: Option<crate::activity::Capture>,
   stderr: Option<UnixStream>,
@@ -1011,6 +1055,10 @@ fn spawn(
   if let Some(stop) = std::env::var_os("REAP_NATIVE_CARGO_UNIT_STOP") {
     command.env("REAP_NATIVE_CARGO_UNIT_STOP", stop);
   }
+  #[cfg(test)]
+  if let Some(stop) = std::env::var_os("REAP_NATIVE_LEASE_UNIT_STOP") {
+    command.env("REAP_NATIVE_LEASE_UNIT_STOP", stop);
+  }
   let child = command
     .current_dir("/")
     .stdin(Stdio::from(OwnedFd::from(input)))
@@ -1019,7 +1067,11 @@ fn spawn(
     .spawn()?;
   let output_allowed = matches!(
     serde_json::from_slice::<Task>(&task),
-    Ok(Task::PreviewFiles { .. } | Task::Cargo { .. })
+    Ok(Task::PreviewFiles { .. } | Task::Cargo { .. } | Task::Lease { .. })
+  );
+  let files_profile = matches!(
+    serde_json::from_slice::<Task>(&task),
+    Ok(Task::PreviewFiles { .. })
   );
   Ok(Start::Spawned(Owned {
     child,
@@ -1035,6 +1087,7 @@ fn spawn(
     page_bytes: 0,
     observations: BTreeSet::new(),
     output_allowed,
+    files_profile,
     yield_requested: false,
     probe: probe.map(crate::activity::Capture::new),
     stderr,
@@ -1363,9 +1416,11 @@ impl Owned {
           {
             *pages = std::mem::take(&mut self.pages);
             *observations = std::mem::take(&mut self.observations).into_iter().collect();
-          } else if let Report::CargoFinished { pages, .. } = &mut report {
+          } else if let Report::CargoFinished { pages, .. } | Report::LeaseFinished { pages, .. } =
+            &mut report
+          {
             if !self.observations.is_empty() {
-              self.protocol_failure("Cargo result contains declaration grace observations");
+              self.protocol_failure("non-Files result contains declaration grace observations");
               return Ok(());
             }
             *pages = std::mem::take(&mut self.pages);
@@ -1465,7 +1520,7 @@ impl Owned {
       return self.reply(request.request_id, result);
     }
     if matches!(request.task, Task::FilesQuantum { .. }) {
-      if !self.output_allowed {
+      if !self.files_profile {
         return self.reply(
           request.request_id,
           Err("quantum query is outside the Files profile".into()),
@@ -1479,7 +1534,7 @@ impl Owned {
         .iter()
         .filter(|key| !self.observations.contains(*key))
         .collect();
-      if !self.output_allowed
+      if !self.files_profile
         || self.observations.len() + additional.len() > crate::observations::MAX_KEYS
       {
         return self.reply(
@@ -1643,7 +1698,7 @@ pub fn run(launch: &str, process: &str) -> i32 {
     #[cfg(test)]
     if matches!(
       task,
-      Task::Check { .. } | Task::PreviewFiles { .. } | Task::Cargo { .. }
+      Task::Check { .. } | Task::PreviewFiles { .. } | Task::Cargo { .. } | Task::Lease { .. }
     ) {
       if let Some(gate) = std::env::var_os("REAP_NATIVE_EXECUTION_GATE") {
         let gate = PathBuf::from(gate);
@@ -1700,7 +1755,10 @@ pub fn run(launch: &str, process: &str) -> i32 {
 
 fn send_report(pipe: &mut UnixStream, report: &Report) -> io::Result<()> {
   validate_report(report)?;
-  if let Report::FilesPreviewed { pages, .. } | Report::CargoFinished { pages, .. } = report {
+  if let Report::FilesPreviewed { pages, .. }
+  | Report::CargoFinished { pages, .. }
+  | Report::LeaseFinished { pages, .. } = report
+  {
     for (index, text) in pages.iter().enumerate() {
       let frame = PageFrame {
         result_page: crate::result_pages::Fragment {
@@ -1822,14 +1880,17 @@ fn validate_report(report: &Report) -> io::Result<()> {
     }
     Report::CheckResolved { scope }
     | Report::FilesResolved { scope }
-    | Report::CargoResolved { scope } => scope.validate()?,
+    | Report::CargoResolved { scope }
+    | Report::LeaseResolved { scope } => scope.validate()?,
     Report::FilesCheckpointed { manifest } => manifest.validate()?,
     Report::Checked { terminal }
       if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code != 0 =>
     {
       return Err(invalid("invalid read-only check result"));
     }
-    Report::FilesPreviewed { terminal, .. } | Report::CargoFinished { terminal, .. }
+    Report::FilesPreviewed { terminal, .. }
+    | Report::CargoFinished { terminal, .. }
+    | Report::LeaseFinished { terminal, .. }
       if terminal.detail.len() > 4096 || terminal.exit_code == 75 =>
     {
       return Err(invalid("invalid execution result"));
@@ -1839,7 +1900,8 @@ fn validate_report(report: &Report) -> io::Result<()> {
   if let Report::FilesPreviewed {
     terminal, pages, ..
   }
-  | Report::CargoFinished { terminal, pages } = report
+  | Report::CargoFinished { terminal, pages }
+  | Report::LeaseFinished { terminal, pages } = report
   {
     crate::result_pages::validate(&terminal.detail, pages)?;
   }

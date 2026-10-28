@@ -1336,6 +1336,7 @@ fn files_quantum_is_a_latched_nonpublishing_query_not_a_process_launch() {
     physical_volumes: vec!["fixture-physical".into()],
   };
   owned.output_allowed = true;
+  owned.files_profile = true;
   let task = Task::FilesQuantum {
     physical_volumes: vec!["fixture-physical".into()],
   };
@@ -1389,8 +1390,9 @@ fn first_seen_requests_require_the_files_profile_and_an_uncancelled_grant() {
       owned.launch.resources = Resources::Bulk {
         physical_volumes: vec!["fixture-physical".into()],
       };
+      owned.output_allowed = true;
       if cancelled {
-        owned.output_allowed = true;
+        owned.files_profile = true;
         journal.request_cancel(&owned.key, 2).unwrap();
       }
       let before = journal.launch(&owned.key).unwrap();

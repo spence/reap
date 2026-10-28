@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use filetime::{set_file_mtime, set_symlink_file_times, FileTime};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -39,6 +40,7 @@ impl Drop for ExternalFixture {
 
 struct TestRoot {
   root: PathBuf,
+  unconfirmed: AtomicUsize,
 }
 
 impl TestRoot {
@@ -56,6 +58,7 @@ impl TestRoot {
     fs::create_dir_all(root.join("home")).unwrap();
     Self {
       root: fs::canonicalize(root).unwrap(),
+      unconfirmed: AtomicUsize::new(0),
     }
   }
 
@@ -70,6 +73,10 @@ impl TestRoot {
       .env_remove("REAP_OWNER")
       .env_remove("REAP_SESSION")
       .current_dir(&self.root);
+    if args.first().is_some_and(|operation| operation == "lease") {
+      self.unconfirmed.fetch_add(1, Ordering::SeqCst);
+      command.args(["--wait", "30"]);
+    }
     command
   }
 
@@ -89,13 +96,77 @@ impl TestRoot {
   }
 
   fn run(&self, args: Vec<String>) -> Output {
-    self.command(&args).output().unwrap()
+    let output = self.command(&args).output().unwrap();
+    if args.first().is_some_and(|operation| operation == "lease") {
+      self.confirm_lease(&output);
+    }
+    output
+  }
+
+  fn confirm_lease(&self, output: &Output) {
+    if let Ok(receipt) = serde_json::from_slice::<Value>(&output.stdout) {
+      if receipt["protocol"] == 2
+        && matches!(receipt["state"].as_str(), Some("completed" | "failed"))
+        && receipt["job"]["completed_at"].as_u64().is_some()
+        && receipt["job"]["result"].is_object()
+      {
+        self.unconfirmed.fetch_sub(1, Ordering::SeqCst);
+      }
+    }
+  }
+
+  fn lease_detail(&self, output: &Output) -> Value {
+    success(output.clone());
+    let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(receipt["protocol"], 2);
+    assert_eq!(receipt["state"], "completed");
+    let detail: Value =
+      serde_json::from_str(receipt["job"]["result"]["detail"].as_str().unwrap()).unwrap();
+    let Some(manifest) = detail.get("paged_result") else {
+      return detail;
+    };
+    let mut text = String::new();
+    let count = manifest["pages"].as_u64().unwrap();
+    assert!((1..=65).contains(&count));
+    assert!(manifest["bytes"]
+      .as_u64()
+      .is_some_and(|bytes| bytes <= 512 * 1024));
+    for index in 0..count {
+      let page = self.run(vec![
+        "job".into(),
+        "page".into(),
+        receipt["job_id"].as_str().unwrap().into(),
+        index.to_string(),
+      ]);
+      success(page.clone());
+      let page: Value = serde_json::from_slice(&page.stdout).unwrap();
+      assert_eq!(page["protocol"], 2);
+      assert_eq!(page["state"], "completed");
+      assert_eq!(page["job"], receipt["job"]);
+      assert_eq!(page["page"]["index"], index);
+      assert_eq!(&page["page"]["manifest"], manifest);
+      text.push_str(page["page"]["text"].as_str().unwrap());
+    }
+    assert_eq!(text.len() as u64, manifest["bytes"].as_u64().unwrap());
+    assert_eq!(
+      format!("{:x}", Sha256::digest(text.as_bytes())),
+      manifest["sha256"].as_str().unwrap()
+    );
+    serde_json::from_str(&text).unwrap()
   }
 }
 
 impl Drop for TestRoot {
   fn drop(&mut self) {
-    let _ = fs::remove_dir_all(&self.root);
+    if self.unconfirmed.load(Ordering::SeqCst) != 0 || thread::panicking() {
+      let _ = fs::write(
+        self.root.join(".reap"),
+        r#"{"version":1,"keep":{"reason":"unconfirmed lifecycle fixture"}}"#,
+      );
+      eprintln!("Retained lifecycle fixture: {}", self.root.display());
+    } else {
+      let _ = fs::remove_dir_all(&self.root);
+    }
   }
 }
 
@@ -127,12 +198,6 @@ fn git(dir: &Path, args: &[&str]) {
     Command::new("git")
       .arg("-C")
       .arg(dir)
-      .args([
-        "-c",
-        "user.name=Reap Test",
-        "-c",
-        "user.email=reap@test.invalid",
-      ])
       .args(args)
       .output()
       .unwrap(),
@@ -145,7 +210,19 @@ fn failure(output: Output) {
     "unexpected success: {}",
     String::from_utf8_lossy(&output.stdout)
   );
-  assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
+  if let Ok(receipt) = serde_json::from_slice::<Value>(&output.stdout) {
+    assert_eq!(receipt["protocol"], 2);
+    assert!(
+      (receipt["state"] == "failed"
+        && receipt["job"]["result"]["exit_code"]
+          .as_u64()
+          .is_some_and(|code| code != 0))
+        || (receipt["state"] == "invalid" && receipt["reason"].as_str().is_some()),
+      "failure has no terminal refusal: {receipt}",
+    );
+  } else {
+    assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
+  }
 }
 
 fn array(path: &Path, key: &str) -> Vec<Value> {
@@ -629,7 +706,10 @@ fn create_scratch_clone_and_copy_record_a_lease_at_creation() {
   assert_eq!(scratch_lease["provenance"]["session"], "run-7");
   let listed = root.run(vec!["lease".into(), "list".into()]);
   success(listed.clone());
-  assert!(String::from_utf8_lossy(&listed.stdout).contains("method scratch"));
+  assert_eq!(
+    root.lease_detail(&listed)["leases"][0]["provenance"]["creation_method"],
+    "scratch"
+  );
 
   let source = root.project("source");
   git(&source, &["init"]);
@@ -743,9 +823,12 @@ fn failed_creation_never_arms_a_partial_or_replaces_existing_data() {
       .any(|row| row["path"] == failed.to_string_lossy().as_ref())));
     let listed = root.run(vec!["lease".into(), "list".into()]);
     success(listed.clone());
-    let output = String::from_utf8_lossy(&listed.stdout);
-    assert!(output.contains("creation intents (not retirable"));
-    assert!(output.contains(failed.to_str().unwrap()));
+    let output = root.lease_detail(&listed);
+    assert!(output["creating"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .any(|intent| intent["path"] == failed.to_str().unwrap()));
   } else {
     assert!(intents.is_none_or(|rows| rows.is_empty()));
   }
@@ -1762,7 +1845,10 @@ fn lease_provenance_survives_retirement_and_legacy_records_show_unknowns() {
   assert!(!leases[0]["provenance"]["host"].as_str().unwrap().is_empty());
   let listing = root.run(vec!["lease".into(), "list".into()]);
   success(listing.clone());
-  assert!(String::from_utf8_lossy(&listing.stdout).contains("actor agent-bench"));
+  assert_eq!(
+    root.lease_detail(&listing)["leases"][0]["provenance"]["actor"],
+    "agent-bench"
+  );
   success(root.run(vec![
     "retire".into(),
     new.to_string_lossy().into_owned(),
@@ -1795,8 +1881,9 @@ fn lease_provenance_survives_retirement_and_legacy_records_show_unknowns() {
   fs::write(&lease_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
   let listing = root.run(vec!["lease".into(), "list".into()]);
   success(listing.clone());
-  let output = String::from_utf8_lossy(&listing.stdout);
-  assert!(output.contains("project (unknown)  actor (unknown)"));
+  assert!(root.lease_detail(&listing)["leases"][0]
+    .get("provenance")
+    .is_none());
   success(root.run(vec![
     "retire".into(),
     old.to_string_lossy().into_owned(),
@@ -2909,19 +2996,23 @@ fn lock_and_lease_write_failures_preserve_the_source() {
   assert!(dir.join("payload").is_file());
   fs::remove_dir(root.state().join("state.lock")).unwrap();
 
-  fs::create_dir(root.state().join("leases.tmp")).unwrap();
+  fs::create_dir(root.state().join("leases.json")).unwrap();
   failure(root.run(add.clone()));
   assert!(!dir.join(".reap-lease").exists());
-  assert!(!root.state().join("leases.json").exists());
-  fs::remove_dir(root.state().join("leases.tmp")).unwrap();
+  assert!(root.state().join("leases.json").is_dir());
+  fs::remove_dir(root.state().join("leases.json")).unwrap();
   success(root.run(add));
 
   let release = args(&["lease", "release", "{path}"], &dir);
-  fs::create_dir(root.state().join("leases.tmp")).unwrap();
+  let index = root.state().join("leases.json");
+  let retained = root.state().join("leases-retained.json");
+  fs::rename(&index, &retained).unwrap();
+  fs::create_dir(&index).unwrap();
   failure(root.run(release.clone()));
   assert!(dir.join(".reap-lease").is_file());
-  assert_eq!(array(&root.state().join("leases.json"), "leases").len(), 1);
-  fs::remove_dir(root.state().join("leases.tmp")).unwrap();
+  assert_eq!(array(&retained, "leases").len(), 1);
+  fs::remove_dir(&index).unwrap();
+  fs::rename(&retained, &index).unwrap();
   success(root.run(release));
   assert!(!dir.join(".reap-lease").exists());
   assert!(dir.join("payload").is_file());
@@ -2962,8 +3053,9 @@ fn lease_renewal_returns_on_a_stuck_state_lock_without_changing_the_lease() {
     thread::sleep(Duration::from_millis(20));
   }
   let output = child.wait_with_output().unwrap();
+  root.confirm_lease(&output);
   failure(output.clone());
-  assert!(String::from_utf8_lossy(&output.stderr).contains("Reap state is busy"));
+  assert!(String::from_utf8_lossy(&output.stdout).contains("Reap state is busy"));
   assert_eq!(before, fs::read(root.state().join("leases.json")).unwrap());
   assert_eq!(marker, fs::read(dir.join(".reap-lease")).unwrap());
   assert!(dir.join("payload").is_file());

@@ -64,10 +64,7 @@ use config::{config_path, load_config, write_default_config};
 use create::CreateCmd;
 use discover::{discover_manifests, discover_targets};
 use inventory::scan_projects;
-use lease::{
-  add_lease, find_by_path, load_leases, release_lease, remove_released_marker, renew_lease,
-  save_leases, AddOpts, LEASE_MARKER,
-};
+use lease::{find_by_path, load_leases, save_leases, LEASE_MARKER};
 use manifest::{find_project_root, load_manifest, Policy, StoreDisposition, MANIFEST_NAME};
 use parents::ParentsCmd;
 use plan::{human, now_secs};
@@ -79,7 +76,7 @@ use quarantine::{
   RetireOpts, RetirePass,
 };
 use stores::{apply_store, init_stores, plan_stores, quarantine_store, StorePlan, StoreState};
-use util::{fmt_rel, hostname, lock_state, parse_ttl, state_dir};
+use util::{fmt_rel, hostname, lock_state, state_dir};
 
 #[derive(Parser)]
 #[command(
@@ -237,6 +234,9 @@ enum Cmd {
   Lease {
     #[command(subcommand)]
     cmd: Option<LeaseCmd>,
+    /// Wait for completion within this many seconds (default with --wait: 30).
+    #[arg(long, global = true, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// Create a temporary directory, worktree, clone, or copy with a lease
   Create {
@@ -324,7 +324,7 @@ enum Cmd {
   },
 }
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, PartialEq, Eq, Subcommand)]
 enum LeaseCmd {
   /// Declare DIR temporary: retirable to quarantine after --ttl
   Add {
@@ -494,7 +494,9 @@ fn main() {
       verbose,
     }) => cmd_stores(path, apply, init, bind, to, verbose),
     Some(Cmd::Files { path, apply, wait }) => client::run_files(path, apply, wait, entered),
-    Some(Cmd::Lease { cmd }) => cmd_lease(cmd),
+    Some(Cmd::Lease { cmd, wait }) => {
+      client::run_lease(cmd.unwrap_or(LeaseCmd::List), wait, entered)
+    }
     Some(Cmd::Create { cmd }) => create::run(cmd),
     Some(Cmd::Parents { cmd }) => parents::run(cmd),
     Some(Cmd::Retire {
@@ -925,196 +927,6 @@ fn print_provenance(
     "    project {project}  actor {actor}  session {session}  host {host}  method {method}  purpose {}",
     if purpose.is_empty() { "(unspecified)" } else { purpose }
   );
-}
-
-fn cmd_lease(cmd: Option<LeaseCmd>) -> i32 {
-  let state = state_dir();
-  let _lock = match lock_state(&state) {
-    Ok(lock) => lock,
-    Err(e) => {
-      eprintln!("error: locking state: {}", e);
-      return 1;
-    }
-  };
-  let mut lf = match load_leases(&state) {
-    Ok(f) => f,
-    Err(e) => {
-      eprintln!("error: {}", e);
-      return 1;
-    }
-  };
-  let now = now_secs() as i64;
-  match cmd.unwrap_or(LeaseCmd::List) {
-    LeaseCmd::Add {
-      path,
-      ttl,
-      scratch,
-      owner,
-      purpose,
-      project,
-      actor,
-      session,
-      creation_method,
-    } => {
-      let secs = match parse_ttl(&ttl) {
-        Ok(s) => s,
-        Err(e) => {
-          eprintln!("error: {}", e);
-          return 1;
-        }
-      };
-      let (cfg, _) = load_config();
-      let abs = absolutize(&PathBuf::from(&path));
-      let forbidden = [state.clone(), cfg.quarantine_dir()];
-      let opts = AddOpts {
-        ttl_secs: secs,
-        scratch,
-        owner,
-        purpose: purpose.unwrap_or_default(),
-        project,
-        actor,
-        session,
-        creation_method,
-      };
-      match add_lease(&mut lf, &abs, opts, now, &forbidden) {
-        Ok(l) => {
-          lf.creating.retain(|intent| intent.path != l.path);
-          if let Err(e) = save_leases(&state, &lf) {
-            eprintln!("error: {}", e);
-            if lease::read_marker(Path::new(&l.path))
-              .is_some_and(|m| m.id == l.id && m.token == l.token)
-            {
-              if let Err(cleanup) =
-                preservation::remove(&Path::new(&l.path).join(lease::LEASE_MARKER))
-              {
-                eprintln!("error: removing uncommitted lease marker: {}", cleanup);
-              }
-            }
-            return 1;
-          }
-          println!(
-            "leased {}  (id {}, owner {}, {}expires in {})",
-            l.path,
-            l.id,
-            l.owner,
-            if l.scratch { "scratch, " } else { "" },
-            fmt_rel(l.expires_unix - now)
-          );
-          0
-        }
-        Err(e) => {
-          eprintln!("error: {}", e);
-          1
-        }
-      }
-    }
-    LeaseCmd::Renew { path, ttl } => {
-      let secs = match ttl.as_deref().map(parse_ttl).transpose() {
-        Ok(s) => s,
-        Err(e) => {
-          eprintln!("error: {}", e);
-          return 1;
-        }
-      };
-      let abs = absolutize(&PathBuf::from(&path));
-      match renew_lease(&mut lf, &abs, secs, now) {
-        Ok(l) => {
-          if let Err(e) = save_leases(&state, &lf) {
-            eprintln!("error: {}", e);
-            return 1;
-          }
-          println!(
-            "renewed {}  (expires in {})",
-            l.path,
-            fmt_rel(l.expires_unix - now)
-          );
-          0
-        }
-        Err(e) => {
-          eprintln!("error: {}", e);
-          1
-        }
-      }
-    }
-    LeaseCmd::Release { path } => {
-      let abs = absolutize(&PathBuf::from(&path));
-      match release_lease(&mut lf, &abs) {
-        Ok(l) => {
-          if let Err(e) = save_leases(&state, &lf) {
-            eprintln!("error: {}", e);
-            return 1;
-          }
-          if let Err(e) = remove_released_marker(&l) {
-            eprintln!("error: {}", e);
-            return 1;
-          }
-          println!("released {}  (directory kept)", l.path);
-          0
-        }
-        Err(e) => {
-          eprintln!("error: {}", e);
-          1
-        }
-      }
-    }
-    LeaseCmd::List => {
-      if lf.leases.is_empty() && lf.creating.is_empty() {
-        println!("no leases. `reap lease add <dir> --ttl 48h` declares a temp checkout.");
-        return 0;
-      }
-      if !lf.leases.is_empty() {
-        println!(
-          "{:<10} {:<9} {:<8} {:<22} path",
-          "id", "expires", "kind", "owner"
-        );
-        let mut rows: Vec<&lease::Lease> = lf.leases.iter().collect();
-        rows.sort_by_key(|l| l.expires_unix);
-        for l in rows {
-          let unavailable = !Path::new(&l.path).is_dir();
-          let exp = if l.expired(now) {
-            format!("-{}", fmt_rel(now - l.expires_unix))
-          } else {
-            fmt_rel(l.expires_unix - now)
-          };
-          println!(
-            "{:<10} {:<9} {:<8} {:<22} {}{}",
-            l.id,
-            exp,
-            if l.scratch { "scratch" } else { "normal" },
-            l.owner,
-            l.path,
-            if unavailable {
-              "  (missing or unavailable)"
-            } else {
-              ""
-            }
-          );
-          print_provenance(l.provenance.as_ref(), None, None, &l.purpose);
-        }
-        println!("\nnegative expiry = expired (retirable with `reap retire --apply`).");
-      }
-      if !lf.creating.is_empty() {
-        println!("\ncreation intents (not retirable; inspect or lease partial paths):");
-        for intent in &lf.creating {
-          println!(
-            "  {}  owner {}  ttl {}s  started {} ago  {}{}",
-            intent.id,
-            intent.owner,
-            intent.ttl_secs,
-            fmt_rel(now.saturating_sub(intent.started_unix)),
-            intent.path,
-            if std::fs::symlink_metadata(&intent.path).is_ok() {
-              "  (partial path exists)"
-            } else {
-              "  (path missing)"
-            }
-          );
-          print_provenance(Some(&intent.provenance), None, None, &intent.purpose);
-        }
-      }
-      0
-    }
-  }
 }
 
 fn cmd_doctor(apply: bool, id: Option<String>, verbose: bool, quarantine: bool) -> i32 {

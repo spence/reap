@@ -1,7 +1,7 @@
 //! Held-parent native mutations and read-only recovery of their exact objects.
 
 mod publish;
-pub(crate) use publish::{read_metadata, stage_metadata, HeldPublish, Staging};
+pub(crate) use publish::{read_metadata, stage_directory, stage_metadata, HeldPublish, Staging};
 
 use std::ffi::CString;
 use std::fs::File;

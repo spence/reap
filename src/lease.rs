@@ -172,15 +172,94 @@ pub fn load_leases(state: &Path) -> Result<LeaseFile, String> {
     return Ok(LeaseFile::default());
   }
   let text = fs::read_to_string(&p).map_err(|e| format!("{}: {}", p.display(), e))?;
-  let leases: LeaseFile =
-    serde_json::from_str(&text).map_err(|e| format!("{}: {}", p.display(), e))?;
+  parse_leases(text.as_bytes()).map_err(|error| format!("{}: {error}", p.display()))
+}
+
+/// Preserve all recognized lease, pending-creation and parent fields. Unknown fields refuse a
+/// rewrite instead of disappearing from the next index publication.
+pub(crate) fn parse_leases(bytes: &[u8]) -> Result<LeaseFile, String> {
+  let value: serde_json::Value =
+    serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+  let recognized = |value: &serde_json::Value, keys: &[&str]| {
+    value
+      .as_object()
+      .is_some_and(|object| object.keys().all(|key| keys.contains(&key.as_str())))
+  };
+  if !recognized(&value, &["version", "leases", "creating", "parents"]) {
+    return Err("unrecognized lease-state fields".into());
+  }
+  for (section, keys) in [
+    (
+      "leases",
+      &[
+        "id",
+        "path",
+        "dev",
+        "ino",
+        "token",
+        "owner",
+        "provenance",
+        "purpose",
+        "scratch",
+        "ttl_secs",
+        "created_unix",
+        "renewed_unix",
+        "expires_unix",
+      ][..],
+    ),
+    (
+      "creating",
+      &[
+        "id",
+        "path",
+        "owner",
+        "purpose",
+        "ttl_secs",
+        "scratch",
+        "started_unix",
+        "provenance",
+      ][..],
+    ),
+    (
+      "parents",
+      &[
+        "id",
+        "path",
+        "dev",
+        "ino",
+        "token",
+        "project",
+        "project_dev",
+        "project_ino",
+        "owner",
+        "created_unix",
+      ][..],
+    ),
+  ] {
+    if let Some(rows) = value.get(section) {
+      for row in rows
+        .as_array()
+        .ok_or_else(|| format!("invalid lease-state {section}"))?
+      {
+        if !recognized(row, keys) {
+          return Err(format!("unrecognized lease-state {section} fields"));
+        }
+        if let Some(origin) = row.get("provenance").filter(|origin| !origin.is_null()) {
+          if !recognized(
+            origin,
+            &["project", "actor", "session", "host", "creation_method"],
+          ) {
+            return Err("unrecognized lease provenance fields".into());
+          }
+        }
+      }
+    }
+  }
+  let leases: LeaseFile = serde_json::from_value(value).map_err(|error| error.to_string())?;
   if !leases.version.valid()
     || ((!leases.creating.is_empty() || !leases.parents.is_empty()) && !leases.version.guarded())
   {
-    return Err(format!(
-      "{}: unsupported or unguarded lease-state version",
-      p.display()
-    ));
+    return Err("unsupported or unguarded lease-state version".into());
   }
   Ok(leases)
 }
@@ -206,6 +285,22 @@ pub fn add_lease(
   opts: AddOpts,
   now: i64,
   forbidden: &[PathBuf],
+) -> Result<Lease, String> {
+  let lease = prepare_lease(leases, dir, opts, now, forbidden, None)?;
+  write_marker(Path::new(&lease.path), &lease).map_err(|error| error.to_string())?;
+  leases.leases.push(lease.clone());
+  Ok(lease)
+}
+
+/// Assess explicit lease intent without publishing its marker or changing the index.
+/// The fallback owner label does not supply creator attribution.
+pub(crate) fn prepare_lease(
+  leases: &LeaseFile,
+  dir: &Path,
+  opts: AddOpts,
+  now: i64,
+  forbidden: &[PathBuf],
+  owner_label: Option<&str>,
 ) -> Result<Lease, String> {
   let canon = fs::canonicalize(dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
   let meta = fs::symlink_metadata(&canon).map_err(|e| format!("{}: {}", canon.display(), e))?;
@@ -262,7 +357,10 @@ pub fn add_lease(
     dev: meta.dev(),
     ino: meta.ino(),
     token: new_token(&canon.to_string_lossy()),
-    owner: opts.owner.unwrap_or_else(default_owner),
+    owner: opts
+      .owner
+      .or_else(|| owner_label.map(str::to_owned))
+      .unwrap_or_else(default_owner),
     provenance: Some(Provenance {
       project,
       actor,
@@ -275,10 +373,10 @@ pub fn add_lease(
     ttl_secs: opts.ttl_secs,
     created_unix: now,
     renewed_unix: now,
-    expires_unix: now + opts.ttl_secs,
+    expires_unix: now
+      .checked_add(opts.ttl_secs)
+      .ok_or("lease expiry overflows")?,
   };
-  write_marker(&canon, &lease).map_err(|e| format!("{}: {}", canon.display(), e))?;
-  leases.leases.push(lease.clone());
   Ok(lease)
 }
 
@@ -294,11 +392,11 @@ pub fn renew_lease(
     .iter_mut()
     .find(|l| l.path == key)
     .ok_or_else(|| format!("{} is not leased", key))?;
-  if let Some(t) = ttl_secs {
-    l.ttl_secs = t;
-  }
+  let ttl = ttl_secs.unwrap_or(l.ttl_secs);
+  let expires = now.checked_add(ttl).ok_or("lease expiry overflows")?;
+  l.ttl_secs = ttl;
   l.renewed_unix = now;
-  l.expires_unix = now + l.ttl_secs;
+  l.expires_unix = expires;
   Ok(l.clone())
 }
 
@@ -311,36 +409,6 @@ pub fn release_lease(leases: &mut LeaseFile, dir: &Path) -> Result<Lease, String
     .position(|l| l.path == key)
     .ok_or_else(|| format!("{} is not leased", key))?;
   Ok(leases.leases.remove(idx))
-}
-
-pub fn remove_released_marker(lease: &Lease) -> Result<(), String> {
-  let dir = Path::new(&lease.path);
-  let meta = match fs::symlink_metadata(dir) {
-    Ok(meta) => meta,
-    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(e) => return Err(format!("{}: {}", dir.display(), e)),
-  };
-  if !meta.is_dir() || meta.dev() != lease.dev || meta.ino() != lease.ino {
-    return Err(format!(
-      "{} changed identity; marker left untouched",
-      dir.display()
-    ));
-  }
-  let marker_path = dir.join(LEASE_MARKER);
-  let text = match fs::read_to_string(&marker_path) {
-    Ok(text) => text,
-    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(e) => return Err(format!("{}: {}", marker_path.display(), e)),
-  };
-  let marker: LeaseMarker =
-    serde_json::from_str(&text).map_err(|e| format!("{}: {}", marker_path.display(), e))?;
-  if marker.id != lease.id || marker.token != lease.token {
-    return Err(format!(
-      "{} changed identity; marker left untouched",
-      marker_path.display()
-    ));
-  }
-  crate::preservation::remove(&marker_path).map_err(|e| format!("{}: {}", marker_path.display(), e))
 }
 
 pub fn find_by_path<'a>(leases: &'a LeaseFile, dir: &Path) -> Option<&'a Lease> {
@@ -454,8 +522,6 @@ mod tests {
     assert_eq!(released.id, l.id);
     assert!(lf2.leases.is_empty());
     assert!(proj.join(LEASE_MARKER).exists());
-    remove_released_marker(&released).unwrap();
-    assert!(!proj.join(LEASE_MARKER).exists());
     assert!(proj.is_dir(), "release never touches the directory");
     let _ = fs::remove_dir_all(&root);
   }
@@ -533,27 +599,6 @@ mod tests {
       "inside a forbidden dir refused"
     );
     assert!(lf.leases.is_empty());
-    let _ = fs::remove_dir_all(&root);
-  }
-
-  #[test]
-  fn release_does_not_remove_a_replaced_directory_marker() {
-    let root = tmp();
-    let proj = root.join("scratch");
-    fs::create_dir(&proj).unwrap();
-    let mut leases = LeaseFile::default();
-    let lease = add_lease(&mut leases, &proj, opts(1, true), 0, &[]).unwrap();
-    fs::rename(&proj, root.join("original")).unwrap();
-    fs::create_dir(&proj).unwrap();
-    fs::write(proj.join(LEASE_MARKER), b"foreign marker").unwrap();
-
-    release_lease(&mut leases, &proj).unwrap();
-    assert!(remove_released_marker(&lease).is_err());
-    assert_eq!(
-      fs::read(proj.join(LEASE_MARKER)).unwrap(),
-      b"foreign marker"
-    );
-    assert!(root.join("original").join(LEASE_MARKER).is_file());
     let _ = fs::remove_dir_all(&root);
   }
 }

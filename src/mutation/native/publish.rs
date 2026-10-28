@@ -16,11 +16,24 @@ pub(crate) struct Staging {
   parent: File,
   binding: Object,
   retained: bool,
+  directory: bool,
 }
 
 impl Staging {
   pub(crate) fn path(&self) -> &Path {
     &self.path
+  }
+
+  pub(crate) fn identity(&self) -> io::Result<ObjectIdentity> {
+    ObjectIdentity::read(&self.file)
+  }
+
+  /// A directory preparation can publish only while it has no payload or policy entries.
+  pub(crate) fn empty(&self) -> io::Result<()> {
+    if !self.directory {
+      return Err(invalid("preparation is not a directory"));
+    }
+    crate::files::for_each_preview_name(&self.file, |_| Err(invalid("preparation gained an entry")))
   }
 
   /// Call before the publication request, since a lost reply can conceal retained intent.
@@ -47,8 +60,13 @@ impl Drop for Staging {
     else {
       return;
     };
-    // SAFETY: the parent remains held; the terminated direct name identifies this owned file.
-    if unsafe { libc::unlinkat(self.parent.as_raw_fd(), name.as_ptr(), 0) } == 0 {
+    let flags = if self.directory {
+      libc::AT_REMOVEDIR
+    } else {
+      0
+    };
+    // SAFETY: the parent is held; a directory removal requires its original empty entry.
+    if unsafe { libc::unlinkat(self.parent.as_raw_fd(), name.as_ptr(), flags) } == 0 {
       let _ = self.parent.sync_all();
     }
   }
@@ -292,8 +310,46 @@ pub(crate) fn stage_metadata(
     parent,
     binding: expected,
     retained: false,
+    directory: false,
   };
   staging.file.write_all(bytes)?;
+  staging.file.sync_all()?;
+  staging.parent.sync_all()?;
+  same_path(&staging.binding, &staging.parent)?;
+  Ok(staging)
+}
+
+/// Prepare an empty internal directory beside its destination without publishing that name.
+/// Retained preparations belong to recovery. Drop never recursively removes payload or replacements.
+pub(crate) fn stage_directory(destination: &Path, resources: &Resources) -> io::Result<Staging> {
+  super::super::path(destination)?;
+  let parent_path = destination
+    .parent()
+    .ok_or_else(|| invalid("directory has no parent"))?;
+  crate::preservation::check_container(parent_path)?;
+  let parent = directory(parent_path)?;
+  let expected = object(parent_path, &parent)?;
+  physical(&parent, &parent, resources)?;
+  let leaf = format!(".reap-directory-{}.tmp", crate::journal::random_token()?);
+  let name = CString::new(leaf.as_bytes())?;
+  // SAFETY: the held real parent and unique terminated direct name remain live.
+  if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+    return Err(io::Error::last_os_error());
+  }
+  let path = parent_path.join(leaf);
+  let file = open_child(&parent, &path)?;
+  if !file.metadata()?.is_dir() {
+    return Err(invalid("directory preparation changed type"));
+  }
+  let staging = Staging {
+    path,
+    file,
+    parent,
+    binding: expected,
+    retained: false,
+    directory: true,
+  };
+  staging.empty()?;
   staging.file.sync_all()?;
   staging.parent.sync_all()?;
   same_path(&staging.binding, &staging.parent)?;

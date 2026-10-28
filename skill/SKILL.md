@@ -63,6 +63,10 @@ Use `reap check [PATH] --wait 30` when the next step needs completed validation.
 Use `reap files [PATH] --wait 30` before a dependent step. PATH can select a workspace inside a governed root.
 Use `reap files [PATH] --apply --wait 30` to await authorized cleanup through the shared executor.
 Use `reap plan [PATH] --wait 30` for completed Cargo assessment, or `reap clean [PATH] --wait 30` for completed cleanup.
+Use `reap lease add`, `renew`, `release`, or `list` with `--wait 30` before a dependent step.
+Observe the original key after interruption; do not resubmit to obtain progress.
+Lease listing reads metadata only. It does not establish workspace availability.
+Use TTL only for expressly disposable work, not an estimated completion time. Do not add a lease over a co-located lifetime.
 `clean` implies apply. `plan` and `sweep` apply only with `--apply`; bare `reap` submits a read-only sweep.
 `--wait` without a value means 30 seconds. A pending receipt is not successful validation.
 `reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
@@ -79,6 +83,8 @@ Its Git tracking uses bounded snapshots. Unsupported or changed dependencies pro
 macOS installation registers the three fixed on-demand roles. Ordinary commands never install them.
 `files --apply` uses the same bounded client and records its exact payload and index units.
 Cargo commands use that client and executor, including journaled lock publication and exact removal units.
+Lease commands also use that client. Directory, marker and index publications retain separate unit intent.
+Release removes only its matching marker after index publication; it keeps the workspace.
 Other applying commands retain their foreground routes; full fleet migration remains open.
 Complete zero-effect Files jobs in either mode can publish journal grace credit. Legacy cache credit is not imported.
 
@@ -129,9 +135,9 @@ reap create worktree <source-repo> <new-dir> --ttl 48h --owner <agent/session> -
 reap create clone <source-repo-or-url> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source>
 reap create copy <source-dir> <new-dir> --ttl 48h --owner <agent/session> --purpose "..." --project <source> --scratch
 reap parents list [parent]     # report direct children; no cleanup authority
-reap lease renew <dir>          # still using it
-reap lease release <dir>        # became permanent: drop lease, keep directory
-reap lease list
+reap lease renew <dir> --wait 30 # still using it
+reap lease release <dir> --wait 30 # became permanent: drop lease, keep directory
+reap lease list --wait 30
 reap doctor                   # bounded, read-only lease-state diagnosis
 ```
 
@@ -162,7 +168,7 @@ For a directory an external tool created, or one already created by the
 current agent, use `lease add` only with explicit temporary intent:
 
 ```bash
-reap lease add <dir> --ttl 48h --scratch --owner <agent/session> --purpose "..."
+reap lease add <dir> --ttl 48h --scratch --owner <agent/session> --purpose "..." --wait 30
 ```
 
 For reviewable attribution, `lease add` also accepts `--project <source-label>`,
@@ -200,7 +206,7 @@ handles does not supply that permission.
   `"interactive workspace awaiting human closeout"`, not `expires`.
   A `.reap` keep does **not** cancel an existing lease or override a sealed
   ancestor. Inspect overlapping cleanup authority before claiming protection.
-  With the workspace owner's authorization, `reap lease release <dir>` drops
+  With the workspace owner's authorization, `reap lease release <dir> --wait 30` drops
   an existing lease and keeps the directory; it does **not** mean "ready to
   delete". Renewal only postpones expiry, so it is not indefinite protection.
 - **At delivery:** verify where the commits are recoverable, inspect remaining

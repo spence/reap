@@ -19,9 +19,9 @@ class WorkspaceLifecycle(unittest.TestCase):
     def setUp(self):
         if not REAP:
             self.skipTest('Set REAP_BIN or install reap before running native workflow checks')
-        self.temporary = tempfile.TemporaryDirectory(prefix='reap-skill-workspace-')
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name).resolve()
+        self.root = Path(tempfile.mkdtemp(prefix='reap-skill-workspace-')).resolve()
+        self.unconfirmed_jobs = 0
+        self.addCleanup(self.close)
         self.home = self.root / 'home'
         self.projects = self.home / 'projects'
         self.workspace = self.projects / 'fixture/workspace'
@@ -58,8 +58,18 @@ class WorkspaceLifecycle(unittest.TestCase):
         self.assertEqual(self.git(self.workspace, 'check-ignore', '.reap').stdout.strip(), '.reap')
         self.assertEqual(self.git(self.workspace, 'status', '--porcelain').stdout, '')
 
+    def close(self):
+        if self.unconfirmed_jobs:
+            (self.root / '.reap').write_text(json.dumps({
+                'version': 1, 'keep': {'reason': 'unconfirmed workspace fixture job'},
+            }))
+            print(f'Retained unconfirmed workspace fixture: {self.root}')
+        else:
+            shutil.rmtree(self.root)
+
     def run_command(self, args, check=True):
-        result = subprocess.run(args, cwd=self.root, env=self.env, capture_output=True, text=True)
+        result = subprocess.run(args, cwd=self.root, env=self.env, capture_output=True, text=True,
+                                timeout=35)
         if check:
             self.assertEqual(result.returncode, 0, (args, result.stdout, result.stderr))
         return result
@@ -68,13 +78,21 @@ class WorkspaceLifecycle(unittest.TestCase):
         return self.run_command(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(path), *args])
 
     def reap(self, *args, check=True):
-        if args and args[0] == 'files':
+        coordinated = args and args[0] in ('files', 'lease')
+        if coordinated:
+            self.unconfirmed_jobs += 1
             args = (*args, '--wait', '30')
-        result = self.run_command([REAP, *map(str, args)], check=check)
-        if args and args[0] == 'files':
+        result = self.run_command([REAP, *map(str, args)], check=False)
+        if coordinated:
             receipt = json.loads(result.stdout)
             self.assertEqual(receipt['protocol'], 2)
             self.assertIn(receipt['state'], ('completed', 'failed'))
+            self.assertIsNotNone(receipt['job']['completed_at'])
+            self.assertIsInstance(receipt['job']['result'], dict)
+            self.unconfirmed_jobs -= 1
+        if check:
+            self.assertEqual(result.returncode, 0, (args, result.stdout, result.stderr))
+        if args and args[0] == 'files':
             detail = json.loads(receipt['job']['result']['detail'])
             result.stdout, result.stderr = detail['stdout'], detail['stderr']
         return result
@@ -116,6 +134,7 @@ class WorkspaceLifecycle(unittest.TestCase):
         self.assertEqual(self.git(self.workspace, 'status', '--porcelain').stdout, '')
 
     def test_mixed_lease_and_declaration_remain_blocked(self):
+        (self.workspace / '.reap').unlink()
         self.reap('lease', 'add', self.workspace, '--ttl', '1h', '--owner', 'workspace-fixture',
                   '--purpose', 'isolated overlap test', '--project', self.source)
         self.declare(expires='2020-01-01T00:00:00Z')

@@ -145,13 +145,110 @@ pub(crate) fn cargo_request(input: &Intent) -> Option<CargoRequest> {
   })
 }
 
+/// Preserve explicit legacy lease intent without adding a lifetime or cleanup permission.
+pub(crate) fn lease_argv(command: &crate::LeaseCmd) -> Vec<String> {
+  let mut argv = vec!["lease".into()];
+  let path = match command {
+    crate::LeaseCmd::List => {
+      argv.push("list".into());
+      return argv;
+    }
+    crate::LeaseCmd::Renew { path, ttl } => {
+      argv.push("renew".into());
+      if let Some(ttl) = ttl {
+        argv.push(format!("--ttl={ttl}"));
+      }
+      path
+    }
+    crate::LeaseCmd::Release { path } => {
+      argv.push("release".into());
+      path
+    }
+    crate::LeaseCmd::Add {
+      path,
+      ttl,
+      scratch,
+      owner,
+      purpose,
+      project,
+      actor,
+      session,
+      creation_method,
+    } => {
+      argv.extend(["add".into(), format!("--ttl={ttl}")]);
+      if *scratch {
+        argv.push("--scratch".into());
+      }
+      for (flag, value) in [
+        ("--owner", owner),
+        ("--purpose", purpose),
+        ("--project", project),
+        ("--actor", actor),
+        ("--session", session),
+        ("--creation-method", creation_method),
+      ] {
+        if let Some(value) = value {
+          argv.push(format!("{flag}={value}"));
+        }
+      }
+      path
+    }
+  };
+  argv.extend(["--".into(), path.clone()]);
+  argv
+}
+
+/// Parse only lease commands without an observer wait. No filesystem access occurs here.
+pub(crate) fn lease_request(input: &Intent) -> Option<crate::LeaseCmd> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "lease" {
+    return None;
+  }
+  let crate::Cmd::Lease { cmd, wait: None } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  let command = cmd.unwrap_or(crate::LeaseCmd::List);
+  match &command {
+    crate::LeaseCmd::Add {
+      ttl,
+      owner,
+      project,
+      actor,
+      session,
+      creation_method,
+      ..
+    } => {
+      crate::util::parse_ttl(ttl).ok()?;
+      for value in [owner, project, actor, session, creation_method]
+        .into_iter()
+        .flatten()
+      {
+        if value.len() > 1024 || crate::provenance::clean(value).is_none() {
+          return None;
+        }
+      }
+    }
+    crate::LeaseCmd::Renew { ttl: Some(ttl), .. } => {
+      crate::util::parse_ttl(ttl).ok()?;
+    }
+    _ => {}
+  }
+  Some(command)
+}
+
 impl Summary {
   /// Validate supported presentation metadata without treating it as execution permission.
   pub fn valid(&self) -> bool {
     (self.operation == "check" && self.mode == "read"
       || matches!(self.operation.as_str(), "files" | "plan" | "sweep")
         && matches!(self.mode.as_str(), "read" | "apply")
-      || self.operation == "clean" && self.mode == "apply")
+      || self.operation == "clean" && self.mode == "apply"
+      || self.operation == "lease" && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
   }
@@ -161,6 +258,23 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(command) = lease_request(input) {
+    return Some(Summary {
+      operation: "lease".into(),
+      mode: if matches!(command, crate::LeaseCmd::List) {
+        "read"
+      } else {
+        "apply"
+      }
+      .into(),
+      requested_scope: match command {
+        crate::LeaseCmd::List => "configured".into(),
+        crate::LeaseCmd::Add { path, .. }
+        | crate::LeaseCmd::Renew { path, .. }
+        | crate::LeaseCmd::Release { path } => path,
+      },
+    });
   }
   if let Some(request) = cargo_request(input) {
     return Some(Summary {
@@ -245,7 +359,15 @@ pub fn valid_intent(input: &Intent) -> bool {
       .all(|arg| arg.len() <= 8192 && !arg.contains('\0'))
     && input.provenance.as_object().is_some_and(|fields| {
       fields.iter().all(|(key, value)| {
-        ["project", "actor", "session", "host", "creation_method"].contains(&key.as_str())
+        [
+          "project",
+          "owner",
+          "actor",
+          "session",
+          "host",
+          "creation_method",
+        ]
+        .contains(&key.as_str())
           && (value.is_null()
             || value.as_str().is_some_and(|value| {
               value.len() <= 1024 && crate::provenance::clean(value).is_some()
@@ -274,6 +396,16 @@ pub struct Context {
 /// Revalidate admitted caller and namespace evidence without service-environment defaults.
 /// Call only in an owned target phase. A changed path, configuration, or namespace refuses.
 pub(crate) fn fresh(input: &Prepared) -> io::Result<(Intent, Context, File)> {
+  fresh_with_state_prefix(input, &[])
+}
+
+/// Revalidate after this worker's observed directory publications in an initially absent state path.
+/// Callers supply only exact published bindings after durable unit observation. This method proves
+/// their current identities, not issuance. Caller, home, configuration and remaining absence stay bound.
+pub(crate) fn fresh_with_state_prefix(
+  input: &Prepared,
+  created: &[crate::mutation::Object],
+) -> io::Result<(Intent, Context, File)> {
   use std::fs::OpenOptions;
   use std::os::unix::fs::OpenOptionsExt;
 
@@ -304,7 +436,34 @@ pub(crate) fn fresh(input: &Prepared) -> io::Result<(Intent, Context, File)> {
   }
   let evidence = namespace_evidence(&intent.namespace, binding.caller.uid)?;
   let authority = serde_json::json!({"config": evidence.1, "cleanup_granted": false});
-  if binding.evidence != evidence.0
+  let mut expected = binding.evidence;
+  if !created.is_empty() {
+    if !matches!(lease_request(&intent), Some(crate::LeaseCmd::Add { .. })) {
+      return Err(unavailable("state creation is not part of this operation"));
+    }
+    let mut anchor: PathBuf = serde_json::from_value(expected["state_anchor"].clone())?;
+    let identity: ObjectIdentity = serde_json::from_value(expected["state_identity"].clone())?;
+    let missing: Vec<String> =
+      serde_json::from_value(expected["state_missing_components"].clone())?;
+    if created.len() > missing.len() || ObjectIdentity::read(&File::open(&anchor)?)? != identity {
+      return Err(unavailable("original state anchor changed"));
+    }
+    for (object, name) in created.iter().zip(&missing) {
+      anchor.push(name);
+      let physical = crate::files::open_physical(&object.path)?;
+      if std::fs::canonicalize(&anchor)? != object.path
+        || ObjectIdentity::read(&physical)? != object.identity
+        || ObjectIdentity::read(&File::open(&anchor)?)? != object.identity
+      {
+        return Err(unavailable("published state directory changed"));
+      }
+    }
+    expected["state_anchor"] = serde_json::to_value(anchor)?;
+    expected["state_identity"] =
+      serde_json::to_value(&created.last().expect("nonempty prefix").identity)?;
+    expected["state_missing_components"] = serde_json::to_value(&missing[created.len()..])?;
+  }
+  if expected != evidence.0
     || serde_json::from_str::<serde_json::Value>(&input.authority)? != authority
   {
     return Err(unavailable("admitted namespace or configuration changed"));
@@ -653,6 +812,58 @@ mod native {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn lease_arguments_preserve_intent_and_keep_waits_outside_worker_requests() {
+    for command in [
+      crate::LeaseCmd::List,
+      crate::LeaseCmd::Renew {
+        path: "--literal-path".into(),
+        ttl: None,
+      },
+      crate::LeaseCmd::Renew {
+        path: "workspace with spaces".into(),
+        ttl: Some("2w".into()),
+      },
+      crate::LeaseCmd::Release {
+        path: "--literal-path".into(),
+      },
+      crate::LeaseCmd::Add {
+        path: "--literal-path".into(),
+        ttl: "48h".into(),
+        scratch: true,
+        owner: Some("--literal-owner".into()),
+        purpose: Some("literal project work".into()),
+        project: Some("--literal-project".into()),
+        actor: Some("fixture-actor".into()),
+        session: Some("fixture-session".into()),
+        creation_method: Some("copy".into()),
+      },
+    ] {
+      let mut request = intent(&["lease"]);
+      request.argv = lease_argv(&command);
+      assert_eq!(lease_request(&request), Some(command.clone()));
+      assert_eq!(
+        summary(&request).unwrap().mode,
+        if matches!(command, crate::LeaseCmd::List) {
+          "read"
+        } else {
+          "apply"
+        }
+      );
+      request.argv.insert(1, "--wait=30".into());
+      assert!(lease_request(&request).is_none());
+    }
+    assert!(lease_request(&intent(&["lease", "add", "--ttl=bad", "workspace"])).is_none());
+    assert!(lease_request(&intent(&[
+      "lease",
+      "add",
+      "--ttl=1h",
+      "--owner=",
+      "workspace"
+    ]))
+    .is_none());
+  }
 
   fn intent(argv: &[&str]) -> Intent {
     Intent {

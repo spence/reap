@@ -1958,7 +1958,7 @@ impl Job {
         && self.view.invocation.as_ref().is_some_and(|summary| {
           matches!(
             summary.operation.as_str(),
-            "files" | "plan" | "clean" | "sweep"
+            "files" | "plan" | "clean" | "sweep" | "lease"
           ) && summary.mode == "apply"
         });
       if (!applying
@@ -2008,9 +2008,7 @@ impl Job {
     if !self.pages.is_empty()
       && record_limit(self.execution.is_some(), self.view.invocation.as_ref()) != MAX_RECORD
     {
-      return Err(invalid(
-        "result pages require an executable Files or Cargo job",
-      ));
+      return Err(invalid("result pages require a supported executable job"));
     }
     let terminal = match &self.execution {
       Some(crate::dispatch::Progress::Result { terminal }) => Some(terminal),
@@ -2060,6 +2058,11 @@ impl Job {
         .invocation
         .as_ref()
         .is_some_and(|summary| matches!(summary.operation.as_str(), "plan" | "clean" | "sweep"));
+      let lease = self
+        .view
+        .invocation
+        .as_ref()
+        .is_some_and(|summary| summary.operation == "lease");
       if (matches!(
         progress,
         Progress::ResolvingFiles
@@ -2070,11 +2073,15 @@ impl Job {
         || (matches!(
           progress,
           Progress::Resolving | Progress::Resolved { .. } | Progress::Checking { .. }
-        ) && (files || cargo))
+        ) && (files || cargo || lease))
         || (matches!(
           progress,
           Progress::ResolvingCargo | Progress::CargoResolved { .. } | Progress::RunningCargo { .. }
         ) && !cargo)
+        || (matches!(
+          progress,
+          Progress::ResolvingLease | Progress::LeaseResolved { .. } | Progress::RunningLease { .. }
+        ) && !lease)
       {
         return Err(invalid(
           "execution phase differs from its retained operation",
@@ -2086,6 +2093,8 @@ impl Job {
         | Progress::FilesResolved { scope }
         | Progress::CargoResolved { scope }
         | Progress::RunningCargo { scope }
+        | Progress::LeaseResolved { scope }
+        | Progress::RunningLease { scope }
         | Progress::PreviewingFiles { scope } => scope.validate()?,
         Progress::FilesYielded { scope, checkpoint } => {
           scope.validate()?;
@@ -2133,6 +2142,8 @@ impl Job {
         | Progress::Resolved { .. }
         | Progress::ResolvingFiles
         | Progress::ResolvingCargo
+        | Progress::ResolvingLease
+        | Progress::LeaseResolved { .. }
         | Progress::CargoResolved { .. }
         | Progress::FilesResolved { .. } => self
           .launch
@@ -2140,7 +2151,8 @@ impl Job {
           .is_none_or(|launch| launch.resources == Resources::Resolver),
         Progress::Checking { scope }
         | Progress::PreviewingFiles { scope }
-        | Progress::RunningCargo { scope } => self.launch.as_ref().is_some_and(|launch| {
+        | Progress::RunningCargo { scope }
+        | Progress::RunningLease { scope } => self.launch.as_ref().is_some_and(|launch| {
           (launch.resources == Resources::Resolver && launch.released())
             || launch.resources
               == (Resources::Bulk {
@@ -2231,13 +2243,13 @@ fn working_entry(name: &str) -> bool {
   })
 }
 
-// only executable Files and Cargo jobs can produce a paged result
+// only supported executable jobs can produce a paged result
 fn record_limit(executing: bool, invocation: Option<&crate::invocation::Summary>) -> u64 {
   if executing
     && invocation.is_some_and(|summary| {
       matches!(
         summary.operation.as_str(),
-        "files" | "plan" | "clean" | "sweep"
+        "files" | "plan" | "clean" | "sweep" | "lease"
       )
     })
   {

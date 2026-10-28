@@ -9,6 +9,26 @@ fn key() -> Key {
   }
 }
 
+#[test]
+fn lease_creator_attribution_never_uses_the_fallback_owner_label() {
+  let implicit = attribution(true, "user@host".into(), None, None);
+  assert_eq!(implicit["owner"], "user@host");
+  assert!(implicit["actor"].is_null());
+  let explicit = attribution(
+    true,
+    "explicit-owner".into(),
+    Some("explicit-owner".into()),
+    Some("explicit-session".into()),
+  );
+  assert_eq!(explicit["owner"], "explicit-owner");
+  assert_eq!(explicit["actor"], "explicit-owner");
+  assert_eq!(explicit["session"], "explicit-session");
+  assert_eq!(
+    attribution(false, "user@host".into(), None, None),
+    serde_json::json!({"actor":"user@host","session":null})
+  );
+}
+
 fn view(result: Option<Terminal>) -> View {
   View {
     key: key(),

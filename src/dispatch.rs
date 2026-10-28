@@ -1,7 +1,7 @@
-//! Durable Cargo validation and declaration phases in bounded owned workers.
+//! Durable validation, Cargo, declaration and lease phases in bounded owned workers.
 //!
-//! The fixed writer coordinates read jobs and private declaration mutation adapters.
-//! Other applying adapters and public CLI cutover remain separate.
+//! The fixed writer coordinates supported read and mutation adapters.
+//! Remaining applying families and fleet cutover stay outside these adapters.
 //! Unknown process ownership never becomes replacement capacity.
 
 use std::collections::{BTreeSet, VecDeque};
@@ -21,10 +21,12 @@ use crate::worker::{self, Owned, Report, Start, Task};
 
 mod cargo_job;
 mod files_job;
+mod lease_job;
 
 pub(crate) use cargo_job::{assess as assess_cargo, resolve as resolve_cargo};
 pub(crate) use files_job::FilesBatch;
 pub(crate) use files_job::{assess as assess_files, resolve as resolve_files};
+pub(crate) use lease_job::{assess as assess_lease, resolve as resolve_lease};
 
 const MAX_PENDING: usize = 16;
 const MAX_OBJECTS: usize = 128;
@@ -38,6 +40,7 @@ pub enum Progress {
   Resolving,
   ResolvingFiles,
   ResolvingCargo,
+  ResolvingLease,
   Resolved {
     scope: Scope,
   },
@@ -48,6 +51,12 @@ pub enum Progress {
     scope: Scope,
   },
   RunningCargo {
+    scope: Scope,
+  },
+  LeaseResolved {
+    scope: Scope,
+  },
+  RunningLease {
     scope: Scope,
   },
   Checking {
@@ -76,6 +85,12 @@ impl Progress {
       (Self::Queued, Self::ResolvingCargo) | (Self::ResolvingCargo, Self::CargoResolved { .. }) => {
         true
       }
+      (Self::Queued, Self::ResolvingLease) | (Self::ResolvingLease, Self::LeaseResolved { .. }) => {
+        true
+      }
+      (Self::LeaseResolved { scope: previous }, Self::RunningLease { scope: next }) => {
+        previous == next
+      }
       (Self::CargoResolved { scope: previous }, Self::RunningCargo { scope: next }) => {
         previous == next
       }
@@ -90,6 +105,9 @@ impl Progress {
         Self::Resolving
         | Self::ResolvingFiles
         | Self::ResolvingCargo
+        | Self::ResolvingLease
+        | Self::LeaseResolved { .. }
+        | Self::RunningLease { .. }
         | Self::Resolved { .. }
         | Self::FilesResolved { .. }
         | Self::CargoResolved { .. }
@@ -133,6 +151,7 @@ struct Job {
   input: Prepared,
   files: bool,
   cargo: bool,
+  lease: bool,
   progress: Progress,
   launch: Option<Launch>,
   owned: Option<Owned>,
@@ -188,6 +207,7 @@ impl Scheduler {
       cargo: operation
         .as_deref()
         .is_some_and(|operation| matches!(operation, "plan" | "clean" | "sweep")),
+      lease: operation.as_deref() == Some("lease"),
       key,
       input,
       progress,
@@ -226,6 +246,8 @@ impl Scheduler {
         | Progress::FilesResolved { scope }
         | Progress::CargoResolved { scope }
         | Progress::RunningCargo { scope }
+        | Progress::LeaseResolved { scope }
+        | Progress::RunningLease { scope }
         | Progress::Checking { scope }
         | Progress::PreviewingFiles { scope }
         | Progress::FilesYielded { scope, .. } => Some(Resources::Bulk {
@@ -334,6 +356,21 @@ impl Job {
             if done.exit_code == 0 =>
           {
             Progress::CargoResolved { scope }
+          }
+          (Progress::ResolvingLease, Ok(Report::LeaseResolved { scope }))
+            if done.exit_code == 0 =>
+          {
+            Progress::LeaseResolved { scope }
+          }
+          (
+            Progress::RunningLease { .. },
+            Ok(Report::LeaseFinished {
+              terminal,
+              pages: output,
+            }),
+          ) if done.exit_code == 0 => {
+            pages = output;
+            Progress::Result { terminal }
           }
           (
             Progress::RunningCargo { .. },
@@ -481,6 +518,12 @@ impl Job {
           input: self.input.clone(),
         }
       }
+      Progress::Queued if self.lease => {
+        self.persist(journal, Progress::ResolvingLease)?;
+        Task::ResolveLease {
+          input: self.input.clone(),
+        }
+      }
       Progress::Queued => {
         self.persist(journal, Progress::Resolving)?;
         Task::ResolveCheck {
@@ -497,6 +540,32 @@ impl Job {
       Progress::ResolvingCargo if self.launch.is_none() => Task::ResolveCargo {
         input: self.input.clone(),
       },
+      Progress::ResolvingLease if self.launch.is_none() => Task::ResolveLease {
+        input: self.input.clone(),
+      },
+      Progress::LeaseResolved { scope } => {
+        self.persist(
+          journal,
+          Progress::RunningLease {
+            scope: scope.clone(),
+          },
+        )?;
+        Task::Lease {
+          input: self.input.clone(),
+          scope,
+        }
+      }
+      Progress::RunningLease { scope }
+        if self
+          .launch
+          .as_ref()
+          .is_none_or(|launch| matches!(launch.resources, Resources::Resolver)) =>
+      {
+        Task::Lease {
+          input: self.input.clone(),
+          scope,
+        }
+      }
       Progress::CargoResolved { scope } => {
         self.persist(
           journal,

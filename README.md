@@ -313,10 +313,10 @@ reap create clone <source-repo-or-url> <new-dir> --ttl 48h --owner NAME --purpos
 reap create copy <source-dir> <new-dir> --ttl 48h --owner NAME --purpose TEXT [--scratch]
 reap parents arm <existing-parent> --project <source-project> --owner NAME
 reap parents list [parent]
-reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT]
-reap lease renew <dir> [--ttl 7d]
-reap lease release <dir>
-reap lease list
+reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT] [--wait [SECONDS]]
+reap lease renew <dir> [--ttl DURATION] [--wait [SECONDS]]
+reap lease release <dir> [--wait [SECONDS]]
+reap lease list [--wait [SECONDS]]
 reap doctor [--quarantine] [--id ID] [--verbose] [--apply]
 reap retire [dir] [--now] [--apply]
 
@@ -706,6 +706,20 @@ records that they were meant to be temporary. A machine-local lease records
 that intent. It is deliberately never part of the repository: a committed
 "delete me" would be inherited by every clone and worktree.
 
+All `lease` commands use the same bounded job client and protocol 2 receipts.
+Use `lease add`, `renew`, `release`, or `list` with `--wait 30` before a dependent step.
+Listing reads the bounded lease index. It does not inspect each workspace or quarantine path;
+target availability is explicitly unobserved. Large results use retained result pages.
+Lease writes use journaled directory, lock, marker and index units.
+Marker and index writes hold the stable legacy state lock.
+A busy lock refuses the worker without a caller-side wait. Release keeps the workspace.
+An interruption can leave a known partial result or unresolved effect; observe its original job key.
+Unknown index fields, marker formats, replacements and permanent roles refuse the affected write.
+Explicit add can replace a recognized copied marker with fresh instance evidence, not inherited permission.
+A co-located lifetime prevents add from creating a second lifecycle.
+Use a TTL only when disposal after that period is acceptable, including an absent creator.
+An expected completion time is not disposal permission.
+
 For work Reap creates, use `create` so the lifecycle starts with the directory:
 
 ```bash
@@ -745,9 +759,9 @@ For a directory created outside Reap (for example by an editor), register it
 only when its creator explicitly knows it is temporary:
 
 ```bash
-reap lease add ../bench-copy --ttl 48h --scratch --owner agent-x --purpose "perf run"
-reap lease renew ../bench-copy          # still needed
-reap lease release ../bench-copy        # became permanent; drop the lease
+reap lease add ../bench-copy --ttl 48h --scratch --owner agent-x --purpose "perf run" --wait 30
+reap lease renew ../bench-copy --wait 30 # still needed
+reap lease release ../bench-copy --wait 30 # became permanent; drop the lease
 ```
 
 To keep track of a stable parent where an editor or another tool creates
@@ -778,17 +792,17 @@ For owner review, registration can also carry structured attribution:
 ```bash
 reap lease add ../bench-copy --ttl 48h --scratch \
   --project reap --actor agent-x --session perf-42 --creation-method git-worktree \
-  --purpose "perf run"
+  --purpose "perf run" --wait 30
 ```
 
 `--project` is the source project label or path; `--actor` names the creator,
 and `--session` identifies a run or agent session. If `--actor` is omitted,
-an explicitly supplied `--owner` or `$REAP_OWNER` is recorded verbatim as the
-actor; `$REAP_SESSION` can supply the session. Reap records the local host.
+an explicit `--owner` or `$REAP_OWNER` can supply the actor.
+The fallback `user@host` owner label does not supply an actor.
+`$REAP_SESSION` can supply the session. Reap records the local host.
 These fields are attribution only: they do not arm a store, create a lease
 marker, relax retirement checks, or authorize purge. Older leases without
-these fields remain readable and listings show `(unknown)` rather than
-guessing from a free-form owner string.
+these fields remain readable. Missing provenance stays absent; Reap does not infer creator fields.
 
 A lease records the canonical path, filesystem identity (device and inode), an
 opaque token mirrored in a `.reap-lease` marker inside the directory, an

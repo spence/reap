@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 use crate::invocation::{Context, Intent, Namespace};
 use crate::journal::{random_token, Decision};
 
+#[cfg(target_os = "macos")]
+#[path = "tests/lease.rs"]
+mod lease;
+
 struct ResumedOnDrop(crate::launch::ProcessIdentity);
 
 impl Drop for ResumedOnDrop {

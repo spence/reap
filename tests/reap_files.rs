@@ -375,14 +375,11 @@ fn git_tracked_declaration_is_set_aside() {
       .arg(&repo)
       .args([
         "-c",
-        "user.name=t",
-        "-c",
-        "user.email=t@t",
+        "core.hooksPath=/dev/null",
         "-c",
         "commit.gpgsign=false"
       ])
       .args(args)
-      .env("GIT_CONFIG_GLOBAL", "/dev/null")
       .output()
       .unwrap()
       .status
@@ -647,21 +644,19 @@ fn lease_overlap_blocks_removal() {
   let run = env.projects().join("p/run-1");
   declare(&run, json!({"version": 1, "expires": PAST}));
   file(&run.join("data"));
-  assert!(env
-    .reap(&[
-      "lease",
-      "add",
-      run.to_str().unwrap(),
-      "--ttl",
-      "48h",
-      "--scratch",
-      "--owner",
-      "t",
-      "--purpose",
-      "t"
-    ])
-    .status
-    .success());
+  let metadata = fs::metadata(&run).unwrap();
+  fs::write(
+    env.root.join("state/reap/leases.json"),
+    serde_json::to_vec(&json!({"version":1,"leases":[{
+      "id":"overlap-fixture","path":fs::canonicalize(&run).unwrap(),
+      "dev":std::os::unix::fs::MetadataExt::dev(&metadata),
+      "ino":std::os::unix::fs::MetadataExt::ino(&metadata),"token":"retained-fixture",
+      "owner":"fixture","purpose":"legacy overlap guard","ttl_secs":172800,
+      "created_unix":1,"renewed_unix":1,"expires_unix":i64::MAX,"scratch":true,
+    }]}))
+    .unwrap(),
+  )
+  .unwrap();
   age(&env.projects(), 2.0);
   let out = env.apply();
   assert!(run.join("data").exists(), "{out}");

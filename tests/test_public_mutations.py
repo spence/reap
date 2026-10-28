@@ -1,5 +1,6 @@
 """Require prompt mutation receipts and real effects through the installed broker."""
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -101,6 +102,33 @@ class PublicMutations(unittest.TestCase):
         self.assertEqual(result.receipt["invocation"]["operation"], "files")
         self.assertEqual(result.receipt["invocation"]["mode"], "apply")
         self.assertTrue(self.kept.exists())
+
+    def test_lease_commands_do_not_wait_for_a_busy_legacy_state_lock(self):
+        state = self.root / "state/reap"
+        index = state / "leases.json"
+        original = b'{"version":1,"leases":[]}\n'
+        index.write_bytes(original)
+        with (state / "state.lock").open("wb") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            commands = [
+                (("lease",), "read"),
+                (("lease", "list"), "read"),
+                (("lease", "add", self.project, "--ttl", "24h"), "apply"),
+                (("lease", "renew", self.project), "apply"),
+                (("lease", "release", self.project), "apply"),
+            ]
+            for command, mode in commands:
+                with self.subTest(command=command[:2]):
+                    result = self.run_cli(*command)
+                    self.assertIn(result.returncode, (0, 1, 75) if mode == "read" else (1, 75))
+                    self.assertEqual(result.receipt["invocation"]["operation"], "lease")
+                    self.assertEqual(result.receipt["invocation"]["mode"], mode)
+                    self.assertEqual(index.read_bytes(), original)
+                    self.assertFalse((self.project / ".reap-lease").exists())
+                    print(json.dumps({"command": list(map(str, command)),
+                                      "elapsed_seconds": result.elapsed,
+                                      "state": result.receipt["state"],
+                                      "exit_code": result.returncode}))
 
     def test_remaining_applying_commands_do_not_wait_for_configuration_fifo(self):
         self.config.unlink()

@@ -648,6 +648,182 @@ mod native {
   }
 
   #[test]
+  fn native_lease_client_applies_metadata_and_replays_after_namespace_creation_and_writer_restart()
+  {
+    use crate::client::{Client, State};
+    let fixture = Fixture::new();
+    fixture.install(Role::ContextResolver);
+    let mut input = intent(&fixture);
+    let project = fixture.root.join("lease-project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("valuable"), b"retained lease workspace").unwrap();
+    let path = project.to_string_lossy().into_owned();
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    for command in [
+      crate::LeaseCmd::Add {
+        path: path.clone(),
+        ttl: "24h".into(),
+        scratch: false,
+        owner: Some("lease-client".into()),
+        purpose: Some("native metadata proof".into()),
+        project: None,
+        actor: None,
+        session: None,
+        creation_method: Some("owned-fixture".into()),
+      },
+      crate::LeaseCmd::Renew {
+        path: path.clone(),
+        ttl: Some("48h".into()),
+      },
+      crate::LeaseCmd::List,
+      crate::LeaseCmd::Release { path: path.clone() },
+    ] {
+      input.argv = invocation::lease_argv(&command);
+      let expected = match command {
+        crate::LeaseCmd::Add { .. } => 5,
+        crate::LeaseCmd::Renew { .. } => 1,
+        crate::LeaseCmd::List => 0,
+        crate::LeaseCmd::Release { .. } => 2,
+      };
+      let job_key = key(&fixture);
+      fixture.call(Role::ContextResolver, Request::Ping);
+      let started = Instant::now();
+      let admitted = client.submit(input.clone(), Some(job_key.clone()));
+      assert!(
+        started.elapsed() < Duration::from_millis(1250),
+        "{admitted:?}"
+      );
+      assert_eq!(admitted.state, State::Pending, "{admitted:?}");
+      let done = client.wait(job_key.clone(), Duration::from_secs(30));
+      assert_eq!(done.state, State::Completed, "{command:?}: {done:?}");
+      let job = done.job.as_ref().unwrap();
+      assert_eq!(job.result.as_ref().unwrap().effects, expected);
+      assert_eq!(job.invocation.as_ref().unwrap().operation, "lease");
+      assert_eq!(
+        job.invocation.as_ref().unwrap().mode,
+        if expected == 0 { "read" } else { "apply" }
+      );
+      let repeated = client.submit(input.clone(), Some(job_key.clone()));
+      if matches!(command, crate::LeaseCmd::Add { .. }) {
+        assert_eq!(
+          repeated.state,
+          State::Conflict,
+          "a new namespace capture is not the original prepared input: {repeated:?}"
+        );
+      } else {
+        assert_eq!(repeated.job, done.job);
+      }
+      fixture.stop(Role::StateWriter);
+      fixture.install(Role::StateWriter);
+      fixture.epoch();
+      assert_eq!(client.show(job_key.clone()).job, done.job);
+      let repeated = client.submit(input.clone(), Some(job_key));
+      if matches!(command, crate::LeaseCmd::Add { .. }) {
+        assert_eq!(repeated.state, State::Conflict, "{repeated:?}");
+      } else {
+        assert_eq!(repeated.job, done.job);
+      }
+      assert_eq!(
+        fs::read(project.join("valuable")).unwrap(),
+        b"retained lease workspace"
+      );
+    }
+    assert!(!project.join(crate::lease::LEASE_MARKER).exists());
+    let state = input
+      .namespace
+      .xdg_state_home
+      .as_ref()
+      .unwrap()
+      .join("reap");
+    assert!(crate::lease::load_leases(&state).unwrap().leases.is_empty());
+  }
+
+  #[test]
+  fn native_lease_original_prepared_receipt_replays_after_state_creation_and_writer_restart() {
+    use crate::client::{Client, State};
+    let fixture = Fixture::new();
+    fixture.install(Role::ContextResolver);
+    let mut input = intent(&fixture);
+    let project = fixture.root.join("lease-replay-project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("valuable"), b"replay survivor").unwrap();
+    input.argv = vec![
+      "lease".into(),
+      "add".into(),
+      "--ttl=24h".into(),
+      project.to_string_lossy().into(),
+    ];
+    let job_key = key(&fixture);
+    let response = fixture.call(
+      Role::ContextResolver,
+      Request::Prepare {
+        key: job_key.clone(),
+        input,
+      },
+    );
+    let Outcome::Prepared { receipt } = response.outcome else {
+      panic!("lease preparation failed: {response:?}")
+    };
+    let response = fixture.call(
+      Role::Control,
+      Request::Admit {
+        receipt: receipt.clone(),
+      },
+    );
+    assert!(
+      matches!(
+        response.outcome,
+        Outcome::Decision {
+          decision: Decision::Present { .. }
+        }
+      ),
+      "{response:?}"
+    );
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    let done = client.wait(job_key.clone(), Duration::from_secs(30));
+    assert_eq!(done.state, State::Completed, "{done:?}");
+    assert_eq!(
+      done.job.as_ref().unwrap().result.as_ref().unwrap().effects,
+      5
+    );
+    let state = project
+      .parent()
+      .unwrap()
+      .join("caller-state/reap/leases.json");
+    let index = fs::read(&state).unwrap();
+    let marker = fs::read(project.join(crate::lease::LEASE_MARKER)).unwrap();
+    for restarted in [false, true] {
+      if restarted {
+        fixture.stop(Role::StateWriter);
+        fixture.install(Role::StateWriter);
+        fixture.epoch();
+      }
+      let response = fixture.call(
+        Role::Control,
+        Request::Admit {
+          receipt: receipt.clone(),
+        },
+      );
+      let Outcome::Decision {
+        decision: Decision::Present { job },
+      } = response.outcome
+      else {
+        panic!("exact receipt did not replay: {response:?}")
+      };
+      assert_eq!(Some(job), done.job);
+      assert_eq!(fs::read(&state).unwrap(), index);
+      assert_eq!(
+        fs::read(project.join(crate::lease::LEASE_MARKER)).unwrap(),
+        marker
+      );
+      assert_eq!(
+        fs::read(project.join("valuable")).unwrap(),
+        b"replay survivor"
+      );
+    }
+  }
+
+  #[test]
   fn native_files_apply_client_commits_payload_and_index_and_replays_one_result() {
     use crate::client::{Client, State};
     let fixture = Fixture::with_fault(Some("files-activity"));

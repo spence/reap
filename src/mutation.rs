@@ -13,7 +13,7 @@ use crate::journal::Key;
 use crate::launch::{Grant, Resources};
 
 mod native;
-pub(crate) use native::{read_metadata, recover, stage_metadata};
+pub(crate) use native::{read_metadata, recover, stage_directory, stage_metadata};
 pub(crate) use native::{HeldPublish, HeldRename, HeldUnlink, Staging};
 
 // reserve 4 KiB of the private 64 KiB packet for task and reply envelopes

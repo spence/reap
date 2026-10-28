@@ -12,6 +12,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BINARY = os.environ.get("REAP_TEST_BIN") or shutil.which("reap")
+GIT_GLOBAL = os.environ.get("GIT_CONFIG_GLOBAL", str(pathlib.Path.home() / ".gitconfig"))
 ROLES = ("conversation_source", "permanent_archive")
 PAYLOAD = b"synthetic protected conversation bytes\n"
 
@@ -38,7 +39,7 @@ class Fixture:
         self.environment = dict(os.environ, HOME=str(self.home),
                                 XDG_STATE_HOME=str(self.root / "state"))
         for name in ("REAP_OWNER", "REAP_SESSION", "REAP_INTERNAL_CONFIG_SNAPSHOT",
-                     "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+                     "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG_GLOBAL"):
             self.environment.pop(name, None)
 
     def close(self):
@@ -52,7 +53,7 @@ class Fixture:
 
     def run(self, *arguments):
         files = arguments and arguments[0] == "files"
-        coordinated = arguments and arguments[0] in ("files", "plan", "clean", "sweep")
+        coordinated = arguments and arguments[0] in ("files", "plan", "clean", "sweep", "lease")
         if coordinated:
             self.unconfirmed_jobs += 1
             arguments = (*arguments, "--wait", "30")
@@ -121,9 +122,10 @@ class Preservation(unittest.TestCase):
 
                 def git(*arguments):
                     result = subprocess.run(
-                        ["/usr/bin/git", "-c", "user.name=Fixture", "-c", "user.email=fixture@invalid",
+                        ["/usr/bin/git", "-c", "core.hooksPath=/dev/null",
                          "-c", "commit.gpgsign=false", *arguments], cwd=workspace,
-                        env=fixture.environment, capture_output=True, timeout=5)
+                        env=dict(fixture.environment, GIT_CONFIG_GLOBAL=GIT_GLOBAL),
+                        capture_output=True, timeout=5)
                     self.assertEqual(result.returncode, 0, result)
                     return result.stdout.strip()
 

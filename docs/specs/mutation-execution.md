@@ -100,6 +100,21 @@
   `dispatch::cargo_job::inventory::tests`;
   `tests/test_public_mutations.py::PublicMutations::test_cargo_commands_do_not_wait_for_target_marker_fifo`.
 
+- **C13 — Legacy lease metadata remains explicit.** Lease commands use the shared client and writer.
+  Each state-directory, stable-lock, marker and index publication has separate durable unit intent.
+  Directory and lock creation precede lock acquisition. Marker and index writes hold the stable lock.
+  Add publishes its marker before its index; release publishes the index before removing its matching marker.
+  Neither release nor recovery removes the workspace. Interruption reports completed unit counts, not completed lease changes.
+  Uncertain marker effects retain physical exclusion after native exit and journal reopen.
+  Original index fields, pending creation intents and managed parents survive unrelated edits.
+  Unknown schemas or fields refuse a rewrite. Permanent roles and replacements remain vetoes.
+  An explicit add can replace only recognized legacy marker metadata with current instance evidence;
+  a copied marker supplies no permission. A co-located lifetime prevents a second lease lifecycle.
+  Lease listing does not inspect workspace or quarantine paths merely for display.
+  Renew and release do not require a readable co-located lifetime declaration during resolution.
+  A preservation refusal after index release keeps the marker and reports a partial result.
+  Binding: `dispatch::tests::lease`; the native lease client and exact-receipt replay cases in `service::tests::native`.
+
 ## Conformance boundary
 
 The public mutation fixtures contain both refusal controls and actual allowed effects with protected
@@ -135,8 +150,8 @@ or performance requirements.
 The native sweep regression also requires quarantine exclusion. A native nested-mount refusal case
 remains unmet; it must prove refusal without source effects before fleet activation.
 
-The source Files and Cargo clients submit applying requests through the bounded client. Maintenance
-awaits the same terminal result for both families. Fleet activation remains a separate gate; other
+The source Files, Cargo and lease clients submit applying requests through the bounded client. Maintenance
+awaits the same terminal result for Files and Cargo. Fleet activation remains a separate gate; other
 applying families still need the shared executor before the full bridge can be released.
 A failed terminal result can retain an uncertain unit and its C5 physical reservation.
 Legacy foreground commands do not honor that reservation. They must migrate before fleet activation under C7.
