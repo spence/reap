@@ -1,0 +1,292 @@
+{
+  "schema": 1,
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "generated_at": "2026-10-28T01:46:30.378061+00:00",
+  "source_revision": "91f37da22b373d03385aed8e101e3077520cb357",
+  "scope": "Private Cargo resolver and coordinated executor, with the Files first-seen regression correction. This proof does not establish public Cargo routing, efficient execution, full T19, or full-goal completion.",
+  "source_snapshot": {
+    "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-review-snapshot-v2.json",
+    "sha256": "be1d4993be1dba501fec828f627076d4c758fcea9fbd175f0a7a6846460defff",
+    "bytes": 3084
+  },
+  "source_files": {
+    "docs/specs/mutation-execution.md": "05d2465cd5cac6f497af3ae10b72648476005b64683131fc4805e70fbe3007c0",
+    "docs/specs/result-pages.md": "fecc6a60ec10398a47bbaacad88806c3a02ebfd4bdc2882cdd70b1f3b31c923f",
+    "src/dispatch.rs": "3402b578224d6755cd405a66d928cff382b4a68e097a6ef12c7c0170fc324caf",
+    "src/dispatch/tests.rs": "837a49d58013fee0a1e3b245100c5aee83f6ee2360b71b323779f1f94493df7c",
+    "src/dispatch/cargo_job.rs": "9c4e42df2554a7764604c1d9f25088b85b6e6fc4fff21208361a655bf2f9cba4",
+    "src/dispatch/cargo_job/applying.rs": "838b49ec695b1105b8068b8af378de71d38a4a5f062530ac21ff7f9b4404bd98",
+    "src/dispatch/cargo_job/inventory.rs": "c9f3ddbed94229dcdf3dbdd513efb8adaa4713777fd8f7a23eb97791efcb7370",
+    "src/files.rs": "1e451470c5a78649b82131a1b905526f96888e9325273323fa32326a7343ebb7",
+    "src/invocation.rs": "663f44d6f8481104d7c67399a994a51c35c8c2515c8cdfda2bed2295159128cf",
+    "src/journal.rs": "27f91dc02df94ce8a043b2d882e1cb0b65e6c89dbba04e51fd64a40e96fcb99a",
+    "src/journal/tests.rs": "52bd91bb0b4183234449290b4af4ecb13bf51e9651cc54d6be9a6cf8289bf09f",
+    "src/main.rs": "bd44b8ad4d205d5fce25cee4a0712614eb5816a7505ea05c55c20af91f5ba8a8",
+    "src/plan.rs": "46cc8e48e2fb292e56a07ce56579f7842b3a071fbbff055565c783c2a71b038c",
+    "src/worker.rs": "8e91985e11be803704fc826a973dbbf28927ebb42627e96cab3977fd1e5863f4",
+    "docs/specs/job-execution.md": "2142b0780f28904b98def39140ca0bdf9b19db063cf4ed7e81b97afc4e7d0620"
+  },
+  "source_gate": {
+    "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-source-unit-v2.log",
+    "sha256": "064dcacda2d69ab9ad88204915c03cdfa04a10c30bce4fc5dff297fff1234cd2",
+    "bytes": 36643,
+    "passed": 379,
+    "failed": 0,
+    "ignored": 5,
+    "elapsed_seconds": 358.2,
+    "command": [
+      "env",
+      "-u",
+      "CARGO_TARGET_DIR",
+      "CARGO_BUILD_JOBS=1",
+      "TMPDIR=/private/tmp",
+      "cargo",
+      "test",
+      "--target-dir",
+      "target/control-t13/mutation-bridge/private-target",
+      "--bin",
+      "reap",
+      "--",
+      "--test-threads=1"
+    ],
+    "cwd": "/Users/spencer/src/reap"
+  },
+  "compile_gate": {
+    "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-source-compile-v2.log",
+    "sha256": "8a0df6902b040b65f66ccd5d877245b46e5bda30d884d00414735127d91b1077",
+    "bytes": 1192,
+    "compiled_targets": 3,
+    "integration_targets_executed": false
+  },
+  "source_review": {
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "execution_profile": "workspace",
+    "initial": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-review-wait-v1e.json",
+      "sha256": "b3809a67a81ad9007e59415c7251c84e02fa9aca2ed240851b71564b02a1746d",
+      "bytes": 9393
+    },
+    "failed_correction_dispatch": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-review-wait-v2a.json",
+      "sha256": "897671c1b0aaf034819c951464374e87101c2b75b4348b2f24ee4030c1e5d091",
+      "bytes": 844
+    },
+    "accepted_correction": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-correction-review-wait-v1a.json",
+      "sha256": "0706484e1059fd0231e5653c6deafece60e4e84bb8057a5ff0ad28f75b57c0ff",
+      "bytes": 4723
+    },
+    "peer_status": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-correction-peer-status.json",
+      "sha256": "c6f4b01481e8a1973d4bb2dc9908782bc26bee730602c3edbc3e0ed969ab39b8",
+      "bytes": 1350
+    }
+  },
+  "regression": {
+    "red": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-first-seen-red-v1.log",
+      "sha256": "ccd2247a4e90ac51f07f5c85478fd8933a23cfef986677a7e84f4e551f4d3782",
+      "bytes": 1126
+    },
+    "red_result": "The pending-grace Files apply fixture fails under the old read-mode-only guard.",
+    "first_seen_green": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-first-seen-green-v2.log",
+      "sha256": "f30f120350c4ed4903dbaf7f0289ffd0421c3117d1ce401226738e08ea25615f",
+      "bytes": 972,
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "elapsed_seconds": 8.05
+    },
+    "pending_grace_green": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-pending-grace-green-v1.log",
+      "sha256": "98d1d1bb7c8ed0ee91307331c0d47ed8bf1aa33976c127cd5d99bf73b7353f93",
+      "bytes": 412,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "elapsed_seconds": 0.62
+    }
+  },
+  "native": {
+    "unit_identity": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-frozen-v2/unit",
+      "sha256": "101dc7654da62ffbb527fefc84760cf45eaaa1a0f663341cfec90b7ff476fc2a",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 35066704,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "identity_receipts": {
+      "cargo-adapter-identity-v2.json": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-identity-v2.json",
+        "sha256": "ffe47f166d5e6adc8a2fb34108c950e41f0c463b0c22431093e82369781a4fbd",
+        "bytes": 835
+      },
+      "cargo-adapter-root-identity-after-v2.json": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-root-identity-after-v2.json",
+        "sha256": "b96ca66c1e88c17fafe62d86fe86f16ae34600571e967b8406817d25fc972ad9",
+        "bytes": 709
+      },
+      "cargo-adapter-mini-identity-before-v2.json": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-mini-identity-before-v2.json",
+        "sha256": "62b4dc2d40ebfafe3de4cec8b9f6671e0e308c39752e6976ad229e863bae1cbe",
+        "bytes": 700
+      },
+      "cargo-adapter-mini-identity-after-v2.json": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-mini-identity-after-v2.json",
+        "sha256": "62b4dc2d40ebfafe3de4cec8b9f6671e0e308c39752e6976ad229e863bae1cbe",
+        "bytes": 700
+      }
+    },
+    "catalyst": {
+      "cwd": "/Users/spencer/src/reap",
+      "fixture_root": "/Users/spencer/src/reap/target/control-t13/mutation-bridge",
+      "device": 16777232,
+      "logs": [
+        {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-native-root-v2.log",
+          "sha256": "1b94bd9316f38de9e57f99b0316d65d183e102e7fcbe05c98a92ca175bdc0f2f",
+          "bytes": 730,
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "elapsed_seconds": 44.13,
+          "command": [
+            "target/control-t13/mutation-bridge/cargo-adapter-frozen-v2/unit",
+            "--test-threads=1",
+            "dispatch::tests::native_cargo"
+          ]
+        },
+        {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-native-root-grace-v2.log",
+          "sha256": "aa8de31b51e7194f3386e654eb35ca5cadd3a819f5fab142034ada4d0eea8aeb",
+          "bytes": 219,
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "elapsed_seconds": 0.59,
+          "command": [
+            "target/control-t13/mutation-bridge/cargo-adapter-frozen-v2/unit",
+            "--exact",
+            "--test-threads=1",
+            "dispatch::tests::native_files_apply_records_pending_grace_without_target_effects_and_replays"
+          ]
+        },
+        {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-native-root-observations-v2.log",
+          "sha256": "e3e2170042037d4dd57de7e9dffbfeff282f290f39f3cdde5b3c466f3d6e67d7",
+          "bytes": 195,
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "elapsed_seconds": 0.03,
+          "command": [
+            "target/control-t13/mutation-bridge/cargo-adapter-frozen-v2/unit",
+            "--exact",
+            "--test-threads=1",
+            "journal::tests::cargo_results_cannot_publish_first_seen_observations"
+          ]
+        }
+      ],
+      "selected_environment": {
+        "TMPDIR": "/private/tmp",
+        "REAP_NATIVE_CONTROL_FIXTURE_ROOT": "/Users/spencer/src/reap/target/control-t13/mutation-bridge"
+      },
+      "unset_environment": [
+        "CARGO_TARGET_DIR",
+        "REAP_TEST_WORKER_BIN",
+        "DYLD_INSERT_LIBRARIES",
+        "REAP_NATIVE_CARGO_UNIT_STOP"
+      ]
+    },
+    "catalyst_mini": {
+      "cwd": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-adapter-t19-v1",
+      "fixture_root": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-adapter-t19-v1/fixtures-v2",
+      "device": 16777234,
+      "logs": [
+        {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-mini-v2/native-cargo-v2.log",
+          "sha256": "fcd09348ebad18dbf9dda70091392285a48888888552038abed3a4e0209d077b",
+          "bytes": 730,
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "elapsed_seconds": 24.56,
+          "command": [
+            "./frozen-v2/unit",
+            "--test-threads=1",
+            "dispatch::tests::native_cargo"
+          ]
+        },
+        {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-mini-v2/native-grace-v2.log",
+          "sha256": "1b54fce75c837495ef618c9296ec004e986488e31b0cfa93b73c685fe3b69212",
+          "bytes": 219,
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "elapsed_seconds": 0.49,
+          "command": [
+            "./frozen-v2/unit",
+            "--exact",
+            "--test-threads=1",
+            "dispatch::tests::native_files_apply_records_pending_grace_without_target_effects_and_replays"
+          ]
+        },
+        {
+          "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cargo-adapter-mini-v2/native-observations-v2.log",
+          "sha256": "e3e2170042037d4dd57de7e9dffbfeff282f290f39f3cdde5b3c466f3d6e67d7",
+          "bytes": 195,
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "elapsed_seconds": 0.03,
+          "command": [
+            "./frozen-v2/unit",
+            "--exact",
+            "--test-threads=1",
+            "journal::tests::cargo_results_cannot_publish_first_seen_observations"
+          ]
+        }
+      ],
+      "selected_environment": {
+        "TMPDIR": "/private/tmp",
+        "REAP_NATIVE_CONTROL_FIXTURE_ROOT": "/private/tmp/reap-cores-transport-8yjfimnx/cargo-adapter-t19-v1/fixtures-v2"
+      },
+      "unset_environment": [
+        "CARGO_TARGET_DIR",
+        "REAP_TEST_WORKER_BIN",
+        "DYLD_INSERT_LIBRARIES",
+        "REAP_NATIVE_CARGO_UNIT_STOP"
+      ]
+    },
+    "functions_per_mac": 8,
+    "cargo_cutpoints": [
+      "lock-intended",
+      "lock-published",
+      "lock-observed",
+      "unlink-intended",
+      "unlinked",
+      "unlink-observed"
+    ],
+    "internal_storage_only": true
+  },
+  "not_proved": [
+    "Public Cargo commands and maintenance use the bounded client; the owned FIFO reproducer remains red and uncommitted.",
+    "Efficient discovery and validation: whole-target per-unlink recapture/fingerprinting is quadratic, and each guard repeats process census/host-wide lsof with up to four helpers. The 131072-entry cap and Cargo fairness remain delivery limits.",
+    "Sweep discovery exclusion/mount coverage, full cargo test, dedicated current-revision native fault matrix and installed-path proof.",
+    "All-family bridge, default KEEP creation, migration/fences/drains, permanent provider capture/retrieval, or source release."
+  ],
+  "activation": {
+    "product_installation_performed": false,
+    "destructive_conversion_performed": false,
+    "conversation_source_pruning_performed": false,
+    "goal_complete": false,
+    "task_complete": false
+  }
+}
