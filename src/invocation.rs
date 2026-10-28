@@ -41,11 +41,114 @@ pub struct Summary {
   pub requested_scope: String,
 }
 
+/// Complete Cargo arguments after pure CLI parsing. A scope or flag grants no cleanup permission.
+#[derive(Clone)]
+pub(crate) struct CargoRequest {
+  pub operation: String,
+  pub path: Option<String>,
+  pub apply: bool,
+  pub verbose: bool,
+  pub quick: bool,
+  pub policy: crate::PolicyArgs,
+}
+
+impl CargoRequest {
+  /// Preserve every selection override; an option-like path remains a literal positional value.
+  pub(crate) fn argv(&self) -> Vec<String> {
+    let mut argv = vec![self.operation.clone()];
+    for (flag, enabled) in [
+      ("--apply", self.apply),
+      ("--verbose", self.verbose),
+      ("--quick", self.quick),
+      ("--no-incremental", self.policy.no_incremental),
+      ("--no-build-scripts", self.policy.no_build_scripts),
+    ] {
+      if enabled {
+        argv.push(flag.into());
+      }
+    }
+    for (flag, value) in [
+      (
+        "--keep-recent",
+        self.policy.keep_recent.map(|v| v.to_string()),
+      ),
+      (
+        "--min-age-minutes",
+        self.policy.min_age_minutes.map(|v| v.to_string()),
+      ),
+      (
+        "--stale-debug",
+        self.policy.stale_debug.map(|v| v.to_string()),
+      ),
+      (
+        "--stale-release",
+        self.policy.stale_release.map(|v| v.to_string()),
+      ),
+    ] {
+      if let Some(value) = value {
+        argv.extend([flag.into(), value]);
+      }
+    }
+    if let Some(path) = &self.path {
+      argv.extend(["--".into(), path.clone()]);
+    }
+    argv
+  }
+}
+
+/// Parse Cargo selection without filesystem access. Other operations and unknown flags refuse.
+pub(crate) fn cargo_request(input: &Intent) -> Option<CargoRequest> {
+  use clap::Parser;
+
+  let operation = input.argv.first()?;
+  if !matches!(operation.as_str(), "plan" | "clean" | "sweep") {
+    return None;
+  }
+  let command = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?;
+  let (path, apply, verbose, quick, policy) = match command {
+    crate::Cmd::Sweep {
+      apply,
+      verbose,
+      quick,
+      policy,
+    } => (None, apply, verbose, quick, policy),
+    crate::Cmd::Plan {
+      path,
+      apply,
+      verbose,
+      quick,
+      policy,
+    } => (path, apply, verbose, quick, policy),
+    crate::Cmd::Clean {
+      path,
+      verbose,
+      quick,
+      policy,
+      ..
+    } => (path, true, verbose, quick, policy),
+    _ => return None,
+  };
+  Some(CargoRequest {
+    operation: operation.clone(),
+    path,
+    apply,
+    verbose,
+    quick,
+    policy,
+  })
+}
+
 impl Summary {
   /// Validate supported presentation metadata without treating it as execution permission.
   pub fn valid(&self) -> bool {
     (self.operation == "check" && self.mode == "read"
-      || self.operation == "files" && matches!(self.mode.as_str(), "read" | "apply"))
+      || matches!(self.operation.as_str(), "files" | "plan" | "sweep")
+        && matches!(self.mode.as_str(), "read" | "apply")
+      || self.operation == "clean" && self.mode == "apply")
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
   }
@@ -55,6 +158,20 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = cargo_request(input) {
+    return Some(Summary {
+      operation: request.operation,
+      mode: if request.apply { "apply" } else { "read" }.into(),
+      requested_scope: request.path.unwrap_or_else(|| {
+        if input.argv[0] == "sweep" {
+          "configured"
+        } else {
+          "."
+        }
+        .into()
+      }),
+    });
   }
   let (path, applying) = match input.argv.first()?.as_str() {
     "files" => files_request(input)?,
@@ -527,5 +644,86 @@ mod native {
       io::ErrorKind::Unsupported,
       "native caller capture is unavailable",
     ))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn intent(argv: &[&str]) -> Intent {
+    Intent {
+      argv: argv.iter().map(|value| (*value).into()).collect(),
+      namespace: Namespace {
+        home: "/unread-cargo-namespace".into(),
+        xdg_state_home: None,
+        config_snapshot: None,
+      },
+      provenance: serde_json::json!({}),
+    }
+  }
+
+  #[test]
+  fn cargo_arguments_preserve_selection_and_literal_paths_without_filesystem_reads() {
+    let input = intent(&[
+      "plan",
+      "--apply",
+      "--verbose",
+      "--quick",
+      "--keep-recent",
+      "3",
+      "--min-age-minutes",
+      "2.5",
+      "--no-incremental",
+      "--no-build-scripts",
+      "--stale-debug",
+      "7",
+      "--stale-release",
+      "9",
+      "--",
+      "--literal-path",
+    ]);
+    let request = cargo_request(&input).unwrap();
+    assert!(request.apply && request.verbose && request.quick);
+    assert_eq!(request.policy.keep_recent, Some(3));
+    assert_eq!(request.policy.min_age_minutes, Some(2.5));
+    assert!(request.policy.no_incremental && request.policy.no_build_scripts);
+    assert_eq!(request.policy.stale_debug, Some(7));
+    assert_eq!(request.policy.stale_release, Some(9));
+    let canonical = Intent {
+      argv: request.argv(),
+      ..input.clone()
+    };
+    let again = cargo_request(&canonical).unwrap();
+    assert_eq!(again.argv(), request.argv());
+    let canonical_summary = summary(&canonical).unwrap();
+    assert!(canonical_summary.valid());
+    assert_eq!(canonical_summary.mode, "apply");
+    assert_eq!(canonical_summary.requested_scope, "--literal-path");
+
+    for argv in [
+      vec!["clean"],
+      vec!["clean", "--apply"],
+      vec!["sweep", "--apply"],
+    ] {
+      let input = intent(&argv);
+      assert!(cargo_request(&input).unwrap().apply);
+      let summary = summary(&input).unwrap();
+      assert!(summary.valid());
+      assert_eq!(summary.mode, "apply");
+    }
+    for argv in [vec!["plan"], vec!["sweep"]] {
+      let summary = summary(&intent(&argv)).unwrap();
+      assert!(summary.valid());
+      assert_eq!(summary.mode, "read");
+    }
+    for argv in [
+      vec!["plan", "--unrecognized"],
+      vec!["plan", "--apply", "--apply"],
+      vec!["sweep", "unexpected-path"],
+      vec!["check", "."],
+    ] {
+      assert!(cargo_request(&intent(&argv)).is_none());
+    }
   }
 }

@@ -1714,7 +1714,13 @@ fn bounded_state(path: &Path) -> Result<Option<Vec<u8>>, String> {
   Ok(Some(bytes))
 }
 
-fn open_relative(held: &File, root: &Path, path: &Path, device: u64) -> io::Result<File> {
+/// Open only real directory components inside a held root and its device boundary.
+pub(crate) fn open_relative(
+  held: &File,
+  root: &Path,
+  path: &Path,
+  device: u64,
+) -> io::Result<File> {
   let relative = path.strip_prefix(root).map_err(io::Error::other)?;
   let mut directory = held.try_clone()?;
   for component in relative.components() {
@@ -1765,7 +1771,8 @@ fn open_at(parent: &File, name: &Path, directory: bool) -> io::Result<File> {
   Ok(unsafe { File::from_raw_fd(fd) })
 }
 
-fn stat_at(parent: &File, name: &Path) -> io::Result<libc::stat> {
+/// Observe one child entry without following a final symlink.
+pub(crate) fn stat_at(parent: &File, name: &Path) -> io::Result<libc::stat> {
   let name = CString::new(name.as_os_str().as_bytes())?;
   let mut stat = std::mem::MaybeUninit::uninit();
   // SAFETY: the descriptor, terminated name, and complete output buffer remain valid.
@@ -1784,7 +1791,8 @@ fn stat_at(parent: &File, name: &Path) -> io::Result<libc::stat> {
   Ok(unsafe { stat.assume_init() })
 }
 
-fn descriptor_stat(file: &File) -> io::Result<libc::stat> {
+/// Read metadata from the held object, without another pathname lookup.
+pub(crate) fn descriptor_stat(file: &File) -> io::Result<libc::stat> {
   let mut stat = std::mem::MaybeUninit::uninit();
   // SAFETY: the held descriptor and complete output buffer remain valid.
   if unsafe { libc::fstat(file.as_raw_fd(), stat.as_mut_ptr()) } != 0 {

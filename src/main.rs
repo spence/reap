@@ -378,7 +378,7 @@ enum QuarantineCmd {
 
 enum RunError {
   Manifest(String),
-  Protected(PathBuf),
+  Plan(String),
   CargoLock(String),
   Activity(String),
 }
@@ -525,7 +525,8 @@ fn build_and_run(
   } else {
     None
   };
-  let plan = plan_project(&manifest, now_secs(), quick).map_err(|p| RunError::Protected(p.0))?;
+  let plan =
+    plan_project(&manifest, now_secs(), quick).map_err(|e| RunError::Plan(e.to_string()))?;
   let removed = if apply {
     apply_plan(&plan).map_err(|error| RunError::Activity(error.to_string()))?
   } else {
@@ -611,12 +612,8 @@ fn cmd_sweep(apply: bool, verbose: bool, quick: bool, overrides: &PolicyArgs) ->
         eprintln!("  {}: INVALID manifest: {}", name, e);
         errors += 1;
       }
-      Err(RunError::Protected(pp)) => {
-        eprintln!(
-          "  {}: FATAL protected-path hit, skipped: {}",
-          name,
-          pp.display()
-        );
+      Err(RunError::Plan(error)) => {
+        eprintln!("  {name}: Cargo planning refused: {error}");
         errors += 1;
       }
       Err(RunError::CargoLock(e)) => {
@@ -704,12 +701,9 @@ fn cmd_one(
       eprintln!("error: {}", e);
       return 1;
     }
-    Err(RunError::Protected(p)) => {
-      eprintln!(
-        "FATAL: candidate resolved inside a PROTECTED path -- aborted, no changes:\n  {}",
-        p.display()
-      );
-      return 99;
+    Err(RunError::Plan(error)) => {
+      eprintln!("Cargo planning refused: {error}");
+      return 1;
     }
     Err(RunError::CargoLock(e)) => {
       eprintln!("SKIPPED Cargo cleanup: {}", e);

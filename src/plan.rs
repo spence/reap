@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions};
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -215,27 +216,21 @@ impl HashGroup {
 
 type Key = (String, String);
 
-fn scan_deps(deps_dir: &Path) -> (HashMap<Key, HashGroup>, HashMap<String, Vec<String>>) {
+fn scan_deps(
+  deps_dir: &Path,
+) -> io::Result<(HashMap<Key, HashGroup>, HashMap<String, Vec<String>>)> {
   let mut groups: HashMap<Key, HashGroup> = HashMap::new();
   let mut stem_to_hashes: HashMap<String, Vec<String>> = HashMap::new();
-  let rd = match fs::read_dir(deps_dir) {
-    Ok(rd) => rd,
-    Err(_) => return (groups, stem_to_hashes),
-  };
-  for entry in rd.flatten() {
-    match entry.file_type() {
-      Ok(ft) if ft.is_file() => {}
-      _ => continue,
+  for entry in children(deps_dir)? {
+    if !entry.file_type()?.is_file() {
+      continue;
     }
     let name = entry.file_name().to_string_lossy().into_owned();
     let (stem, h) = match parse_stem_hash(&name) {
       Some(x) => x,
       None => continue,
     };
-    let meta = match entry.metadata() {
-      Ok(m) => m,
-      Err(_) => continue,
-    };
+    let meta = entry.metadata()?;
     let mtime = mtime_secs(&meta);
     let key = (stem.clone(), h.clone());
     if !groups.contains_key(&key) {
@@ -247,27 +242,22 @@ fn scan_deps(deps_dir: &Path) -> (HashMap<Key, HashGroup>, HashMap<String, Vec<S
       .unwrap()
       .add(entry.path(), &name, mtime);
   }
-  (groups, stem_to_hashes)
+  Ok((groups, stem_to_hashes))
 }
 
 fn attach_fingerprints(
   fp_dir: &Path,
   groups: &mut HashMap<Key, HashGroup>,
   hash_to_key: &HashMap<String, Key>,
-) {
-  let rd = match fs::read_dir(fp_dir) {
-    Ok(rd) => rd,
-    Err(_) => return,
-  };
-  for entry in rd.flatten() {
-    match entry.file_type() {
-      Ok(ft) if ft.is_dir() => {}
-      _ => continue,
+) -> io::Result<()> {
+  for entry in children(fp_dir)? {
+    if !entry.file_type()?.is_dir() {
+      continue;
     }
     let name = entry.file_name().to_string_lossy().into_owned();
     if let Some((_, h)) = parse_stem_hash(&name) {
       if let Some(key) = hash_to_key.get(&h) {
-        let (size, mtime) = dir_size_and_mtime(&entry.path());
+        let (size, mtime) = dir_size_and_mtime(&entry.path())?;
         let _ = size;
         if let Some(g) = groups.get_mut(key) {
           g.paths.push(entry.path());
@@ -278,15 +268,16 @@ fn attach_fingerprints(
       }
     }
   }
+  Ok(())
 }
 
 /// Prunable (strictly-older-duplicate) hash groups for one profile dir.
-fn stale_dedup_groups(profile_dir: &Path, keep_recent: usize) -> Vec<HashGroup> {
+fn stale_dedup_groups(profile_dir: &Path, keep_recent: usize) -> io::Result<Vec<HashGroup>> {
   let deps = profile_dir.join("deps");
   let fp = profile_dir.join(".fingerprint");
-  let (mut groups, stem_to_hashes) = scan_deps(&deps);
+  let (mut groups, stem_to_hashes) = scan_deps(&deps)?;
   let hash_to_key: HashMap<String, Key> = groups.keys().map(|k| (k.1.clone(), k.clone())).collect();
-  attach_fingerprints(&fp, &mut groups, &hash_to_key);
+  attach_fingerprints(&fp, &mut groups, &hash_to_key)?;
 
   let mut stale = Vec::new();
   for (stem, hashes) in &stem_to_hashes {
@@ -319,23 +310,20 @@ fn stale_dedup_groups(profile_dir: &Path, keep_recent: usize) -> Vec<HashGroup> 
       stale.push(g);
     }
   }
-  stale
+  Ok(stale)
 }
 
-fn stale_build_dirs(profile_dir: &Path, keep_recent: usize) -> Vec<PathBuf> {
+fn stale_build_dirs(profile_dir: &Path, keep_recent: usize) -> io::Result<Vec<PathBuf>> {
   let bld = profile_dir.join("build");
   let mut by_stem: HashMap<String, Vec<(f64, PathBuf)>> = HashMap::new();
-  if let Ok(rd) = fs::read_dir(&bld) {
-    for entry in rd.flatten() {
-      match entry.file_type() {
-        Ok(ft) if ft.is_dir() => {}
-        _ => continue,
-      }
-      let name = entry.file_name().to_string_lossy().into_owned();
-      if let Some(stem) = strip_trailing_hash(&name) {
-        let (_size, mtime) = dir_size_and_mtime(&entry.path());
-        by_stem.entry(stem).or_default().push((mtime, entry.path()));
-      }
+  for entry in children(&bld)? {
+    if !entry.file_type()?.is_dir() {
+      continue;
+    }
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if let Some(stem) = strip_trailing_hash(&name) {
+      let (_size, mtime) = dir_size_and_mtime(&entry.path())?;
+      by_stem.entry(stem).or_default().push((mtime, entry.path()));
     }
   }
   let mut out = Vec::new();
@@ -348,7 +336,7 @@ fn stale_build_dirs(profile_dir: &Path, keep_recent: usize) -> Vec<PathBuf> {
       out.push(p);
     }
   }
-  out
+  Ok(out)
 }
 
 /// Name ends with `-<16 hex>` -> return the stem before it.
@@ -372,25 +360,32 @@ fn consider(
   guards: &Guards,
   found: &mut Vec<(String, PathBuf)>,
   seen: &mut HashSet<PathBuf>,
-) {
+) -> io::Result<()> {
   if seen.contains(&pdir) {
-    return;
+    return Ok(());
   }
   let rel = relpath(&pdir, target_dir);
   if guards.is_protected(&rel) {
-    return;
+    return Ok(());
   }
-  let has_regen = pdir.join("deps").is_dir() || REGEN_SUBDIRS.iter().any(|s| pdir.join(s).is_dir());
+  let mut has_regen = false;
+  for sub in REGEN_SUBDIRS {
+    has_regen |= directory_exists(&pdir.join(sub))?;
+  }
   if has_regen {
     seen.insert(pdir.clone());
     found.push((prof.to_string(), pdir));
   }
+  Ok(())
 }
 
 /// Standard `debug`/`release` plus one level of `target/<triple>/<profile>/`.
 /// A dir only counts as a profile if it has regenerable subdirs -- so sibling
 /// trees (e.g. a vendored prebuilt dir with no `deps/`) are never treated as profiles.
-fn discover_profiles(target_dir: &Path, guards: &Guards) -> Vec<(String, PathBuf)> {
+pub(crate) fn discover_profiles(
+  target_dir: &Path,
+  guards: &Guards,
+) -> io::Result<Vec<(String, PathBuf)>> {
   let mut found = Vec::new();
   let mut seen = HashSet::new();
   for prof in PROFILES {
@@ -401,31 +396,28 @@ fn discover_profiles(target_dir: &Path, guards: &Guards) -> Vec<(String, PathBuf
       guards,
       &mut found,
       &mut seen,
-    );
+    )?;
   }
-  if let Ok(rd) = fs::read_dir(target_dir) {
-    for entry in rd.flatten() {
-      match entry.file_type() {
-        Ok(ft) if ft.is_dir() => {}
-        _ => continue,
-      }
-      let name = entry.file_name().to_string_lossy().into_owned();
-      if PROFILES.contains(&name.as_str()) {
-        continue;
-      }
-      for prof in PROFILES {
-        consider(
-          prof,
-          entry.path().join(prof),
-          target_dir,
-          guards,
-          &mut found,
-          &mut seen,
-        );
-      }
+  for entry in children(target_dir)? {
+    if !entry.file_type()?.is_dir() {
+      continue;
+    }
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if PROFILES.contains(&name.as_str()) {
+      continue;
+    }
+    for prof in PROFILES {
+      consider(
+        prof,
+        entry.path().join(prof),
+        target_dir,
+        guards,
+        &mut found,
+        &mut seen,
+      )?;
     }
   }
-  found
+  Ok(found)
 }
 
 /// Hold Cargo's per-profile lock across planning and deletion, or skip the target.
@@ -435,7 +427,7 @@ pub fn lock_cargo_profiles(manifest: &Manifest) -> Result<Vec<File>, String> {
     return Ok(vec![]);
   }
   let guards = Guards::new(&manifest.keep);
-  let profiles = discover_profiles(&target, &guards);
+  let profiles = discover_profiles(&target, &guards).map_err(|error| error.to_string())?;
   let mut locks = Vec::with_capacity(profiles.len());
   for (_, profile) in profiles {
     check_profile_path(&target, &profile)?;
@@ -479,7 +471,7 @@ pub fn lock_cargo_profiles(manifest: &Manifest) -> Result<Vec<File>, String> {
   Ok(locks)
 }
 
-fn check_profile_path(target: &Path, profile: &Path) -> Result<(), String> {
+pub(crate) fn check_profile_path(target: &Path, profile: &Path) -> Result<(), String> {
   let target_meta =
     fs::symlink_metadata(target).map_err(|e| format!("{}: {e}", target.display()))?;
   if !target_meta.is_dir() {
@@ -506,14 +498,14 @@ fn check_profile_path(target: &Path, profile: &Path) -> Result<(), String> {
 // Planning
 // --------------------------------------------------------------------------- //
 
-pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> Result<Plan, Protected> {
+pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> io::Result<Plan> {
   let target = manifest.target_dir();
   let guards = Guards::new(&manifest.keep);
   let age_floor = now - manifest.policy.min_age_minutes * 60.0;
   let mut categories: Vec<Category> = Vec::new();
   let mut measurer = Measurer::new(quick);
 
-  if !target.is_dir() {
+  if !directory_exists(&target)? {
     return Ok(Plan {
       target,
       missing: true,
@@ -522,16 +514,19 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> Result<Plan, 
     });
   }
 
-  let profiles = discover_profiles(&target, &guards);
+  let profiles = discover_profiles(&target, &guards)?;
   let keep_names: HashSet<&str> = manifest.keep.profiles.iter().map(|s| s.as_str()).collect();
-  let kept_have_artifacts = profiles
-    .iter()
-    .any(|(pn, pd)| keep_names.contains(pn.as_str()) && newest_deps_mtime(pd) > 0.0);
+  let mut kept_have_artifacts = false;
+  for (name, profile) in &profiles {
+    if keep_names.contains(name.as_str()) && newest_deps_mtime(profile)? > 0.0 {
+      kept_have_artifacts = true;
+    }
+  }
 
   for (pname, pdir) in &profiles {
     let label = relpath(pdir, &target);
     let days = *manifest.policy.stale_profile_days.get(pname).unwrap_or(&0);
-    let newest = newest_deps_mtime(pdir);
+    let newest = newest_deps_mtime(pdir)?;
     let is_stale = days > 0
       && newest > 0.0
       && (now - newest) > (days as f64) * 86400.0
@@ -542,7 +537,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> Result<Plan, 
       for sub in REGEN_SUBDIRS {
         add_category(
           format!("stale {}/{}", label, sub),
-          list_children(&pdir.join(sub)),
+          list_children(&pdir.join(sub))?,
           &target,
           &guards,
           age_floor,
@@ -553,7 +548,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> Result<Plan, 
       continue;
     }
 
-    let groups = stale_dedup_groups(pdir, manifest.policy.keep_recent);
+    let groups = stale_dedup_groups(pdir, manifest.policy.keep_recent)?;
     let mut deps_paths = Vec::new();
     let mut fp_paths = Vec::new();
     for g in groups {
@@ -587,7 +582,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> Result<Plan, 
     if manifest.policy.prune_build_scripts {
       add_category(
         format!("{}/build dups", label),
-        stale_build_dirs(pdir, manifest.policy.keep_recent),
+        stale_build_dirs(pdir, manifest.policy.keep_recent)?,
         &target,
         &guards,
         age_floor,
@@ -598,7 +593,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> Result<Plan, 
     if manifest.policy.prune_incremental {
       add_category(
         format!("{}/incremental", label),
-        list_children(&pdir.join("incremental")),
+        list_children(&pdir.join("incremental"))?,
         &target,
         &guards,
         age_floor,
@@ -626,14 +621,18 @@ fn add_category(
   age_floor: f64,
   measurer: &mut Measurer,
   categories: &mut Vec<Category>,
-) -> Result<(), Protected> {
+) -> io::Result<()> {
   let mut safe = Vec::new();
   for p in paths {
+    // a container's policy remains until the container itself can be removed
+    if p.file_name() == Some(std::ffi::OsStr::new(crate::lifetime::FILE_NAME)) {
+      continue;
+    }
     let rel = relpath(&p, target);
     if guards.is_protected(&rel) {
       continue; // declared-kept -> preserve
     }
-    if entry_mtime(&p) > age_floor {
+    if entry_mtime(&p)? > age_floor {
       continue; // in-flight / just touched -> leave it
     }
     if let Err(error) = crate::preservation::check(&p) {
@@ -649,9 +648,12 @@ fn add_category(
   for p in &safe {
     // Defense in depth: abort the whole run if a protected path slipped through.
     if guards.is_protected(&relpath(p, target)) {
-      return Err(Protected(p.clone()));
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        Protected(p.clone()),
+      ));
     }
-    bytes += measurer.measure(p);
+    bytes += measurer.measure(p)?;
   }
   categories.push(Category {
     label,
@@ -741,109 +743,113 @@ impl Measurer {
     }
   }
 
-  fn measure(&mut self, path: &Path) -> u64 {
+  fn measure(&mut self, path: &Path) -> io::Result<u64> {
     if self.quick {
-      return 0;
+      return Ok(0);
     }
-    let meta = match fs::symlink_metadata(path) {
-      Ok(m) => m,
-      Err(_) => return 0,
-    };
+    let meta = fs::symlink_metadata(path)?;
     if meta.is_dir() {
       let mut total = 0;
-      self.walk_measure(path, &mut total);
-      total
+      self.walk_measure(path, &mut total)?;
+      Ok(total)
     } else {
       let key = (meta.dev(), meta.ino());
       if self.seen.insert(key) {
-        meta.len()
+        Ok(meta.len())
       } else {
-        0
+        Ok(0)
       }
     }
   }
 
-  fn walk_measure(&mut self, dir: &Path, total: &mut u64) {
-    if let Ok(rd) = fs::read_dir(dir) {
-      for entry in rd.flatten() {
-        let ft = match entry.file_type() {
-          Ok(f) => f,
-          Err(_) => continue,
-        };
-        if ft.is_dir() {
-          self.walk_measure(&entry.path(), total);
-        } else if let Ok(m) = entry.metadata() {
-          let key = (m.dev(), m.ino());
-          if self.seen.insert(key) {
-            *total += m.len();
-          }
+  fn walk_measure(&mut self, dir: &Path, total: &mut u64) -> io::Result<()> {
+    for entry in children(dir)? {
+      let ft = entry.file_type()?;
+      if ft.is_dir() {
+        self.walk_measure(&entry.path(), total)?;
+      } else {
+        let m = entry.metadata()?;
+        let key = (m.dev(), m.ino());
+        if self.seen.insert(key) {
+          *total += m.len();
         }
       }
     }
+    Ok(())
   }
 }
 
-fn dir_size_and_mtime(path: &Path) -> (u64, f64) {
-  fn walk(dir: &Path, total: &mut u64, newest: &mut f64) {
-    if let Ok(rd) = fs::read_dir(dir) {
-      for entry in rd.flatten() {
-        let ft = match entry.file_type() {
-          Ok(f) => f,
-          Err(_) => continue,
-        };
-        if ft.is_dir() {
-          walk(&entry.path(), total, newest);
-        } else if let Ok(m) = entry.metadata() {
-          *total += m.len();
-          let mt = mtime_secs(&m);
-          if mt > *newest {
-            *newest = mt;
-          }
+fn dir_size_and_mtime(path: &Path) -> io::Result<(u64, f64)> {
+  fn walk(dir: &Path, total: &mut u64, newest: &mut f64) -> io::Result<()> {
+    for entry in children(dir)? {
+      let ft = entry.file_type()?;
+      if ft.is_dir() {
+        walk(&entry.path(), total, newest)?;
+      } else {
+        let m = entry.metadata()?;
+        *total += m.len();
+        let mt = mtime_secs(&m);
+        if mt > *newest {
+          *newest = mt;
         }
       }
     }
+    Ok(())
   }
   let mut total = 0;
   let mut newest = 0.0;
-  walk(path, &mut total, &mut newest);
-  if let Ok(m) = fs::symlink_metadata(path) {
+  walk(path, &mut total, &mut newest)?;
+  let mt = mtime_secs(&fs::symlink_metadata(path)?);
+  if mt > newest {
+    newest = mt;
+  }
+  Ok((total, newest))
+}
+
+fn newest_deps_mtime(profile_dir: &Path) -> io::Result<f64> {
+  let mut newest = 0.0;
+  for entry in children(&profile_dir.join("deps"))? {
+    let m = entry.metadata()?;
     let mt = mtime_secs(&m);
     if mt > newest {
       newest = mt;
     }
   }
-  (total, newest)
+  Ok(newest)
 }
 
-fn newest_deps_mtime(profile_dir: &Path) -> f64 {
-  let mut newest = 0.0;
-  if let Ok(rd) = fs::read_dir(profile_dir.join("deps")) {
-    for entry in rd.flatten() {
-      if let Ok(m) = entry.metadata() {
-        let mt = mtime_secs(&m);
-        if mt > newest {
-          newest = mt;
-        }
-      }
-    }
+fn list_children(dir: &Path) -> io::Result<Vec<PathBuf>> {
+  Ok(
+    children(dir)?
+      .into_iter()
+      .map(|entry| entry.path())
+      .collect(),
+  )
+}
+
+fn entry_mtime(path: &Path) -> io::Result<f64> {
+  Ok(mtime_secs(&fs::symlink_metadata(path)?))
+}
+
+/// A missing optional Cargo subdirectory is empty; other scan errors are incomplete evidence.
+fn children(path: &Path) -> io::Result<Vec<fs::DirEntry>> {
+  match fs::read_dir(path) {
+    Ok(entries) => entries.collect(),
+    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(vec![]),
+    Err(error) => Err(error),
   }
-  newest
 }
 
-fn list_children(dir: &Path) -> Vec<PathBuf> {
-  let mut out = Vec::new();
-  if let Ok(rd) = fs::read_dir(dir) {
-    for entry in rd.flatten() {
-      out.push(entry.path());
+fn directory_exists(path: &Path) -> io::Result<bool> {
+  match fs::metadata(path) {
+    Ok(metadata) => Ok(metadata.is_dir()),
+    Err(error)
+      if error.kind() == io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ENOTDIR) =>
+    {
+      Ok(false)
     }
+    Err(error) => Err(error),
   }
-  out
-}
-
-fn entry_mtime(path: &Path) -> f64 {
-  fs::symlink_metadata(path)
-    .map(|m| mtime_secs(&m))
-    .unwrap_or(0.0)
 }
 
 pub(crate) fn mtime_secs(m: &Metadata) -> f64 {
@@ -944,6 +950,25 @@ mod tests {
       stores: vec![],
       has_file: false,
     }
+  }
+
+  #[test]
+  fn incomplete_cargo_inputs_refuse_instead_of_selecting_from_an_empty_scan() {
+    let root = tmpdir();
+    let profile = root.join("target/debug");
+    let output = profile.join("incremental/old/data");
+    touch(&output, (now_secs() as i64) - 2 * DAY, 16);
+    fs::write(profile.join("deps"), b"unknown Cargo input").unwrap();
+    let mut manifest = manifest_for(&root, Keep::default(), Policy::default());
+    manifest.policy.min_age_minutes = 0.0;
+    assert!(plan_project(&manifest, now_secs(), false).is_err());
+    assert!(plan_project(&manifest, now_secs(), true).is_err());
+    assert_eq!(fs::read(&output).unwrap(), vec![b'x'; 16]);
+    assert_eq!(
+      fs::read(profile.join("deps")).unwrap(),
+      b"unknown Cargo input"
+    );
+    fs::remove_dir_all(root).unwrap();
   }
 
   #[test]

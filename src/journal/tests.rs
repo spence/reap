@@ -204,6 +204,57 @@ fn first_seen_facts_publish_with_complete_files_results_and_cache_loss_restarts_
 
 #[cfg(target_os = "macos")]
 #[test]
+fn cargo_results_cannot_publish_first_seen_observations() {
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0).unwrap();
+  let key = key(&journal);
+  let mut prepared = input();
+  prepared.request = serde_json::to_string(&crate::invocation::Intent {
+    argv: vec!["plan".into()],
+    namespace: crate::invocation::Namespace {
+      home: fixture.0.clone(),
+      xdg_state_home: None,
+      config_snapshot: None,
+    },
+    provenance: serde_json::json!({}),
+  })
+  .unwrap();
+  journal.admit_execution(key.clone(), prepared, 1).unwrap();
+  let mut record = journal.job(&key).unwrap().unwrap();
+  let mut launch = Launch::new(
+    1,
+    Resources::Bulk {
+      physical_volumes: vec!["volume-a".into()],
+    },
+  )
+  .unwrap();
+  launch.worker.state = ProcessState::BootEnded {
+    boot: launch.boot.clone().unwrap(),
+  };
+  record.launch = Some(launch);
+  record.execution = Some(crate::dispatch::Progress::Result {
+    terminal: Terminal {
+      exit_code: 0,
+      effects: 0,
+      detail: "{}".into(),
+    },
+  });
+  record.validate().unwrap();
+  let fact = "a".repeat(64);
+  record.observations = Some(crate::observations::Observations {
+    at: 2,
+    first_seen: std::collections::BTreeMap::from([(fact.clone(), 2)]),
+  });
+  assert!(record
+    .validate()
+    .unwrap_err()
+    .to_string()
+    .contains("complete zero-effect Files result"));
+  assert_eq!(journal.first_seen(&fact).unwrap(), None);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn unpublished_working_output_is_not_adopted_repeated_or_forgotten_by_compaction() {
   use std::os::unix::fs::PermissionsExt;
   let fixture = Fixture::new();
@@ -1025,9 +1076,14 @@ fn completion_reservations_stop_admission_without_eviction_of_active_epochs() {
 }
 
 #[test]
-fn files_result_reservations_keep_small_job_capacity_and_protect_every_active_key() {
-  for (operation, count, reservation) in [("check", 512, INLINE_RECORD), ("files", 32, MAX_RECORD)]
-  {
+fn paged_result_reservations_keep_small_job_capacity_and_protect_every_active_key() {
+  for (operation, count, reservation) in [
+    ("check", 512, INLINE_RECORD),
+    ("files", 32, MAX_RECORD),
+    ("plan", 32, MAX_RECORD),
+    ("clean", 32, MAX_RECORD),
+    ("sweep", 32, MAX_RECORD),
+  ] {
     let fixture = Fixture::new();
     let mut journal = Journal::open(&fixture.0).unwrap();
     let mut keys = Vec::new();

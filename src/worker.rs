@@ -32,12 +32,19 @@ pub enum Task {
   ResolveCheck {
     input: crate::journal::Prepared,
   },
+  ResolveCargo {
+    input: crate::journal::Prepared,
+  },
   ResolveFiles {
     input: crate::journal::Prepared,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     directory: Option<crate::checkpoint::Directory>,
   },
   Check {
+    input: crate::journal::Prepared,
+    scope: crate::dispatch::Scope,
+  },
+  Cargo {
     input: crate::journal::Prepared,
     scope: crate::dispatch::Scope,
   },
@@ -84,6 +91,15 @@ pub enum Task {
 impl Task {
   /// Require the result kind belonging to this exact operation.
   fn accepts(&self, report: &Report) -> bool {
+    if let (Self::Cargo { input, .. }, Report::CargoFinished { terminal, .. }) = (self, report) {
+      return serde_json::from_str::<crate::invocation::Intent>(&input.request)
+        .ok()
+        .and_then(|intent| crate::invocation::summary(&intent))
+        .is_some_and(|summary| {
+          matches!(summary.operation.as_str(), "plan" | "clean" | "sweep")
+            && (summary.mode == "apply" || terminal.effects == 0)
+        });
+    }
     if let (Self::PreviewFiles { input, .. }, Report::FilesPreviewed { terminal, .. }) =
       (self, report)
     {
@@ -133,6 +149,7 @@ impl Task {
       (self, report),
       (Self::Resolve { .. }, Report::Resolved { .. })
         | (Self::ResolveCheck { .. }, Report::CheckResolved { .. })
+        | (Self::ResolveCargo { .. }, Report::CargoResolved { .. })
         | (Self::ResolveFiles { .. }, Report::FilesResolved { .. })
         | (Self::Check { .. }, Report::Checked { .. })
         | (Self::PreviewFiles { .. }, Report::FilesCheckpointed { .. })
@@ -147,9 +164,11 @@ impl Task {
   /// Return the complete physical reservation required by this task.
   fn resources(&self) -> Resources {
     match self {
-      Self::Check { scope, .. } | Self::PreviewFiles { scope, .. } => Resources::Bulk {
-        physical_volumes: scope.physical_volumes.clone(),
-      },
+      Self::Check { scope, .. } | Self::PreviewFiles { scope, .. } | Self::Cargo { scope, .. } => {
+        Resources::Bulk {
+          physical_volumes: scope.physical_volumes.clone(),
+        }
+      }
       Self::FirstSeen {
         physical_volumes, ..
       }
@@ -225,10 +244,12 @@ impl Task {
     }
     let directory = match self {
       Self::Resolve { directory } => directory,
-      Self::ResolveCheck { input } | Self::ResolveFiles { input, .. } => {
-        return crate::journal::validate_input(input)
-      }
-      Self::Check { input, scope } | Self::PreviewFiles { input, scope, .. } => {
+      Self::ResolveCheck { input }
+      | Self::ResolveFiles { input, .. }
+      | Self::ResolveCargo { input } => return crate::journal::validate_input(input),
+      Self::Check { input, scope }
+      | Self::PreviewFiles { input, scope, .. }
+      | Self::Cargo { input, scope } => {
         crate::journal::validate_input(input)?;
         return scope.validate();
       }
@@ -288,6 +309,9 @@ impl Task {
       Self::ResolveCheck { input } if grant.resources == Resources::Resolver => {
         return crate::dispatch::resolve(input).map(|scope| Report::CheckResolved { scope });
       }
+      Self::ResolveCargo { input } if grant.resources == Resources::Resolver => {
+        return crate::dispatch::resolve_cargo(input).map(|scope| Report::CargoResolved { scope });
+      }
       Self::ResolveFiles {
         input,
         directory: Some(directory),
@@ -302,6 +326,19 @@ impl Task {
           }) =>
       {
         return crate::dispatch::assess(input, scope).map(|terminal| Report::Checked { terminal });
+      }
+      Self::Cargo { input, scope }
+        if grant.resources
+          == (Resources::Bulk {
+            physical_volumes: scope.physical_volumes.clone(),
+          }) =>
+      {
+        let helpers =
+          helpers.ok_or_else(|| invalid("Cargo execution requires its owned private channel"))?;
+        let mut terminal = crate::dispatch::assess_cargo(input, scope, grant, helpers)?;
+        let (detail, pages) = crate::result_pages::prepare(terminal.detail)?;
+        terminal.detail = detail;
+        return Ok(Report::CargoFinished { terminal, pages });
       }
       Self::PreviewFiles {
         input,
@@ -384,6 +421,14 @@ pub enum Report {
   },
   Checked {
     terminal: crate::journal::Terminal,
+  },
+  CargoResolved {
+    scope: crate::dispatch::Scope,
+  },
+  CargoFinished {
+    terminal: crate::journal::Terminal,
+    #[serde(skip)]
+    pages: Vec<String>,
   },
   FilesResolved {
     scope: crate::dispatch::Scope,
@@ -962,6 +1007,10 @@ fn spawn(
   if let Some(gate) = std::env::var_os("REAP_NATIVE_FILES_ACTIVITY_GATE") {
     command.env("REAP_NATIVE_FILES_ACTIVITY_GATE", gate);
   }
+  #[cfg(test)]
+  if let Some(stop) = std::env::var_os("REAP_NATIVE_CARGO_UNIT_STOP") {
+    command.env("REAP_NATIVE_CARGO_UNIT_STOP", stop);
+  }
   let child = command
     .current_dir("/")
     .stdin(Stdio::from(OwnedFd::from(input)))
@@ -970,7 +1019,7 @@ fn spawn(
     .spawn()?;
   let output_allowed = matches!(
     serde_json::from_slice::<Task>(&task),
-    Ok(Task::PreviewFiles { .. })
+    Ok(Task::PreviewFiles { .. } | Task::Cargo { .. })
   );
   Ok(Start::Spawned(Owned {
     child,
@@ -1314,6 +1363,12 @@ impl Owned {
           {
             *pages = std::mem::take(&mut self.pages);
             *observations = std::mem::take(&mut self.observations).into_iter().collect();
+          } else if let Report::CargoFinished { pages, .. } = &mut report {
+            if !self.observations.is_empty() {
+              self.protocol_failure("Cargo result contains declaration grace observations");
+              return Ok(());
+            }
+            *pages = std::mem::take(&mut self.pages);
           } else if !self.pages.is_empty() {
             self.protocol_failure("result pages belong to another worker operation");
             return Ok(());
@@ -1586,7 +1641,10 @@ pub fn run(launch: &str, process: &str) -> i32 {
       return Err(probe.exec(&pipe));
     }
     #[cfg(test)]
-    if matches!(task, Task::Check { .. } | Task::PreviewFiles { .. }) {
+    if matches!(
+      task,
+      Task::Check { .. } | Task::PreviewFiles { .. } | Task::Cargo { .. }
+    ) {
       if let Some(gate) = std::env::var_os("REAP_NATIVE_EXECUTION_GATE") {
         let gate = PathBuf::from(gate);
         let mut fifo = OpenOptions::new()
@@ -1642,7 +1700,7 @@ pub fn run(launch: &str, process: &str) -> i32 {
 
 fn send_report(pipe: &mut UnixStream, report: &Report) -> io::Result<()> {
   validate_report(report)?;
-  if let Report::FilesPreviewed { pages, .. } = report {
+  if let Report::FilesPreviewed { pages, .. } | Report::CargoFinished { pages, .. } = report {
     for (index, text) in pages.iter().enumerate() {
       let frame = PageFrame {
         result_page: crate::result_pages::Fragment {
@@ -1762,23 +1820,26 @@ fn validate_report(report: &Report) -> io::Result<()> {
     {
       return Err(invalid("invalid first-seen reply"));
     }
-    Report::CheckResolved { scope } | Report::FilesResolved { scope } => scope.validate()?,
+    Report::CheckResolved { scope }
+    | Report::FilesResolved { scope }
+    | Report::CargoResolved { scope } => scope.validate()?,
     Report::FilesCheckpointed { manifest } => manifest.validate()?,
     Report::Checked { terminal }
       if terminal.detail.len() > 4096 || terminal.effects != 0 || terminal.exit_code != 0 =>
     {
       return Err(invalid("invalid read-only check result"));
     }
-    Report::FilesPreviewed { terminal, .. }
+    Report::FilesPreviewed { terminal, .. } | Report::CargoFinished { terminal, .. }
       if terminal.detail.len() > 4096 || terminal.exit_code == 75 =>
     {
-      return Err(invalid("invalid files result"));
+      return Err(invalid("invalid execution result"));
     }
     _ => {}
   }
   if let Report::FilesPreviewed {
     terminal, pages, ..
-  } = report
+  }
+  | Report::CargoFinished { terminal, pages } = report
   {
     crate::result_pages::validate(&terminal.detail, pages)?;
   }

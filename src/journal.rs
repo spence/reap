@@ -1955,11 +1955,12 @@ impl Job {
     if let Some(ledger) = &self.mutation {
       ledger.validate(&self.view.key)?;
       let applying = self.execution.is_some()
-        && self
-          .view
-          .invocation
-          .as_ref()
-          .is_some_and(|summary| summary.operation == "files" && summary.mode == "apply");
+        && self.view.invocation.as_ref().is_some_and(|summary| {
+          matches!(
+            summary.operation.as_str(),
+            "files" | "plan" | "clean" | "sweep"
+          ) && summary.mode == "apply"
+        });
       if (!applying
         && (self.execution.is_some() || self.working.is_some() || self.view.invocation.is_some()))
         || (self.view.result.is_some() && ledger.unresolved_resources().is_some())
@@ -2007,7 +2008,9 @@ impl Job {
     if !self.pages.is_empty()
       && record_limit(self.execution.is_some(), self.view.invocation.as_ref()) != MAX_RECORD
     {
-      return Err(invalid("result pages require an executable Files job"));
+      return Err(invalid(
+        "result pages require an executable Files or Cargo job",
+      ));
     }
     let terminal = match &self.execution {
       Some(crate::dispatch::Progress::Result { terminal }) => Some(terminal),
@@ -2015,11 +2018,16 @@ impl Job {
     };
     if let Some(observations) = &self.observations {
       observations.validate()?;
-      if record_limit(self.execution.is_some(), self.view.invocation.as_ref()) != MAX_RECORD
+      if self
+        .view
+        .invocation
+        .as_ref()
+        .is_none_or(|summary| summary.operation != "files")
+        || record_limit(self.execution.is_some(), self.view.invocation.as_ref()) != MAX_RECORD
         || !terminal.is_some_and(|terminal| terminal.exit_code == 0 && terminal.effects == 0)
       {
         return Err(invalid(
-          "first-seen facts require a complete read-only Files result",
+          "first-seen facts require a complete zero-effect Files result",
         ));
       }
     }
@@ -2047,6 +2055,11 @@ impl Job {
         .invocation
         .as_ref()
         .is_some_and(|summary| summary.operation == "files");
+      let cargo = self
+        .view
+        .invocation
+        .as_ref()
+        .is_some_and(|summary| matches!(summary.operation.as_str(), "plan" | "clean" | "sweep"));
       if (matches!(
         progress,
         Progress::ResolvingFiles
@@ -2057,7 +2070,11 @@ impl Job {
         || (matches!(
           progress,
           Progress::Resolving | Progress::Resolved { .. } | Progress::Checking { .. }
-        ) && files)
+        ) && (files || cargo))
+        || (matches!(
+          progress,
+          Progress::ResolvingCargo | Progress::CargoResolved { .. } | Progress::RunningCargo { .. }
+        ) && !cargo)
       {
         return Err(invalid(
           "execution phase differs from its retained operation",
@@ -2067,6 +2084,8 @@ impl Job {
         Progress::Resolved { scope }
         | Progress::Checking { scope }
         | Progress::FilesResolved { scope }
+        | Progress::CargoResolved { scope }
+        | Progress::RunningCargo { scope }
         | Progress::PreviewingFiles { scope } => scope.validate()?,
         Progress::FilesYielded { scope, checkpoint } => {
           scope.validate()?;
@@ -2113,19 +2132,21 @@ impl Job {
         Progress::Resolving
         | Progress::Resolved { .. }
         | Progress::ResolvingFiles
+        | Progress::ResolvingCargo
+        | Progress::CargoResolved { .. }
         | Progress::FilesResolved { .. } => self
           .launch
           .as_ref()
           .is_none_or(|launch| launch.resources == Resources::Resolver),
-        Progress::Checking { scope } | Progress::PreviewingFiles { scope } => {
-          self.launch.as_ref().is_some_and(|launch| {
-            (launch.resources == Resources::Resolver && launch.released())
-              || launch.resources
-                == (Resources::Bulk {
-                  physical_volumes: scope.physical_volumes.clone(),
-                })
-          })
-        }
+        Progress::Checking { scope }
+        | Progress::PreviewingFiles { scope }
+        | Progress::RunningCargo { scope } => self.launch.as_ref().is_some_and(|launch| {
+          (launch.resources == Resources::Resolver && launch.released())
+            || launch.resources
+              == (Resources::Bulk {
+                physical_volumes: scope.physical_volumes.clone(),
+              })
+        }),
         Progress::FilesYielded { scope, .. } => self.launch.as_ref().is_some_and(|launch| {
           launch.resources
             == (Resources::Bulk {
@@ -2210,9 +2231,16 @@ fn working_entry(name: &str) -> bool {
   })
 }
 
-// only executable Files jobs can produce a paged result; other jobs retain their smaller reserve
+// only executable Files and Cargo jobs can produce a paged result
 fn record_limit(executing: bool, invocation: Option<&crate::invocation::Summary>) -> u64 {
-  if executing && invocation.is_some_and(|summary| summary.operation == "files") {
+  if executing
+    && invocation.is_some_and(|summary| {
+      matches!(
+        summary.operation.as_str(),
+        "files" | "plan" | "clean" | "sweep"
+      )
+    })
+  {
     MAX_RECORD
   } else {
     INLINE_RECORD

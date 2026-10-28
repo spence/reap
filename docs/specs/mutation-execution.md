@@ -74,6 +74,22 @@
   `journal::tests::mutation::native_metadata_preparation_cleans_only_owned_unpublished_files`;
   `journal::tests::mutation::native_metadata_publication_replaces_only_exact_prior_content_and_never_repeats`;
   `journal::tests::mutation::native_metadata_publication_refuses_changed_inputs_and_preservation_roles`.
+- **C12 — Cargo compaction preserves its evidence.** Cargo application holds the applicable stable
+  per-profile locks before selection. An absent lock needs a separate journaled metadata publication;
+  an ordinary open cannot create it. Every removal retains current manifest protections, retained
+  generations, minimum age, native executable activity, preservation roles and exact captured entries.
+  Unknown or changed planning input refuses further effects. Only known owned removals can retire
+  inventory dependencies; new or replaced entries survive. Partial removal is not completed success.
+  Workspace KEEP prevents retirement, not separately permitted compaction of regenerable Cargo output.
+  Binding: `dispatch::tests::native_cargo_apply_removes_only_inactive_output_and_keeps_policy_and_newest_build`;
+  `dispatch::tests::native_cargo_apply_preserves_a_running_executable_without_a_build_lock`;
+  `dispatch::tests::native_cargo_apply_preserves_output_when_the_build_lock_is_held`;
+  `dispatch::tests::native_cargo_apply_refuses_manifest_changes_after_resolution`;
+  `dispatch::tests::native_cargo_apply_recovers_interrupted_lock_and_unlink_units_without_repetition`;
+  `dispatch::tests::native_cargo_read_preserves_complete_paged_selection_and_replays_without_effects`;
+  `plan::tests::incomplete_cargo_inputs_refuse_instead_of_selecting_from_an_empty_scan`;
+  `dispatch::cargo_job::inventory::tests`;
+  `tests/test_public_mutations.py::PublicMutations::test_cargo_commands_do_not_wait_for_target_marker_fifo`.
 
 ## Conformance boundary
 

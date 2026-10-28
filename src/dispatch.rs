@@ -19,8 +19,10 @@ use crate::journal::{Journal, Key, Prepared, Terminal};
 use crate::launch::{Launch, Resources};
 use crate::worker::{self, Owned, Report, Start, Task};
 
+mod cargo_job;
 mod files_job;
 
+pub(crate) use cargo_job::{assess as assess_cargo, resolve as resolve_cargo};
 pub(crate) use files_job::FilesBatch;
 pub(crate) use files_job::{assess as assess_files, resolve as resolve_files};
 
@@ -35,10 +37,17 @@ pub enum Progress {
   Queued,
   Resolving,
   ResolvingFiles,
+  ResolvingCargo,
   Resolved {
     scope: Scope,
   },
   FilesResolved {
+    scope: Scope,
+  },
+  CargoResolved {
+    scope: Scope,
+  },
+  RunningCargo {
     scope: Scope,
   },
   Checking {
@@ -64,6 +73,12 @@ impl Progress {
       (Self::Queued, Self::ResolvingFiles) | (Self::ResolvingFiles, Self::FilesResolved { .. }) => {
         true
       }
+      (Self::Queued, Self::ResolvingCargo) | (Self::ResolvingCargo, Self::CargoResolved { .. }) => {
+        true
+      }
+      (Self::CargoResolved { scope: previous }, Self::RunningCargo { scope: next }) => {
+        previous == next
+      }
       (Self::Resolved { scope: previous }, Self::Checking { scope: next }) => previous == next,
       (Self::FilesResolved { scope: previous }, Self::PreviewingFiles { scope: next }) => {
         previous == next
@@ -74,8 +89,11 @@ impl Progress {
       (
         Self::Resolving
         | Self::ResolvingFiles
+        | Self::ResolvingCargo
         | Self::Resolved { .. }
         | Self::FilesResolved { .. }
+        | Self::CargoResolved { .. }
+        | Self::RunningCargo { .. }
         | Self::Checking { .. }
         | Self::PreviewingFiles { .. },
         Self::Result { .. },
@@ -114,6 +132,7 @@ struct Job {
   key: Key,
   input: Prepared,
   files: bool,
+  cargo: bool,
   progress: Progress,
   launch: Option<Launch>,
   owned: Option<Owned>,
@@ -160,9 +179,15 @@ impl Scheduler {
     if self.jobs.len() >= MAX_PENDING {
       return Err(invalid("execution queue exceeds its bound"));
     }
+    let operation = match journal.lookup(&key)? {
+      crate::journal::Decision::Present { job } => job.invocation.map(|summary| summary.operation),
+      _ => None,
+    };
     self.jobs.push_back(Job {
-      files: matches!(journal.lookup(&key)?, crate::journal::Decision::Present { job }
-        if job.invocation.as_ref().is_some_and(|summary| summary.operation == "files")),
+      files: operation.as_deref() == Some("files"),
+      cargo: operation
+        .as_deref()
+        .is_some_and(|operation| matches!(operation, "plan" | "clean" | "sweep")),
       key,
       input,
       progress,
@@ -199,6 +224,8 @@ impl Scheduler {
       .filter_map(|job| match &job.progress {
         Progress::Resolved { scope }
         | Progress::FilesResolved { scope }
+        | Progress::CargoResolved { scope }
+        | Progress::RunningCargo { scope }
         | Progress::Checking { scope }
         | Progress::PreviewingFiles { scope }
         | Progress::FilesYielded { scope, .. } => Some(Resources::Bulk {
@@ -302,6 +329,21 @@ impl Job {
             if done.exit_code == 0 =>
           {
             Progress::FilesResolved { scope }
+          }
+          (Progress::ResolvingCargo, Ok(Report::CargoResolved { scope }))
+            if done.exit_code == 0 =>
+          {
+            Progress::CargoResolved { scope }
+          }
+          (
+            Progress::RunningCargo { .. },
+            Ok(Report::CargoFinished {
+              terminal,
+              pages: output,
+            }),
+          ) if done.exit_code == 0 => {
+            pages = output;
+            Progress::Result { terminal }
           }
           (
             Progress::PreviewingFiles { .. },
@@ -433,6 +475,12 @@ impl Job {
           directory: None,
         }
       }
+      Progress::Queued if self.cargo => {
+        self.persist(journal, Progress::ResolvingCargo)?;
+        Task::ResolveCargo {
+          input: self.input.clone(),
+        }
+      }
       Progress::Queued => {
         self.persist(journal, Progress::Resolving)?;
         Task::ResolveCheck {
@@ -446,6 +494,32 @@ impl Job {
         input: self.input.clone(),
         directory: None,
       },
+      Progress::ResolvingCargo if self.launch.is_none() => Task::ResolveCargo {
+        input: self.input.clone(),
+      },
+      Progress::CargoResolved { scope } => {
+        self.persist(
+          journal,
+          Progress::RunningCargo {
+            scope: scope.clone(),
+          },
+        )?;
+        Task::Cargo {
+          input: self.input.clone(),
+          scope,
+        }
+      }
+      Progress::RunningCargo { scope }
+        if self
+          .launch
+          .as_ref()
+          .is_none_or(|launch| matches!(launch.resources, Resources::Resolver)) =>
+      {
+        Task::Cargo {
+          input: self.input.clone(),
+          scope,
+        }
+      }
       Progress::FilesResolved { scope } => {
         self.persist(
           journal,

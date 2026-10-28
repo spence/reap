@@ -25,7 +25,8 @@
   Callers concatenate page text in index order and compare the complete byte length and digest.
 - **C5** — Pages share the job's atomic record, retention, epoch retirement, and metadata capacity.
   Retirement cannot leave page files or resurrect forgotten keys.
-  Executable Files jobs reserve records up to 2 MiB; other jobs retain their 128 KiB record limit and reservation.
+  Executable Files and Cargo jobs reserve records up to 2 MiB.
+  Other jobs retain their 128 KiB record limit and reservation.
   The 256 MiB metadata cap, 64 MiB completed cap, and 16 MiB recovery reserve remain unchanged.
   Large result storage is not permanent archive custody and cannot contain its only preservation evidence.
 - **C6** — Multi-root Files preserves every structured report, selection, and coverage counter in the complete result.
@@ -38,7 +39,8 @@
 `incomplete_substituted_or_unbound_pages_never_establish_completion` covers missing and changed payloads.
 `paged_worker_frames_require_complete_ordered_payload_eof_and_the_files_profile` covers private framing and EOF.
 `result_pages_survive_atomic_phase_recovery_and_retire_with_their_epoch` covers publication, restart, immutable pages, and retirement.
-`files_result_reservations_keep_small_job_capacity_and_protect_every_active_key` covers both reservation profiles and protected active keys.
+`paged_result_reservations_keep_small_job_capacity_and_protect_every_active_key` covers both reservation profiles and protected active keys.
+`native_cargo_read_preserves_complete_paged_selection_and_replays_without_effects` covers complete Cargo results, survivors, and restart retrieval.
 `native_result_pages_keep_complete_reports_and_survive_writer_restart` covers native success, protected failure, and service restart.
 The native sync-fault corpus includes bounded page observation while the state writer is blocked.
 Installed ingress `--operation files --result-pages` requires actual CLI page retrieval, complete reports, and protected survivors.

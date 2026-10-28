@@ -99,12 +99,15 @@ Fleet activation remains subject to the complete applying-caller bridge and old-
   Rename preserves credit. Copy, declaration replacement, or policy-byte change starts fresh grace.
   KEEP remains effective during grace. Legacy pathname-cache credit is not imported.
   A granted Files worker queries retained facts through its private channel; lookup creates no process or metadata write.
-  Only complete, uncancelled assessment results publish facts, after source revalidation, both EOFs, and native child exit.
+  Only complete, successful, uncancelled, zero-effect Files results publish facts, in read or apply mode.
+  Publication follows source revalidation, both EOFs, and native child exit.
   Facts, result phase, and complete result pages share one durable journal transaction before reservation release.
   The writer supplies publication time for new facts; job admission and worker input cannot backdate them.
   Replays cannot change retained facts. Cache loss and capacity eviction lose credit, never grant it.
   Facts are bounded derived evidence, not adoption, a selection verdict, or disposal permission.
   Checks: `first_seen_facts_publish_with_complete_files_results_and_cache_loss_restarts_grace`,
+  `native_files_apply_records_pending_grace_without_target_effects_and_replays`,
+  `cargo_results_cannot_publish_first_seen_observations`,
   `native_files_first_seen_survives_rename_and_restart_but_not_copy_or_policy_change`,
   `native_files_incomplete_observation_never_becomes_grace_credit`,
   `first_seen_lookups_use_cache_pages_and_batches_not_one_round_trip_per_declaration`,
