@@ -76,6 +76,10 @@ impl TestRoot {
     if args.first().is_some_and(|operation| {
       matches!(operation.as_str(), "lease" | "stores")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
+        || operation == "quarantine"
+          && args
+            .get(1)
+            .is_none_or(|action| matches!(action.as_str(), "list" | "hold" | "unhold"))
     }) {
       self.unconfirmed.fetch_add(1, Ordering::SeqCst);
       command.args(["--wait", "30"]);
@@ -103,6 +107,10 @@ impl TestRoot {
     if args.first().is_some_and(|operation| {
       matches!(operation.as_str(), "lease" | "stores")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
+        || operation == "quarantine"
+          && args
+            .get(1)
+            .is_none_or(|action| matches!(action.as_str(), "list" | "hold" | "unhold"))
     }) {
       self.confirm_job(&output);
     }
@@ -1799,10 +1807,12 @@ fn store_provenance_is_visible_but_does_not_arm_an_unbound_or_unmarked_store() {
   assert!(!entry["provenance"]["host"].as_str().unwrap().is_empty());
   let listing = root.run(vec!["quarantine".into()]);
   success(listing.clone());
-  let output = String::from_utf8_lossy(&listing.stdout);
-  assert!(output.contains("actor agent-store"));
-  assert!(output.contains("session session-store"));
-  assert!(output.contains("method benchmark-run"));
+  let detail = root.job_detail(&listing);
+  assert_eq!(detail["entries"][0]["provenance"], entry["provenance"]);
+  assert_eq!(
+    detail["entries"][0]["store"]["project_path"],
+    project.to_string_lossy().as_ref()
+  );
 
   let id = entry["id"].as_str().unwrap();
   let index_path = root.quarantine().join("index.json");
@@ -1825,9 +1835,12 @@ fn store_provenance_is_visible_but_does_not_arm_an_unbound_or_unmarked_store() {
   fs::write(&sidecar, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
   let listing = root.run(vec!["quarantine".into()]);
   success(listing.clone());
-  let output = String::from_utf8_lossy(&listing.stdout);
-  assert!(output.contains(&format!("project {}  actor (unknown)", project.display())));
-  assert!(output.contains("method (unknown)"));
+  let detail = root.job_detail(&listing);
+  assert!(detail["entries"][0].get("provenance").is_none());
+  assert_eq!(
+    detail["entries"][0]["store"]["project_path"],
+    project.to_string_lossy().as_ref()
+  );
   let doctor = root.run(vec![
     "doctor".into(),
     "--quarantine".into(),
@@ -1886,10 +1899,9 @@ fn lease_provenance_survives_retirement_and_legacy_records_show_unknowns() {
   assert_eq!(entries[0]["provenance"], leases[0]["provenance"]);
   let listing = root.run(vec!["quarantine".into()]);
   success(listing.clone());
-  let output = String::from_utf8_lossy(&listing.stdout);
-  assert!(output.contains("project reap"));
-  assert!(output.contains("actor agent-bench"));
-  assert!(output.contains("purpose benchmark"));
+  let detail = root.job_detail(&listing);
+  assert_eq!(detail["entries"][0]["provenance"], leases[0]["provenance"]);
+  assert_eq!(detail["entries"][0]["purpose"], "benchmark");
 
   let old = root.project("legacy-lease");
   success(root.run(args(
@@ -1926,7 +1938,15 @@ fn lease_provenance_survives_retirement_and_legacy_records_show_unknowns() {
   assert!(old_entry.get("provenance").is_none());
   let listing = root.run(vec!["quarantine".into()]);
   success(listing.clone());
-  assert!(String::from_utf8_lossy(&listing.stdout).contains("project (unknown)  actor (unknown)"));
+  let detail = root.job_detail(&listing);
+  let legacy = detail["entries"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|entry| entry["id"] == old_entry["id"])
+    .unwrap();
+  assert!(legacy.get("provenance").is_none());
+  assert!(legacy.get("store").is_none());
 }
 
 #[test]

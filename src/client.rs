@@ -111,6 +111,15 @@ pub(crate) fn run_parent_arm(
   run_argv(request.argv(), true, wait, entered)
 }
 
+/// Submit quarantine index observations or hold changes without caller-side filesystem work.
+pub(crate) fn run_quarantine_metadata(
+  request: invocation::QuarantineMetadata,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  run_argv(request.argv(), request.applying(), wait, entered)
+}
+
 fn run_prepared(
   operation: &str,
   path: Option<String>,

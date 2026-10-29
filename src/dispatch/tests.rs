@@ -36,7 +36,8 @@ impl Fixture {
     let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
       .map(PathBuf::from)
       .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target/control-t13"));
-    let path = base.join(format!("dispatch-{}", random_token().unwrap()));
+    // keep owned fixtures outside Spotlight indexing; native open-handle vetoes remain active.
+    let path = base.join(format!("dispatch-{}.noindex", random_token().unwrap()));
     fs::create_dir_all(path.join("home")).unwrap();
     fs::create_dir(path.join("project")).unwrap();
     fs::write(path.join("project/Cargo.toml"), b"[workspace]\n").unwrap();

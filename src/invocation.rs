@@ -365,6 +365,67 @@ pub(crate) fn parent_arm_request(input: &Intent) -> Option<ParentArm> {
   })
 }
 
+/// Quarantine metadata intent, without payload moves or observer deadlines.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum QuarantineMetadata {
+  List { owner: Option<String> },
+  Hold { id: String },
+  Unhold { id: String },
+}
+
+impl QuarantineMetadata {
+  /// Listing grants no index-mutation permission.
+  pub(crate) fn applying(&self) -> bool {
+    !matches!(self, Self::List { .. })
+  }
+
+  /// Preserve exact selectors without an observer wait.
+  pub(crate) fn argv(&self) -> Vec<String> {
+    let mut argv = vec!["quarantine".into()];
+    match self {
+      Self::List { owner } => {
+        argv.push("list".into());
+        if let Some(owner) = owner {
+          argv.push(format!("--owner={owner}"));
+        }
+      }
+      Self::Hold { id } => argv.extend(["hold".into(), "--".into(), id.clone()]),
+      Self::Unhold { id } => argv.extend(["unhold".into(), "--".into(), id.clone()]),
+    }
+    argv
+  }
+}
+
+/// Parse only metadata operations. Restore and observer waits are not executable metadata input.
+pub(crate) fn quarantine_metadata_request(input: &Intent) -> Option<QuarantineMetadata> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "quarantine" {
+    return None;
+  }
+  let crate::Cmd::Quarantine { cmd, wait: None } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  let request = match cmd.unwrap_or(crate::QuarantineCmd::List { owner: None }) {
+    crate::QuarantineCmd::List { owner } => QuarantineMetadata::List { owner },
+    crate::QuarantineCmd::Hold { id } => QuarantineMetadata::Hold { id },
+    crate::QuarantineCmd::Unhold { id } => QuarantineMetadata::Unhold { id },
+    crate::QuarantineCmd::Restore { .. } => return None,
+  };
+  let value = match &request {
+    QuarantineMetadata::List { owner } => owner.as_deref(),
+    QuarantineMetadata::Hold { id } | QuarantineMetadata::Unhold { id } => Some(id.as_str()),
+  };
+  if value.is_some_and(|value| value.len() > 1024 || crate::provenance::clean(value).is_none()) {
+    return None;
+  }
+  Some(request)
+}
+
 impl Summary {
   /// Validate supported presentation metadata without treating it as execution permission.
   pub fn valid(&self) -> bool {
@@ -373,7 +434,7 @@ impl Summary {
         && matches!(self.mode.as_str(), "read" | "apply")
       || self.operation == "clean" && self.mode == "apply"
       || self.operation == "parents" && self.mode == "apply"
-      || matches!(self.operation.as_str(), "lease" | "stores")
+      || matches!(self.operation.as_str(), "lease" | "stores" | "quarantine")
         && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
@@ -384,6 +445,16 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = quarantine_metadata_request(input) {
+    return Some(Summary {
+      operation: "quarantine".into(),
+      mode: if request.applying() { "apply" } else { "read" }.into(),
+      requested_scope: match request {
+        QuarantineMetadata::List { .. } => "configured".into(),
+        QuarantineMetadata::Hold { id } | QuarantineMetadata::Unhold { id } => id,
+      },
+    });
   }
   if let Some(request) = parent_arm_request(input) {
     return Some(Summary {
@@ -588,6 +659,7 @@ pub(crate) fn fresh_with_state_prefix(
     if !matches!(lease_request(&intent), Some(crate::LeaseCmd::Add { .. }))
       && !store_request(&intent).is_some_and(|request| request.applying())
       && parent_arm_request(&intent).is_none()
+      && !quarantine_metadata_request(&intent).is_some_and(|request| request.applying())
     {
       return Err(unavailable("state creation is not part of this operation"));
     }
@@ -962,6 +1034,46 @@ mod native {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn quarantine_metadata_keeps_selection_and_wait_separate() {
+    for request in [
+      QuarantineMetadata::List { owner: None },
+      QuarantineMetadata::List {
+        owner: Some("fixture owner".into()),
+      },
+      QuarantineMetadata::List {
+        owner: Some("--literal-owner".into()),
+      },
+      QuarantineMetadata::Hold {
+        id: "--literal-id".into(),
+      },
+      QuarantineMetadata::Unhold {
+        id: "11223344".into(),
+      },
+    ] {
+      let mut input = intent(&["quarantine"]);
+      input.argv = request.argv();
+      assert_eq!(quarantine_metadata_request(&input), Some(request.clone()));
+      let metadata = summary(&input).unwrap();
+      assert_eq!(metadata.operation, "quarantine");
+      assert_eq!(
+        metadata.mode,
+        if request.applying() { "apply" } else { "read" }
+      );
+      assert!(metadata.valid());
+      input.argv.insert(1, "--wait=1".into());
+      assert!(quarantine_metadata_request(&input).is_none());
+    }
+    for argv in [
+      vec!["quarantine", "restore", "11223344"],
+      vec!["quarantine", "hold", ""],
+      vec!["quarantine", "unhold", "invalid\nactor"],
+    ] {
+      assert!(quarantine_metadata_request(&intent(&argv)).is_none());
+      assert!(summary(&intent(&argv)).is_none());
+    }
+  }
 
   #[test]
   fn parent_arm_keeps_literal_paths_owner_and_observer_wait_separate() {

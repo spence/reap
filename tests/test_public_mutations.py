@@ -104,6 +104,15 @@ class PublicMutations(unittest.TestCase):
         self.assertIn(result.receipt["state"], ("failed", "unavailable"))
         self.assertFalse((parent / ".reap-parent").exists())
 
+    def test_quarantine_metadata_does_not_wait_for_configuration_fifo(self):
+        self.config.unlink()
+        os.mkfifo(self.config)
+        for arguments in [(), ("list",), ("list", "--owner", "owned fixture"),
+                          ("hold", "11223344"), ("unhold", "11223344")]:
+            result = self.run_cli("quarantine", *arguments)
+            self.assertIn(result.receipt["state"], ("failed", "unavailable"))
+            self.assertFalse((self.quarantine / "index.json").exists())
+
     def test_parent_listing_does_not_create_state_or_wait_for_a_busy_lock(self):
         absent = self.root / "absent-state"
         environment = dict(self.environment, XDG_STATE_HOME=str(absent))

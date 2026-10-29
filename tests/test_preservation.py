@@ -54,7 +54,9 @@ class Fixture:
     def run(self, *arguments):
         files = arguments and arguments[0] == "files"
         coordinated = arguments and (arguments[0] in ("files", "plan", "clean", "sweep", "lease", "stores")
-                                     or arguments[:2] == ("parents", "arm"))
+                                     or arguments[:2] == ("parents", "arm")
+                                     or arguments[0] == "quarantine" and
+                                     (len(arguments) == 1 or arguments[1] in ("list", "hold", "unhold")))
         if coordinated:
             self.unconfirmed_jobs += 1
             arguments = (*arguments, "--wait", "30")

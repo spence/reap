@@ -87,6 +87,12 @@ Cargo commands use that client and executor, including journaled lock publicatio
 Lease commands also use that client. Directory, marker and index publications retain separate unit intent.
 Release removes only its matching marker after index publication; it keeps the workspace.
 Store commands use the same client and executor. Read structured `reports` or retained pages, not foreground diagnostic text.
+Quarantine listing, hold, and unhold use that client. Require completed success before a dependent operation.
+Use `--wait [SECONDS]` for a finite observation; an omitted value means 30 seconds.
+Read terminal detail or retained pages for entries, held IDs, unindexed slots, and automatic-purge policy.
+Listing does not create state, wait for the lifecycle lock, or inspect payload contents.
+Hold changes publish the exact index through the shared executor and preserve payloads.
+Restore remains a foreground operation and rejects `--wait`.
 Other applying commands retain their foreground routes; full fleet migration remains open.
 Complete zero-effect Files jobs in either mode can publish journal grace credit. Legacy cache credit is not imported.
 
@@ -288,10 +294,10 @@ the source volume. Physical free-space changes can differ from these logical-
 byte estimates (for example, with APFS compression or shared blocks).
 
 ```bash
-reap quarantine                  # list entries; --owner <name> filters
+reap quarantine --wait 30        # list; quarantine list --owner <name> filters
 reap quarantine restore <id>
-reap quarantine hold <id>        # exclude one entry from automatic purge
-reap quarantine unhold <id>      # release an owner-approved hold
+reap quarantine hold <id> --wait 30 # exclude one entry from automatic purge
+reap quarantine unhold <id> --wait 30 # release an owner-approved hold
 reap doctor --quarantine         # inspect indexed and unindexed slots
 reap purge                       # dry-run: entries past the grace period
 reap purge --apply               # delete those (self-refuses if auto_purge=false)

@@ -67,6 +67,463 @@ fn metadata_snapshot(path: &Path) -> Option<(crate::identity::ObjectIdentity, Ve
   }
 }
 
+fn quarantine_fixture(fixture: &Fixture) -> PathBuf {
+  let directory = fixture.0.join("state/reap/quarantine");
+  let mut index = crate::quarantine::IndexFile::default();
+  for (id, owner) in [("11223344", "selected owner"), ("55667788", "other owner")] {
+    let slot = directory.join("entries").join(id).join("payload");
+    fs::create_dir_all(&slot).unwrap();
+    fs::write(slot.join("valuable"), id.as_bytes()).unwrap();
+    index.entries.push(crate::quarantine::Entry {
+      id: id.into(),
+      name: "payload".into(),
+      original_path: fixture.0.join(id).to_string_lossy().into(),
+      owner: owner.into(),
+      purpose: "retained quarantine fixture".into(),
+      scratch: false,
+      machine: "native fixture".into(),
+      bytes: 8,
+      retired_unix: 1,
+      provenance: None,
+      store: None,
+    });
+  }
+  index.held_ids.insert("55667788".into());
+  fs::write(
+    directory.join("index.json"),
+    serde_json::to_vec_pretty(&index).unwrap(),
+  )
+  .unwrap();
+  fs::write(fixture.0.join("state/reap/state.lock"), []).unwrap();
+  directory
+}
+
+fn quarantine_request(
+  fixture: &Fixture,
+  request: crate::invocation::QuarantineMetadata,
+) -> Prepared {
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = request.argv();
+  input.request = serde_json::to_string(&intent).unwrap();
+  input
+}
+
+#[test]
+fn native_quarantine_metadata_preserves_payloads_and_replays() {
+  use crate::invocation::QuarantineMetadata;
+  let fixture = Fixture::new();
+  let directory = quarantine_fixture(&fixture);
+  fs::create_dir(directory.join("entries/unindexed")).unwrap();
+  let input = quarantine_request(
+    &fixture,
+    QuarantineMetadata::Hold {
+      id: "11223344".into(),
+    },
+  );
+  let root = fixture.0.join("journal");
+  let mut journal = Journal::open(&root).unwrap();
+  let (key, result) = submit(&mut journal, &input);
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert_eq!(result.effects, 1);
+  let index = crate::quarantine::load_index(&directory).unwrap();
+  assert_eq!(
+    index.held_ids,
+    ["11223344".into(), "55667788".into()].into_iter().collect()
+  );
+  let before = fixture.survivors();
+  let index_before = metadata_snapshot(&directory.join("index.json"));
+  let view = journal.lookup(&key).unwrap();
+  let ledger = journal.mutation(&key).unwrap();
+  drop(journal);
+  let mut journal = Journal::open(&root).unwrap();
+  assert_eq!(
+    journal
+      .admit_execution(key.clone(), input.clone(), 5)
+      .unwrap(),
+    view
+  );
+  assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+  assert_eq!(fixture.survivors(), before);
+  assert_eq!(
+    metadata_snapshot(&directory.join("index.json")),
+    index_before
+  );
+  assert_eq!(journal.mutation(&key).unwrap(), ledger);
+  let (_, duplicate) = submit(&mut journal, &input);
+  assert_eq!(
+    (duplicate.exit_code, duplicate.effects),
+    (0, 0),
+    "{}",
+    duplicate.detail
+  );
+  assert_eq!(fixture.survivors(), before);
+  let (_, listing) = submit(
+    &mut journal,
+    &quarantine_request(
+      &fixture,
+      QuarantineMetadata::List {
+        owner: Some("selected owner".into()),
+      },
+    ),
+  );
+  assert_eq!(
+    (listing.exit_code, listing.effects),
+    (0, 0),
+    "{}",
+    listing.detail
+  );
+  let detail: serde_json::Value = serde_json::from_str(&listing.detail).unwrap();
+  assert_eq!(detail["entries"].as_array().unwrap().len(), 1);
+  assert_eq!(detail["entries"][0]["id"], "11223344");
+  assert_eq!(detail["unindexed_ids"], serde_json::json!(["unindexed"]));
+  assert_eq!(
+    detail["held_ids"],
+    serde_json::json!(["11223344", "55667788"])
+  );
+  assert_eq!(detail["auto_purge"], true);
+  assert_eq!(detail["purge_after_days"], 30);
+  assert_eq!(detail["payload_availability"], "not_observed");
+  assert_eq!(fixture.survivors(), before);
+  let (_, result) = submit(
+    &mut journal,
+    &quarantine_request(
+      &fixture,
+      QuarantineMetadata::Unhold {
+        id: "11223344".into(),
+      },
+    ),
+  );
+  assert_eq!(
+    (result.exit_code, result.effects),
+    (0, 1),
+    "{}",
+    result.detail
+  );
+  let index = crate::quarantine::load_index(&directory).unwrap();
+  assert_eq!(index.held_ids, ["55667788".into()].into_iter().collect());
+  for id in ["11223344", "55667788"] {
+    assert_eq!(
+      fs::read(directory.join("entries").join(id).join("payload/valuable")).unwrap(),
+      id.as_bytes()
+    );
+  }
+  assert_eq!(
+    fs::read(fixture.0.join("project/valuable")).unwrap(),
+    b"protected survivor"
+  );
+}
+
+#[test]
+fn native_quarantine_metadata_listing_does_not_create_state_or_wait_for_its_lock() {
+  use crate::invocation::QuarantineMetadata;
+  let fixture = Fixture::new();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let (_, result) = submit(
+    &mut journal,
+    &quarantine_request(&fixture, QuarantineMetadata::List { owner: None }),
+  );
+  assert_eq!(
+    (result.exit_code, result.effects),
+    (0, 0),
+    "{}",
+    result.detail
+  );
+  assert!(!fixture.0.join("state").exists());
+  quarantine_fixture(&fixture);
+  let lock = File::options()
+    .read(true)
+    .write(true)
+    .open(fixture.0.join("state/reap/state.lock"))
+    .unwrap();
+  lock.try_lock().unwrap();
+  let before = fixture.survivors();
+  let (_, result) = submit(
+    &mut journal,
+    &quarantine_request(&fixture, QuarantineMetadata::List { owner: None }),
+  );
+  assert_eq!(
+    (result.exit_code, result.effects),
+    (0, 0),
+    "{}",
+    result.detail
+  );
+  assert_eq!(fixture.survivors(), before);
+}
+
+#[test]
+fn native_quarantine_metadata_external_index_creates_only_local_state_and_keeps_payloads() {
+  let fixture = Fixture::new();
+  let original = quarantine_fixture(&fixture);
+  let directory = fixture.0.join("external");
+  fs::rename(original, &directory).unwrap();
+  fs::remove_file(fixture.0.join("state/reap/state.lock")).unwrap();
+  fs::remove_dir(fixture.0.join("state/reap")).unwrap();
+  fs::remove_dir(fixture.0.join("state")).unwrap();
+  fs::create_dir_all(fixture.0.join("home/.config/reap")).unwrap();
+  fs::write(
+    fixture.0.join("home/.config/reap/config.json"),
+    serde_json::to_vec(&serde_json::json!({
+      "quarantine":{"dir":directory,"auto_purge":false},
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  let input = quarantine_request(
+    &fixture,
+    crate::invocation::QuarantineMetadata::Hold {
+      id: "11223344".into(),
+    },
+  );
+  let root = fixture.0.join("journal");
+  let mut journal = Journal::open(&root).unwrap();
+  let (key, result) = submit(&mut journal, &input);
+  assert_eq!(
+    (result.exit_code, result.effects),
+    (0, 4),
+    "{}",
+    result.detail
+  );
+  assert!(fixture.0.join("state/reap/state.lock").is_file());
+  assert!(!fixture.0.join("state/reap/quarantine").exists());
+  let index = crate::quarantine::load_index(&directory).unwrap();
+  assert!(index.held_ids.contains("11223344") && index.held_ids.contains("55667788"));
+  for id in ["11223344", "55667788"] {
+    assert_eq!(
+      fs::read(directory.join("entries").join(id).join("payload/valuable")).unwrap(),
+      id.as_bytes()
+    );
+  }
+  let before = fixture.survivors();
+  let view = journal.lookup(&key).unwrap();
+  drop(journal);
+  let mut journal = Journal::open(&root).unwrap();
+  assert_eq!(journal.admit_execution(key, input, 5).unwrap(), view);
+  assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+  assert_eq!(fixture.survivors(), before);
+}
+
+#[test]
+fn native_quarantine_metadata_refuses_busy_unknown_and_replaced_inputs() {
+  const ENTRY: &str =
+    "dispatch::tests::lease::native_quarantine_metadata_refuses_busy_unknown_and_replaced_inputs";
+  const ROLE: &str = concat!(
+    r#"{"version":2,"role":"permanent_archive","#,
+    r#""keep":{"reason":"retained fixture"},"seal":true}"#,
+  );
+  if std::env::var_os("REAP_QUARANTINE_REFUSAL_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture"])
+      .env("REAP_QUARANTINE_REFUSAL_FIXTURE", "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}\n{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  for mode in [
+    "busy",
+    "unknown",
+    "missing",
+    "absent-id",
+    "unheld-id",
+    "duplicate",
+    "role",
+    "symlink",
+    "index-replacement",
+    "config-change",
+    "quarantine-directory-replacement",
+  ] {
+    let fixture = Fixture::new();
+    let directory = quarantine_fixture(&fixture);
+    let path = directory.join("index.json");
+    let original = fs::read(&path).unwrap();
+    let mut lock = None;
+    match mode {
+      "busy" => {
+        let file = File::options()
+          .read(true)
+          .write(true)
+          .open(fixture.0.join("state/reap/state.lock"))
+          .unwrap();
+        file.try_lock().unwrap();
+        lock = Some(file);
+      }
+      "unknown" => {
+        let mut index: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        index["future_protection"] = serde_json::json!(true);
+        fs::write(&path, serde_json::to_vec(&index).unwrap()).unwrap();
+      }
+      "missing" => fs::remove_file(&path).unwrap(),
+      "absent-id" | "unheld-id" => {}
+      "duplicate" => {
+        let mut index: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        let entry = index["entries"][0].clone();
+        index["entries"].as_array_mut().unwrap().push(entry);
+        fs::write(&path, serde_json::to_vec(&index).unwrap()).unwrap();
+      }
+      "role" => fs::write(directory.join(".reap"), ROLE).unwrap(),
+      "symlink" => {
+        fs::rename(&path, directory.join("retained-index")).unwrap();
+        std::os::unix::fs::symlink("retained-index", &path).unwrap();
+      }
+      _ => std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", mode),
+    }
+    let request = match mode {
+      "unheld-id" => crate::invocation::QuarantineMetadata::Unhold {
+        id: "11223344".into(),
+      },
+      "absent-id" => crate::invocation::QuarantineMetadata::Hold {
+        id: "00000000".into(),
+      },
+      _ => crate::invocation::QuarantineMetadata::Hold {
+        id: "11223344".into(),
+      },
+    };
+    let before_index = fs::read(&path).ok();
+    let input = quarantine_request(&fixture, request);
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let (_, result) = submit(&mut journal, &input);
+    std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+    assert_eq!(
+      (result.exit_code, result.effects),
+      (1, 0),
+      "{mode}: {}",
+      result.detail
+    );
+    if !matches!(
+      mode,
+      "index-replacement" | "quarantine-directory-replacement"
+    ) {
+      assert_eq!(fs::read(&path).ok(), before_index, "{mode}");
+    }
+    let original_directory = if mode == "quarantine-directory-replacement" {
+      directory.with_extension("retained-original")
+    } else {
+      directory.clone()
+    };
+    for id in ["11223344", "55667788"] {
+      assert_eq!(
+        fs::read(
+          original_directory
+            .join("entries")
+            .join(id)
+            .join("payload/valuable")
+        )
+        .unwrap(),
+        id.as_bytes(),
+        "{mode}"
+      );
+    }
+    if mode == "index-replacement" {
+      assert_eq!(
+        fs::read(path.with_extension("retained-original")).unwrap(),
+        original
+      );
+      assert!(fs::read_to_string(&path)
+        .unwrap()
+        .contains("future_protection"));
+    }
+    if mode == "quarantine-directory-replacement" {
+      assert_eq!(
+        fs::read(directory.join("valuable")).unwrap(),
+        b"replacement quarantine"
+      );
+      assert_eq!(
+        fs::read(original_directory.join("index.json")).unwrap(),
+        original
+      );
+    }
+    drop(lock);
+  }
+}
+
+#[test]
+fn native_quarantine_metadata_interrupted_publication_retains_exact_prefix() {
+  const ENTRY: &str = "dispatch::tests::lease::native_quarantine_metadata_interrupted_publication_retains_exact_prefix";
+  if std::env::var_os("REAP_QUARANTINE_RECOVERY_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture"])
+      .env("REAP_QUARANTINE_RECOVERY_FIXTURE", "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}\n{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  for point in ["index-intended", "index-published", "index-observed"] {
+    let fixture = Fixture::new();
+    let directory = quarantine_fixture(&fixture);
+    let input = quarantine_request(
+      &fixture,
+      crate::invocation::QuarantineMetadata::Hold {
+        id: "11223344".into(),
+      },
+    );
+    let root = fixture.0.join("journal");
+    let mut journal = Journal::open(&root).unwrap();
+    let evidence = fixture.0.join("quarantine-stop-evidence");
+    std::env::set_var("REAP_NATIVE_LEASE_STOP_EVIDENCE", &evidence);
+    std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", point);
+    let (key, result) = submit(&mut journal, &input);
+    std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+    std::env::remove_var("REAP_NATIVE_LEASE_STOP_EVIDENCE");
+    assert_eq!(fs::read_to_string(&evidence).unwrap(), point);
+    assert_eq!(result.exit_code, 1, "{point}: {}", result.detail);
+    let moved = point != "index-intended";
+    assert_eq!(
+      result.effects,
+      u64::from(moved),
+      "{point}: {}",
+      result.detail
+    );
+    let index = crate::quarantine::load_index(&directory).unwrap();
+    assert_eq!(index.held_ids.contains("11223344"), moved, "{point}");
+    assert!(index.held_ids.contains("55667788"), "{point}");
+    let ledger = journal.mutation(&key).unwrap().unwrap();
+    assert_eq!(ledger.completed_units, u64::from(moved));
+    assert!(ledger.unresolved_resources().is_none());
+    let current = ledger.current.as_ref().unwrap();
+    assert_eq!(current.sequence, 1);
+    assert_eq!(
+      current.phase,
+      if moved {
+        crate::mutation::Phase::Moved
+      } else {
+        crate::mutation::Phase::Refused
+      }
+    );
+    let crate::mutation::Intent::Publish(intent) = &current.intent else {
+      panic!("{point}: not a publication")
+    };
+    assert_eq!(intent.rename.destination, directory.join("index.json"));
+    let before = fixture.survivors();
+    let index_before = metadata_snapshot(&directory.join("index.json"));
+    let view = journal.lookup(&key).unwrap();
+    drop(journal);
+    let mut journal = Journal::open(&root).unwrap();
+    assert_eq!(
+      journal.admit_execution(key.clone(), input, 5).unwrap(),
+      view
+    );
+    assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+    assert_eq!(fixture.survivors(), before);
+    assert_eq!(
+      metadata_snapshot(&directory.join("index.json")),
+      index_before
+    );
+    assert_eq!(journal.mutation(&key).unwrap().unwrap(), ledger);
+  }
+}
+
 #[test]
 fn native_parent_arm_publishes_marker_and_index_without_leasing_children_and_replays() {
   let fixture = Fixture::new();

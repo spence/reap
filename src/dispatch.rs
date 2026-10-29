@@ -226,7 +226,10 @@ impl Scheduler {
       cargo: operation
         .as_deref()
         .is_some_and(|operation| matches!(operation, "plan" | "clean" | "sweep")),
-      lease: matches!(operation.as_deref(), Some("lease" | "parents")),
+      lease: matches!(
+        operation.as_deref(),
+        Some("lease" | "parents" | "quarantine")
+      ),
       stores: operation.as_deref() == Some("stores"),
       key,
       input,

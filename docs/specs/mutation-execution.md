@@ -151,6 +151,21 @@
   `tests/test_public_mutations.py::PublicMutations::test_parent_arm_does_not_wait_for_configuration_fifo`;
   `tests/test_public_mutations.py::PublicMutations::test_parent_listing_does_not_create_state_or_wait_for_a_busy_lock`.
 
+- **C16 — Quarantine holds change only their recognized index.** Quarantine listing, hold and unhold
+  use the bounded client and shared metadata job family. Listing does not create state or wait for
+  the lifecycle lock. Hold and unhold retain that stable lock and publish one exact index version
+  through a durable unit intent. Unknown metadata, a changed index, a replaced quarantine directory,
+  and a protected publication path prevent replacement. Payloads and unrelated holds survive.
+  Hold is idempotent for an indexed entry. Unhold requires an existing hold and changes only the
+  automatic-purge exclusion; it grants no independent disposal permission.
+  Exact replay cannot repeat publication. Restore remains a separate move operation.
+  Bindings: `dispatch::tests::lease::native_quarantine_metadata_preserves_payloads_and_replays`;
+  `dispatch::tests::lease::native_quarantine_metadata_refuses_busy_unknown_and_replaced_inputs`;
+  `dispatch::tests::lease::native_quarantine_metadata_interrupted_publication_retains_exact_prefix`;
+  `dispatch::tests::lease::native_quarantine_metadata_external_index_creates_only_local_state_and_keeps_payloads`;
+  `invocation::tests::quarantine_metadata_keeps_selection_and_wait_separate`;
+  `tests/test_public_mutations.py::PublicMutations::test_quarantine_metadata_does_not_wait_for_configuration_fifo`.
+
 ## Conformance boundary
 
 The public mutation fixtures contain both refusal controls and actual allowed effects with protected

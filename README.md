@@ -926,10 +926,10 @@ owner, purpose, source machine, original path, and any supplied provenance
 recorded:
 
 ```bash
-reap quarantine                     # list; --owner filters by creator
+reap quarantine --wait 30           # list; quarantine list --owner filters by creator
 reap quarantine restore <id>        # put one back
-reap quarantine hold <id>           # protect one from automatic purge
-reap quarantine unhold <id>         # return it to the age policy
+reap quarantine hold <id> --wait 30  # protect one from automatic purge
+reap quarantine unhold <id> --wait 30 # return it to the age policy
 reap doctor --quarantine            # inspect indexed and unindexed slots
 reap purge                          # dry-run entries past the grace period
 reap purge --apply
@@ -940,11 +940,20 @@ a large project to another for testing, the copy is leased with the
 originating agent as owner, and that agent can be asked before its files are
 purged.
 
+Quarantine listing, hold, and unhold use the bounded job client and protocol 2 receipts.
+Read terminal detail or retained pages for entries, held IDs, unindexed slot IDs, and automatic-purge policy.
+Listing does not create state, acquire the lifecycle lock, or inspect payload contents.
+Large results can return `capacity-incomplete`, not an empty successful list.
+`quarantine list --owner NAME` reduces returned entries but does not bypass index-read or slot-name bounds.
+Hold changes use the stable lock and exact journaled index publication. Payloads remain unchanged.
+`--wait [SECONDS]` observes the same job; an omitted value means 30 seconds.
+Require completed success before a dependent operation. Restore remains a foreground operation and rejects `--wait`.
+
 Automatic purge withholds an otherwise eligible entry when it is held in the
 quarantine index, its lease marker still exists (for lease retirements), or
 its present quarantine metadata fails validation. It rechecks each entry
 immediately before deletion; an apply reports validation-blocked entries as
-needing review. `reap quarantine list` labels held entries, and `reap status`
+needing review. `reap quarantine list` reports held IDs, and `reap status`
 counts them separately from policy-eligible bytes. Rebuilt entries from
 `reap doctor --quarantine --apply` retain their original retirement time but
 stay withheld while their lease marker remains. Purge refuses a symlinked
@@ -1175,7 +1184,7 @@ An already successful job retains exit 0. This does not mean that cancellation t
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
 macOS installation registers that broker. Files application records exact payload and index units
 through the shared executor. Cargo application records lock publication and exact removal units through that executor.
-Lease and Store commands also use that client and executor, including explicit metadata publications.
+Lease, Store, and quarantine metadata commands also use that client and executor, including explicit metadata publications.
 Other applying filesystem commands still retain their foreground routes.
 The full applying-command migration remains open. No new lifetime authority is activated by this route.
 

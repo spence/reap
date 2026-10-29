@@ -110,8 +110,10 @@ impl Task {
         .ok()
         .and_then(|intent| crate::invocation::summary(&intent))
         .is_some_and(|summary| {
-          matches!(summary.operation.as_str(), "lease" | "parents")
-            && (summary.mode == "apply" || terminal.effects == 0)
+          matches!(
+            summary.operation.as_str(),
+            "lease" | "parents" | "quarantine"
+          ) && (summary.mode == "apply" || terminal.effects == 0)
         });
     }
     if let (Self::Stores { input, .. }, Report::StoresFinished { terminal, .. }) = (self, report) {

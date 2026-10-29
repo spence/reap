@@ -1,4 +1,4 @@
-//! Legacy lease and parent metadata under shared reservations and native unit guards.
+//! Legacy lifecycle metadata under shared reservations and native unit guards.
 
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 
 use super::{destination, invalid, Inspector, Scope};
 use crate::identity::ObjectIdentity;
-use crate::invocation::{Intent, Namespace};
+use crate::invocation::{Intent, Namespace, QuarantineMetadata};
 use crate::journal::{Prepared, Terminal};
 use crate::launch::Grant;
 use crate::lease::{LeaseFile, LeaseMarker, LEASE_MARKER};
@@ -24,11 +24,13 @@ use crate::LeaseCmd;
 enum Command {
   Lease(LeaseCmd),
   ParentArm(crate::invocation::ParentArm),
+  Quarantine(QuarantineMetadata),
 }
 
 impl Command {
   fn creates_state(&self) -> bool {
     matches!(self, Self::Lease(LeaseCmd::Add { .. }) | Self::ParentArm(_))
+      || matches!(self, Self::Quarantine(request) if request.applying())
   }
 }
 
@@ -41,6 +43,9 @@ struct Context<'a> {
   state: PathBuf,
   target: Option<PathBuf>,
   project: Option<PathBuf>,
+  quarantine: Option<PathBuf>,
+  quarantine_missing: bool,
+  quarantine_policy: crate::config::QuarantineConfig,
   forbidden: Vec<PathBuf>,
   bootstrap: Vec<PathBuf>,
   namespace_missing: Vec<PathBuf>,
@@ -423,6 +428,9 @@ pub(crate) fn assess(
       }))?,
     });
   }
+  if let Command::Quarantine(QuarantineMetadata::List { owner }) = &context.command {
+    return list_quarantine(&context, grant, owner.as_deref());
+  }
   if !context.command.creates_state() && !context.bootstrap.is_empty() {
     return Err(invalid("no lease state exists for this request"));
   }
@@ -442,8 +450,63 @@ pub(crate) fn assess(
   };
   let mut selected = None;
   let mut selected_parent = None;
+  let mut selected_hold = None;
   let mut action = "";
   let result = (|| -> io::Result<()> {
+    if let Command::Quarantine(request) = &context.command {
+      let quarantine = context
+        .quarantine
+        .as_deref()
+        .ok_or_else(|| invalid("quarantine is absent"))?;
+      let index = crate::quarantine::index_path(quarantine);
+      let (previous, mut entries) = load_quarantine(quarantine, &grant.resources)?;
+      let id = match request {
+        QuarantineMetadata::Hold { id } | QuarantineMetadata::Unhold { id } => id,
+        QuarantineMetadata::List { .. } => unreachable!(),
+      };
+      action = if matches!(request, QuarantineMetadata::Hold { .. }) {
+        "hold"
+      } else {
+        "unhold"
+      };
+      if action == "hold" {
+        if entries
+          .entries
+          .iter()
+          .filter(|entry| &entry.id == id)
+          .count()
+          != 1
+        {
+          return Err(invalid(
+            "hold requires exactly one indexed quarantine entry",
+          ));
+        }
+        selected_hold = Some(id.clone());
+        if entries.held_ids.contains(id) {
+          applying.initialize(helpers)?;
+          if load_quarantine(quarantine, &grant.resources)?.0 != previous {
+            return Err(invalid("quarantine index changed before hold observation"));
+          }
+          applying.fresh()?;
+          return Ok(());
+        }
+        entries.held_ids.insert(id.clone());
+      } else {
+        if !entries.held_ids.remove(id) {
+          return Err(invalid("quarantine entry is not held"));
+        }
+        selected_hold = Some(id.clone());
+      }
+      applying.initialize(helpers)?;
+      applying.publish(
+        "index",
+        &index,
+        &serde_json::to_vec_pretty(&entries)?,
+        previous,
+        helpers,
+      )?;
+      return applying.fresh();
+    }
     applying.initialize(helpers)?;
     let (previous, mut leases) = load(&context.state, &grant.resources)?;
     let now = crate::plan::now_secs() as i64;
@@ -582,11 +645,17 @@ pub(crate) fn assess(
     applying.fresh()
   })();
   let mut detail = serde_json::json!({
-    "command":if matches!(context.command, Command::ParentArm(_)) {"parents"} else {"lease"},
+    "command":match context.command {
+      Command::ParentArm(_) => "parents",
+      Command::Quarantine(_) => "quarantine",
+      Command::Lease(_) => "lease",
+    },
     "action":action,"error":result.as_ref().err().map(|error| error.to_string()),
     "worker_observation":{"completed_units":applying.effects,"unknown_effects":applying.unknown},
   });
-  if matches!(context.command, Command::ParentArm(_)) {
+  if matches!(context.command, Command::Quarantine(_)) {
+    detail["id"] = serde_json::to_value(selected_hold)?;
+  } else if matches!(context.command, Command::ParentArm(_)) {
     detail["parent"] = serde_json::to_value(selected_parent)?;
   } else {
     detail["lease"] = serde_json::to_value(selected)?;
@@ -623,12 +692,98 @@ fn load(
   }
 }
 
+/// Read one bounded recognized index and its exact publication version, without payload access.
+fn load_quarantine(
+  directory: &Path,
+  resources: &crate::launch::Resources,
+) -> io::Result<(Option<FileVersion>, crate::quarantine::IndexFile)> {
+  match crate::mutation::read_metadata(&crate::quarantine::index_path(directory), resources)? {
+    None => Ok((None, crate::quarantine::IndexFile::default())),
+    Some((version, bytes)) => Ok((
+      Some(version),
+      crate::quarantine::parse_index(&bytes).map_err(|reason| invalid(&reason))?,
+    )),
+  }
+}
+
+/// List recognized index records and direct slot names without a lifecycle lock or payload walk.
+fn list_quarantine(
+  context: &Context<'_>,
+  grant: &Grant,
+  owner: Option<&str>,
+) -> io::Result<Terminal> {
+  let directory = context
+    .quarantine
+    .as_deref()
+    .ok_or_else(|| invalid("quarantine is absent"))?;
+  let (version, index) = if context.quarantine_missing {
+    (None, crate::quarantine::IndexFile::default())
+  } else {
+    load_quarantine(directory, &grant.resources)?
+  };
+  let mut orphans = vec![];
+  let mut bytes = 0usize;
+  if !context.quarantine_missing {
+    match std::fs::read_dir(crate::quarantine::entries_dir(directory)) {
+      Ok(entries) => {
+        let indexed: BTreeSet<_> = index
+          .entries
+          .iter()
+          .map(|entry| entry.id.as_str())
+          .collect();
+        for entry in entries {
+          let name = entry?
+            .file_name()
+            .into_string()
+            .map_err(|_| invalid("quarantine slot name is not UTF-8"))?;
+          bytes = bytes
+            .checked_add(name.len() + std::mem::size_of::<String>())
+            .ok_or_else(|| invalid("quarantine slot names overflow"))?;
+          if bytes > crate::mutation::MAX_METADATA_BYTES {
+            return Err(invalid(
+              "quarantine slot listing exceeds its metadata bound",
+            ));
+          }
+          if !indexed.contains(name.as_str()) {
+            orphans.push(name);
+          }
+        }
+      }
+      Err(reason) if reason.kind() == io::ErrorKind::NotFound => {}
+      Err(reason) => return Err(reason),
+    }
+    if load_quarantine(directory, &grant.resources)?.0 != version {
+      return Err(invalid("quarantine index changed during listing"));
+    }
+  }
+  context.inspector.revalidate()?;
+  orphans.sort();
+  let entries: Vec<_> = index
+    .entries
+    .iter()
+    .filter(|entry| owner.is_none_or(|owner| entry.owner == owner))
+    .collect();
+  Ok(Terminal {
+    exit_code: 0,
+    effects: 0,
+    detail: serde_json::to_string(&serde_json::json!({
+      "command":"quarantine","action":"list","directory":directory,
+      "entries":entries,"held_ids":index.held_ids,"unindexed_ids":orphans,
+      "auto_purge":context.quarantine_policy.auto_purge,
+      "purge_after_days":context.quarantine_policy.purge_after_days,
+      "payload_availability":"not_observed",
+    }))?,
+  })
+}
+
 fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Context<'a>> {
   let (intent, caller, directory) = crate::invocation::fresh(input)?;
   let command = if let Some(command) = crate::invocation::lease_request(&intent) {
     Command::Lease(command)
   } else if let Some(request) = crate::invocation::parent_arm_request(&intent) {
     Command::ParentArm(request)
+  } else if let Some(request) = crate::invocation::quarantine_metadata_request(&intent) {
+    Command::Quarantine(request)
   } else {
     return Err(invalid("unsupported lease metadata arguments"));
   };
@@ -659,6 +814,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
       LeaseCmd::Add { path, .. } | LeaseCmd::Renew { path, .. } | LeaseCmd::Release { path },
     ) => Some(PathBuf::from(path)),
     Command::ParentArm(request) => Some(PathBuf::from(&request.path)),
+    Command::Quarantine(_) => None,
   };
   let target = raw_target
     .map(|path| {
@@ -693,7 +849,9 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     None
   };
   let mut forbidden = vec![state.clone()];
-  if command.creates_state() {
+  let mut quarantine = None;
+  let mut quarantine_missing = false;
+  if command.creates_state() || matches!(command, Command::Quarantine(_)) {
     let home = intent.namespace.home.to_string_lossy();
     let raw_quarantine = configuration
       .quarantine
@@ -711,12 +869,22 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
         }
       })
       .unwrap_or_else(|| raw_state.join("reap/quarantine"));
-    let quarantine = inspector.canonical_path(&if raw_quarantine.is_absolute() {
+    let path = inspector.canonical_path(&if raw_quarantine.is_absolute() {
       raw_quarantine
     } else {
       caller.base.join(raw_quarantine)
     })?;
-    forbidden.push(quarantine);
+    if matches!(command, Command::Quarantine(_)) {
+      let (path, missing) = destination(&mut inspector, &path)?;
+      quarantine_missing = !missing.is_empty();
+      if matches!(&command, Command::Quarantine(request) if request.applying()) {
+        inspector.directory(&path)?;
+      } else if !quarantine_missing {
+        inspector.optional_directory(&crate::quarantine::entries_dir(&path))?;
+      }
+      quarantine = Some(path.clone());
+    }
+    forbidden.push(path);
   }
   Ok(Context {
     inspector,
@@ -727,6 +895,9 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     state: state.clone(),
     target,
     project,
+    quarantine,
+    quarantine_missing,
+    quarantine_policy: configuration.quarantine,
     forbidden,
     bootstrap,
     namespace_missing,
@@ -786,6 +957,14 @@ fn unit_fixture(label: &str, path: &Path) -> io::Result<()> {
         config.join("config.json"),
         br#"{"roots":[],"governed_roots":[]}"#,
       )?;
+    }
+    ("quarantine-directory-replacement", "index") => {
+      let directory = path
+        .parent()
+        .ok_or_else(|| invalid("quarantine parent is absent"))?;
+      std::fs::rename(directory, directory.with_extension("retained-original"))?;
+      std::fs::create_dir(directory)?;
+      std::fs::write(directory.join("valuable"), b"replacement quarantine")?;
     }
     ("marker-replacement" | "release-unobserved", "release") => {
       std::fs::rename(path, path.with_extension("retained-original"))?;
