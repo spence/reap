@@ -1,0 +1,173 @@
+{
+  "citation": "REF-RESTORE-JOBS-T19",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "source_revision": "cbab4d3e8a2ee315c74a6ba99057dac046eb7f23",
+  "source_base_revision": "5c8f4cad8200afff8c7d8f045b715b83b6ebddb5",
+  "boundary": "Reviewed, held, unmerged same-volume restoration source checkpoint; not full Task, installed delivery or goal completion.",
+  "source_files": {
+    "README.md": "f3dc485df51c3e47e3402b06c46f1958323eaca681f452eaba16db9efd41f410",
+    "docs/specs/mutation-execution.md": "d063390985a19f50dcab842f5b39f9d2debc0988d070a1175d1002be7ea630a2",
+    "skill/SKILL.md": "b338ce7cd1cb92761368d116f800137edcdccf523f4a03542723ac7e250b2aae",
+    "src/client.rs": "5813763e6a3d2b56ac1152b8322f2a3d560fad211347fa34713b5710403ef4c0",
+    "src/dispatch.rs": "7ea67232a7ce2c883a82809ae95488b75317a9ee383c0cf3305224d7022f9095",
+    "src/dispatch/lease_job.rs": "1f5c6af9281f9629e48b6f9de4695383e6547464ce3d2fa68a78c8253e3848e6",
+    "src/dispatch/lease_job/doctor.rs": "e51643c0e8987794c47e50baa787381c2eda33496dd5daa5c03b46b9085a420e",
+    "src/dispatch/lease_job/purge.rs": "f3a4f78e53d6c609c2d638446f38fb52809a655cf34a9d8cb8e61efdecb654e0",
+    "src/dispatch/lease_job/restore.rs": "c810dec85470f35f57a5dc5ae1616165a7fa922f06d7bc614d4bd487a32d28a5",
+    "src/dispatch/lease_job/retire.rs": "961b734bc661300b5d9b97f03a643cf85814685b607c3d9cfd28977f41eb5161",
+    "src/dispatch/tests.rs": "ee55e6bb90513ceffec7c4b248ebb50401cda060648bea7ff9fbd14d9f10250e",
+    "src/dispatch/tests/restore.rs": "94d495abd5d357d09de69fde61f1b1de16293b660d3d5c24061b1913dd5ccbe9",
+    "src/invocation.rs": "afbc2fcd72c165084b91e49678460d6a6c833abe28b330992d168004a92a0ca1",
+    "src/main.rs": "74f93acb2d706cc26e1b3a2a1b9ae093bd28c4f262672243dc6ac71bc66db941",
+    "src/mutation.rs": "c85ecb3cd516be8b6d05224999d23c256291fc2eb6d1cfbcf2414299f4d00cec",
+    "src/mutation/native.rs": "44d9ff2f0de5ee3051183ba30ac5bf5133d0032a254f555251d4d8910c72a9e4",
+    "src/quarantine.rs": "0ed9945968c9a4d30680d6ad97f9a3edb017d2a1b795d1c7c7a05965ac5e4ac2",
+    "tests/lifecycle_state.rs": "f313f5ac464373f89184a1406b7c4dcf3fff1eb76905f6e788e7544549a48d6d",
+    "tests/skill_workspaces.py": "5886798c9f25bb6fff6c70046a019a2417a05deeacd0e3f572c0d560154b4c40",
+    "tests/test_public_mutations.py": "b16667a417700424a7c8e7361cf9c5af4cf5e2ba2394094a8a6c13baa60f834c"
+  },
+  "artifacts": {
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-frozen-v12/unit",
+      "sha256": "21268ce3127e5320cf8518da6085af92ec3af535f79d23b7ab908d83a322bb2e",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 38550576,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-frozen-v12/app",
+      "sha256": "4fa67e9e945f917108b558e7bd84593d253a9a2a1d056666f3d194bb133c5e4e",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 28278544,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    },
+    "fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-frozen-v12/fault",
+      "sha256": "fd56f62b46583323bc7f6846008876a5078704f0c48bb347e7c5fb1f892dbeb8",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults",
+      "bytes": 52384,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/fault.dylib"
+    },
+    "activity-fault": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-frozen-v12/activity-fault",
+      "sha256": "9b5355a293265338876f8ab62bd9f3daf87eb3ce66325c69a9b15e78737a89af",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-faults",
+      "bytes": 51808,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/active-executable-release-v3/activity-fault.dylib"
+    }
+  },
+  "source_manifest_sha256": "2d2e6549fcc40146545cbc060a0b9c16f05feb0b219de0d2c68786dede3afa03",
+  "native_results": {
+    "root_restore": {
+      "passed": 9,
+      "failed": 0,
+      "seconds": 181.0
+    },
+    "mini_restore": {
+      "passed": 9,
+      "failed": 0,
+      "seconds": 124.33
+    },
+    "root_application_worker": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 74.52
+    },
+    "mini_application_worker": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 42.08
+    },
+    "public_fifo": {
+      "cases_per_host": 1,
+      "forms_per_case": 2,
+      "root_seconds": 0.022,
+      "mini_seconds": 0.045,
+      "scope": "Prompt failure/unavailable receipts; not positive installed cleanup."
+    },
+    "micro_identity": "All four frozen artifacts match Mini pre/post SHA-256, certificate and designated requirement."
+  },
+  "review": {
+    "peer": "peer-18e2fcf77bfd3480-603890",
+    "conversation": "conversation-18e2fcf77d973188-603894",
+    "request": "cmsg-18e3022f621e9fd0-604861",
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "state": "accepted_exact_v12_source_manifest_only",
+    "filesystem_boundary": "unknown"
+  },
+  "retained_failures": {
+    "previous_full_unit_v7": {
+      "passed": 482,
+      "failed": 1,
+      "ignored": 0,
+      "reason": "native_restore_preserves_regular_store_files_and_symlink_entries refused incomplete mapped-region activity evidence for PID 54960; cause unresolved.",
+      "issue": "ISS-CLASSIFY-NATIVE-ACTIVITY-REFUSALS-WITHOU"
+    },
+    "late_tracking_v8": "Witnessed Git-index change after KEEP intent; old guard returned success and moved/released the payload. New regression passes in V9 and V12.",
+    "v11": "Eight pass, one safely refused Git alias with a different guard message; V12 preserves refusal and corrects guard precedence.",
+    "public_integration_v12": {
+      "case": "quarantined_store_files_and_dirs_restore_only_to_explicit_safe_paths",
+      "passed": 0,
+      "failed": 1,
+      "reason": "First Store command returned native context unavailable, with no admitted job; no restore executed.",
+      "retained_fixture": "/private/tmp/reap-lifecycle-79595-1793279810210789000-0",
+      "readback": {
+        "original_payload": "quarantined-store",
+        "store_absent": true,
+        "quarantine_index_absent": true
+      }
+    }
+  },
+  "excluded_nonproof_attempts": {
+    "restore-public-root-v12.log": "Direct Python file invocation ran no unittest cases.",
+    "mini/public-v12.log": "Direct Python file invocation ran no unittest cases."
+  },
+  "current_full_unit_v12": {
+    "state_at_checkpoint": "running",
+    "log": "restore-unit-full-v12.log",
+    "scope": "485 binary-unit cases, including ignored native faults and inventory-cost case; terminal result not yet available."
+  },
+  "raw_evidence": {
+    "restore-build-v12.log": "5fa75ec5495139a466c67b5cc29ef3ac4625362f914af4594b508aa58e45383a",
+    "restore-focused-v12.log": "fa49a08018080b90baeda277a1351ecac938da21da1b04dff671a8e0e99dae1d",
+    "restore-app-worker-root-v12.log": "bc45ed2639b9e54f32b03b6d120501a346de15de7a99590aae758bcee34c480e",
+    "restore-public-root-v12-actual.log": "0bf62dff05755c4e37fac9d4c44b43a171eb2e01cf082261c656eb5e4c32e1e6",
+    "restore-mini-native-focused-v12.log": "9a704417b984320271c1f18fe06c9c2b69f6bdaf0397cfee469345eccd0c5e93",
+    "restore-mini-production-worker-v12.log": "16bafef04744ed80a2193651dcdf4985eae0531bc05820e7b897bb893948b0db",
+    "restore-mini-public-actual-v12.log": "e5a324f964375cc7122a97031d5e980ad5a67786c2aebdcadd1be14912d7130b",
+    "restore-mini-native-pre-v12.json": "308c79ce6c54e648ca1d6114a7cb125d62006a1676a9cd5b39f1e0f910f6af3b",
+    "restore-mini-native-post-actual-v12.json": "308c79ce6c54e648ca1d6114a7cb125d62006a1676a9cd5b39f1e0f910f6af3b",
+    "restore-native-verify-v12.json": "ac8f41121fd96e5adaec869631b9c1ec31a063bc9cdba55ae8388a509babf4c7",
+    "restore-review-manifest-v12.json": "2d2e6549fcc40146545cbc060a0b9c16f05feb0b219de0d2c68786dede3afa03",
+    "restore-review-wait-v12.json": "c48f75e1492dfbef11deecc3ad99b32072068436ca01df95e61b7e341a96b255",
+    "restore-unit-full-v7.log": "638ba46ebc7e9f0ee1e4e504bcf838a89e7017a5303a75c21a3f1f8313478966",
+    "restore-tracking-red-v8.log": "93ce5af813fb267378ede5474c50bcadfe49131cf5059ffe2c5395c04b16c582",
+    "restore-focused-v9.log": "81ce1c3117fca09dc3f387c9c25cd995aa64fb8911fc498162e6c8cef37f9a12",
+    "restore-focused-v11.log": "8912d8465cb3d337e1530cc1398cae355500f74eb320bd34e4ec42886f812536",
+    "restore-metadata-v12.log": "053f0c9ac2a003c00e345d8cb2addf422dd95598d574a94df338642695290c39",
+    "restore-store-integration-v12.log": "6c1cc6472cd05969c41210c04c066226dd2daa008166c8f2f13e2179347a1787"
+  },
+  "remaining": [
+    "Green full Cargo runtime, including integration targets.",
+    "Installed public-positive, preservation, workspace, fault and native cohort proof on both Macs.",
+    "Cross-volume staged-copy restoration and exact linked-worktree administration.",
+    "Creation and declaration callers, old-reader barriers and conversion.",
+    "Fair useful execution and three paired native efficiency runs.",
+    "Production native conversation capture, independent retrieval and separate fail-closed source release."
+  ],
+  "preservation": "No product installation, operator-guide deployment, live conversion, production conversation capture or source prune. Quick-check executables, inputs, fixtures, temporary files, working directories and logs remain internal. Foreign agents, hosts and Zed were not stopped."
+}
