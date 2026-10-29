@@ -1,0 +1,188 @@
+{
+  "format": 1,
+  "work": "MS-LIFETIME-ENFORCE.T20",
+  "status": "component evidence; full native profile remains open",
+  "host": "catalyst",
+  "provider": "codex",
+  "client_version": "0.163.0",
+  "native_binary": {
+    "path": "target/archive-native-t7/native-codex",
+    "sha256": "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31"
+  },
+  "harnesses": [
+    {
+      "path": "target/native-profile-t20/probe_codex_fork_closure.py",
+      "sha256": "4e1b5046c6f5e388919ec729f9ccbf927d06ff3caf0d0c5dd7d684e6e3d70c2f"
+    },
+    {
+      "path": "target/native-profile-t20/probe_codex_fork_restore.py",
+      "sha256": "bc52d7f7741c79e4ad32508996261b7594deba81d8d7c22c1f8b1b3361b20cc5"
+    },
+    {
+      "path": "target/native-profile-t20/read_codex_without_resume.py",
+      "sha256": "39df725aef57c0287e45243d8a3aae0c2d78b0f2a062aa89a34a0654c42f9f14"
+    }
+  ],
+  "fork": {
+    "parent_id": "01a16bec-9474-7552-87e2-ec4f9e532a16",
+    "fork_id": "01a18a0f-420d-7c73-aee8-0b91f76d9c57",
+    "forked_from_id": "01a16bec-9474-7552-87e2-ec4f9e532a16",
+    "parent_history": {
+      "turn_count": 1,
+      "turn_ids": [
+        "01a16bec-9ab4-7f71-aacd-d6658e463a53"
+      ],
+      "turn_digest": "eb375023ff7bd4d51ccdaff197a6a45b2a04780d20c02f316a40ef701409c497",
+      "item_count": 10,
+      "item_ids": [
+        "01a16bec-9d2a-7bb2-9763-c86cbb801a38",
+        "msg_0b6eb2c855c1ba5e016adc2400bda8819b84ed8b76515ce58f",
+        "exec-477a83f9-0420-4ad6-a72f-4bbe18cbfee1",
+        "exec-7f3077a5-d6f7-4721-8d8c-25d6cf8c3b29",
+        "exec-736f7e6c-b2f7-420a-b531-7d90288ef543",
+        "rs_0b6eb2c855c1ba5e016adc2408704c819ba0aa0b9a3ab84b20",
+        "exec-b1252d30-a5a6-4032-aea8-8bd4831c206e",
+        "exec-005e07b9-9f70-4688-9491-48f854c17ea7",
+        "rs_0b6eb2c855c1ba5e016adc240fb210819b859e1a07a2878d40",
+        "msg_0b6eb2c855c1ba5e016adc240fb204819b9b3737bff1b8e86d"
+      ],
+      "item_digest": "591b35d0b913572473faa33c665cafe97de96f175fa31475a449c6296754653c"
+    },
+    "fork_history": {
+      "turn_count": 1,
+      "turn_ids": [
+        "01a16bec-9ab4-7f71-aacd-d6658e463a53"
+      ],
+      "turn_digest": "eb375023ff7bd4d51ccdaff197a6a45b2a04780d20c02f316a40ef701409c497",
+      "item_count": 10,
+      "item_ids": [
+        "01a16bec-9d2a-7bb2-9763-c86cbb801a38",
+        "msg_0b6eb2c855c1ba5e016adc2400bda8819b84ed8b76515ce58f",
+        "exec-477a83f9-0420-4ad6-a72f-4bbe18cbfee1",
+        "exec-7f3077a5-d6f7-4721-8d8c-25d6cf8c3b29",
+        "exec-736f7e6c-b2f7-420a-b531-7d90288ef543",
+        "rs_0b6eb2c855c1ba5e016adc2408704c819ba0aa0b9a3ab84b20",
+        "exec-b1252d30-a5a6-4032-aea8-8bd4831c206e",
+        "exec-005e07b9-9f70-4688-9491-48f854c17ea7",
+        "rs_0b6eb2c855c1ba5e016adc240fb210819b859e1a07a2878d40",
+        "msg_0b6eb2c855c1ba5e016adc240fb204819b9b3737bff1b8e86d"
+      ],
+      "item_digest": "591b35d0b913572473faa33c665cafe97de96f175fa31475a449c6296754653c"
+    },
+    "spawn_edges": [],
+    "parent_history_unchanged": true,
+    "original_capture_unchanged": true
+  },
+  "history_base": {
+    "thread_id": "01a16bec-9474-7552-87e2-ec4f9e532a16",
+    "end_ordinal_exclusive": 36,
+    "end_byte_offset": 204591
+  },
+  "producer_protocol": {
+    "pid": 67578,
+    "exit_code": 0,
+    "methods": [
+      "initialize",
+      "thread/loaded/list",
+      "thread/turns/list",
+      "thread/items/list",
+      "thread/fork",
+      "thread/turns/list",
+      "thread/items/list",
+      "thread/read",
+      "thread/turns/list",
+      "thread/items/list",
+      "thread/loaded/list"
+    ],
+    "notifications": [
+      "remoteControl/status/changed",
+      "thread/started"
+    ],
+    "received_bytes": 144641,
+    "original_capture_unchanged": true
+  },
+  "complete_private_read": {
+    "retrieval_matches": true,
+    "native_read": {
+      "thread_id": "01a18a0f-420d-7c73-aee8-0b91f76d9c57",
+      "turn_ids": [
+        "01a16bec-9ab4-7f71-aacd-d6658e463a53"
+      ],
+      "turn_count": 1,
+      "item_count": 10,
+      "turn_digest": "eb375023ff7bd4d51ccdaff197a6a45b2a04780d20c02f316a40ef701409c497",
+      "item_digest": "591b35d0b913572473faa33c665cafe97de96f175fa31475a449c6296754653c"
+    }
+  },
+  "missing_parent_control": {
+    "result": {
+      "retrieval_matches": false,
+      "error_type": "RuntimeError",
+      "error": "thread/turns/list failed with code -32600"
+    },
+    "protocol": {
+      "pid": 68395,
+      "exit_code": 0,
+      "methods": [
+        "initialize",
+        "thread/loaded/list",
+        "thread/read",
+        "thread/turns/list"
+      ],
+      "notifications": [
+        "remoteControl/status/changed"
+      ],
+      "received_bytes": 1893
+    },
+    "parent_index_row_retained": true,
+    "source_home_denied": true
+  },
+  "review": {
+    "receipt": "target/native-profile-t20/fork-profile-review-messages-v3.json",
+    "peer_id": "peer-18e32516b6a7f858-624066",
+    "conversation_id": "conversation-18e32516b82f6378-624071",
+    "request_message_id": "cmsg-18e32516b8c08f88-624074",
+    "model": "claude-sonnet-5-5",
+    "effort": "medium",
+    "verdict": "accepted narrow inherited-history dependency; not production profile"
+  },
+  "failed_pending_probe": {
+    "positive": false,
+    "corrected_image_producer": "target/native-profile-t20/probe_codex_pending_producer_failed_v4.py",
+    "source_sha256": "1a10f348eedc3a15c9d725433c35696fe2d2e30236ad59d586fafc07c8d95fd7",
+    "protocol": {
+      "pid": 70435,
+      "exit_code": 0,
+      "methods": [
+        "initialize",
+        "thread/loaded/list",
+        "thread/turns/list",
+        "thread/items/list",
+        "thread/fork",
+        "thread/goal/set",
+        "thread/queue/add",
+        "thread/queue/list"
+      ],
+      "notifications": [
+        "remoteControl/status/changed",
+        "thread/started",
+        "thread/goal/updated",
+        "thread/queue/changed",
+        "warning",
+        "thread/queue/changed"
+      ],
+      "received_bytes": 51978,
+      "original_capture_unchanged": true
+    },
+    "observed_queue_count_after_add": 0,
+    "removal_cause": "not established",
+    "continued_attempts": false
+  },
+  "limits": [
+    "Single actual parent/fork pair on catalyst; no Mini proof",
+    "No complete native capture profile or production verifier",
+    "Explicit path denials are not general write confinement",
+    "No positive pending-queue preservation proof",
+    "No source-release permission or implementation"
+  ]
+}
