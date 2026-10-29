@@ -74,7 +74,7 @@ impl TestRoot {
       .env_remove("REAP_SESSION")
       .current_dir(&self.root);
     if args.first().is_some_and(|operation| {
-      matches!(operation.as_str(), "lease" | "stores" | "purge")
+      matches!(operation.as_str(), "lease" | "stores" | "purge" | "doctor")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
           && args
@@ -105,7 +105,7 @@ impl TestRoot {
   fn run(&self, args: Vec<String>) -> Output {
     let output = self.command(&args).output().unwrap();
     if args.first().is_some_and(|operation| {
-      matches!(operation.as_str(), "lease" | "stores" | "purge")
+      matches!(operation.as_str(), "lease" | "stores" | "purge" | "doctor")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
           && args
@@ -1027,8 +1027,12 @@ fn doctor_repairs_only_proved_index_entries_and_retire_preserves_unavailable_lea
 
   let dry = root.run(vec!["doctor".to_string()]);
   success(dry.clone());
-  let output = String::from_utf8_lossy(&dry.stdout);
-  assert!(output.contains("valid 1, gone 1, remounted 0, blocked 3"));
+  let detail = root.job_detail(&dry);
+  assert_eq!(
+    detail["counts"],
+    serde_json::json!({"valid":1,"gone":1,"remounted":0,"blocked":3})
+  );
+  let output = detail.to_string();
   assert!(output.contains("inode changed"));
   assert!(output.contains(".reap-lease missing or mismatched"));
   assert!(output.contains("not on its recorded volume"));
@@ -1038,10 +1042,13 @@ fn doctor_repairs_only_proved_index_entries_and_retire_preserves_unavailable_lea
     "dry-run is read-only"
   );
 
-  fs::create_dir(root.state().join("leases.tmp")).unwrap();
+  let mut unknown: Value = serde_json::from_slice(&before).unwrap();
+  unknown["future_protection"] = true.into();
+  let unknown_bytes = serde_json::to_vec(&unknown).unwrap();
+  fs::write(&lease_path, &unknown_bytes).unwrap();
   failure(root.run(vec!["doctor".to_string(), "--apply".to_string()]));
-  assert_eq!(fs::read(&lease_path).unwrap(), before);
-  fs::remove_dir(root.state().join("leases.tmp")).unwrap();
+  assert_eq!(fs::read(&lease_path).unwrap(), unknown_bytes);
+  fs::write(&lease_path, &before).unwrap();
 
   let applied = root.run(vec!["doctor".to_string(), "--apply".to_string()]);
   failure(applied);
@@ -1089,10 +1096,12 @@ fn doctor_dry_run_bounds_details() {
   fs::write(&lease_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
   let dry = root.run(vec!["doctor".to_string()]);
   success(dry.clone());
-  let output = String::from_utf8_lossy(&dry.stdout);
-  assert!(output.contains("26 lease(s); valid 1, gone 25"));
-  assert!(output.contains("5 more non-valid lease(s)"));
-  assert_eq!(output.lines().count(), 22);
+  let detail = root.job_detail(&dry);
+  assert_eq!(detail["selected"], 26);
+  assert_eq!(detail["counts"]["valid"], 1);
+  assert_eq!(detail["counts"]["gone"], 25);
+  assert_eq!(detail["omitted"], 5);
+  assert_eq!(detail["records"].as_array().unwrap().len(), 20);
 }
 
 #[test]
@@ -1120,16 +1129,18 @@ fn doctor_rebinds_a_mounted_volume_without_touching_the_directory() {
 
   let dry = root.run(vec!["doctor".to_string()]);
   success(dry.clone());
-  let output = String::from_utf8_lossy(&dry.stdout);
+  let detail = root.job_detail(&dry);
   if mounted {
-    assert!(output.contains("remounted 1, blocked 0"));
+    assert_eq!(detail["counts"]["remounted"], 1);
+    assert_eq!(detail["counts"]["blocked"], 0);
     success(root.run(vec!["doctor".to_string(), "--apply".to_string()]));
     let after = array(&lease_path, "leases");
     assert_eq!(after[0]["dev"].as_u64(), Some(live_dev));
     assert!(dir.join("payload").is_file());
     assert!(dir.join(".reap-lease").is_file());
   } else {
-    assert!(output.contains("remounted 0, blocked 1"));
+    assert_eq!(detail["counts"]["remounted"], 0);
+    assert_eq!(detail["counts"]["blocked"], 1);
     assert_eq!(
       array(&lease_path, "leases")[0]["dev"].as_u64(),
       Some(live_dev + 1)
@@ -1185,20 +1196,26 @@ fn quarantine_doctor_rebuilds_only_valid_interrupted_entries() {
 
   let dry = root.run(vec!["doctor".to_string(), "--quarantine".to_string()]);
   success(dry.clone());
-  let output = String::from_utf8_lossy(&dry.stdout);
-  assert!(output.contains("indexed 0, recoverable 1, blocked 1"));
+  let detail = root.job_detail(&dry);
+  assert_eq!(
+    detail["counts"],
+    serde_json::json!({"indexed":0,"recoverable":1,"blocked":1})
+  );
+  let output = detail.to_string();
   assert!(output.contains("unindexed slot has no metadata"));
   assert!(!root.quarantine().join("index.json").exists());
 
-  fs::create_dir(root.quarantine().join("index.tmp")).unwrap();
+  let unknown_index = root.quarantine().join("index.json");
+  let unknown_bytes = br#"{"version":1,"entries":[],"future_protection":true}"#;
+  fs::write(&unknown_index, unknown_bytes).unwrap();
   failure(root.run(vec![
     "doctor".to_string(),
     "--quarantine".to_string(),
     "--apply".to_string(),
   ]));
-  assert!(!root.quarantine().join("index.json").exists());
+  assert_eq!(fs::read(&unknown_index).unwrap(), unknown_bytes);
   assert!(slot.join("interrupted/payload").is_file());
-  fs::remove_dir(root.quarantine().join("index.tmp")).unwrap();
+  fs::remove_file(&unknown_index).unwrap();
 
   let applied = root.run(vec![
     "doctor".to_string(),
@@ -1848,7 +1865,7 @@ fn store_provenance_is_visible_but_does_not_arm_an_unbound_or_unmarked_store() {
     id.into(),
   ]);
   success(doctor.clone());
-  assert!(String::from_utf8_lossy(&doctor.stdout).contains("indexed 1"));
+  assert_eq!(root.job_detail(&doctor)["counts"]["indexed"], 1);
 }
 
 #[test]
@@ -3544,15 +3561,16 @@ fn maintenance_apply_diagnoses_broken_leases_without_repairing_them() {
   assert!(leased.join("payload").is_file());
   let receipt: Value =
     serde_json::from_slice(&fs::read(root.state().join("maintenance-last.json")).unwrap()).unwrap();
-  assert_eq!(receipt["stages"][0]["command"], "reap doctor");
+  assert_eq!(receipt["stages"][0]["command"], "reap doctor --wait 30");
   assert!(receipt["stages"][0]["reason"]
     .as_str()
     .unwrap()
     .contains("requires owner review"));
-  assert!(receipt["stages"][0]["stdout"]
-    .as_str()
-    .unwrap()
-    .contains("blocked 1"));
+  let observation: Value =
+    serde_json::from_str(receipt["stages"][0]["stdout"].as_str().unwrap()).unwrap();
+  let detail: Value =
+    serde_json::from_str(observation["job"]["result"]["detail"].as_str().unwrap()).unwrap();
+  assert_eq!(detail["counts"]["blocked"], 1);
 }
 
 #[test]

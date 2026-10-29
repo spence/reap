@@ -112,7 +112,7 @@ impl Task {
         .is_some_and(|summary| {
           matches!(
             summary.operation.as_str(),
-            "lease" | "parents" | "quarantine" | "purge"
+            "lease" | "parents" | "quarantine" | "purge" | "doctor"
           ) && (summary.mode == "apply" || terminal.effects == 0)
         });
     }
@@ -1109,6 +1109,10 @@ fn spawn(
   #[cfg(test)]
   if let Some(project) = std::env::var_os("REAP_NATIVE_PARENT_PROJECT") {
     command.env("REAP_NATIVE_PARENT_PROJECT", project);
+  }
+  #[cfg(test)]
+  if let Some(source) = std::env::var_os("REAP_NATIVE_DOCTOR_SOURCE") {
+    command.env("REAP_NATIVE_DOCTOR_SOURCE", source);
   }
   #[cfg(test)]
   if let Some(evidence) = std::env::var_os("REAP_NATIVE_LEASE_STOP_EVIDENCE") {

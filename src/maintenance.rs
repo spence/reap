@@ -312,7 +312,12 @@ fn execute(
     }
     let coordinated = matches!(
       stage,
-      Stage::Cargo | Stage::Files | Stage::Stores | Stage::Purge
+      Stage::DoctorLeases
+        | Stage::DoctorQuarantine
+        | Stage::Cargo
+        | Stage::Files
+        | Stage::Stores
+        | Stage::Purge
     );
     if coordinated {
       args.extend(["--wait", "30"]);
@@ -547,7 +552,7 @@ mod tests {
           _ => 0,
         };
         let binary = fixture.0.join("stage");
-        fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"${{0%/*}}/trace\"\nif [ \"$1\" = files ] || [ \"$1\" = sweep ] || [ \"$1\" = stores ] || [ \"$1\" = purge ]; then\n  [ -z \"${{REAP_INTERNAL_CONFIG_SNAPSHOT+x}}\" ] || exit 9\n  if [ \"$1\" = {selected_command} ]; then\n    printf '%s\\n' '{stdout}'\n    exit {exit}\n  fi\n  printf '%s\\n' '{completed}'\nfi\n")).unwrap();
+        fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"${{0%/*}}/trace\"\nif [ \"$1\" = doctor ] || [ \"$1\" = files ] || [ \"$1\" = sweep ] || [ \"$1\" = stores ] || [ \"$1\" = purge ]; then\n  [ -z \"${{REAP_INTERNAL_CONFIG_SNAPSHOT+x}}\" ] || exit 9\n  if [ \"$1\" = {selected_command} ]; then\n    printf '%s\\n' '{stdout}'\n    exit {exit}\n  fi\n  printf '%s\\n' '{completed}'\nfi\n")).unwrap();
         fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
         let mut receipt = Receipt {
           version: 1,

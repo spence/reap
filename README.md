@@ -317,7 +317,7 @@ reap lease add <dir> --ttl 48h [--scratch] [--owner NAME] [--purpose TEXT] [--wa
 reap lease renew <dir> [--ttl DURATION] [--wait [SECONDS]]
 reap lease release <dir> [--wait [SECONDS]]
 reap lease list [--wait [SECONDS]]
-reap doctor [--quarantine] [--id ID] [--verbose] [--apply]
+reap doctor [--quarantine] [--id ID] [--verbose] [--apply] [--wait [SECONDS]]
 reap retire [dir] [--now] [--apply]
 
 # quarantine
@@ -1044,7 +1044,7 @@ Those volume deltas can include concurrent activity; they are not attributed
 bytes reclaimed. A failed stage leaves a nonzero overall result but does not
 silently authorize later work: each subsequent command independently rechecks
 its own authority and state. `reap status` shows the last result. A changed
-config or installed binary stops later stages. Cargo, Files, Stores, and Purge stages use `--wait 30`.
+config or installed binary stops later stages. Doctor, Cargo, Files, Stores, and Purge stages use `--wait 30`.
 An applying coordinated stage with outcome
 `pending` or `unconfirmed` also stops later stages. Use `reap job show ID` or
 `reap job wait ID` to resolve that same job; do not resubmit unconfirmed work.
@@ -1194,7 +1194,13 @@ An already successful job retains exit 0. This does not mean that cancellation t
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
 macOS installation registers that broker. Files application records exact payload and index units
 through the shared executor. Cargo application records lock publication and exact removal units through that executor.
-Lease, Store, quarantine metadata, and Purge commands also use that client and executor, including explicit metadata publications.
+Lease, Store, quarantine metadata, Purge, and Doctor commands also use that client and executor, including explicit metadata publications.
+Doctor diagnosis creates no state and does not acquire the lifecycle lock.
+Explicit repairs require fresh evidence after durable intent. Blocked records still produce a nonzero applying result after other safe repairs.
+Doctor shares the 128-observation and 32 KiB scope limits. Ancestors, directories, and metadata consume those allowances.
+Over-limit requests have zero effects; use `--id ID` to select a smaller repair scope.
+Bound markers and entry evidence must be regular, single-linked inputs of at most 64 KiB.
+Unsupported inputs refuse the request. Large bulk diagnosis remains subject to these limits.
 Other applying filesystem commands still retain their foreground routes.
 The full applying-command migration remains open. No new lifetime authority is activated by this route.
 

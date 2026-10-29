@@ -1967,6 +1967,7 @@ impl Job {
               | "parents"
               | "quarantine"
               | "purge"
+              | "doctor"
           ) && summary.mode == "apply"
         });
       if (!applying
@@ -2069,7 +2070,7 @@ impl Job {
       let lease = self.view.invocation.as_ref().is_some_and(|summary| {
         matches!(
           summary.operation.as_str(),
-          "lease" | "parents" | "quarantine" | "purge"
+          "lease" | "parents" | "quarantine" | "purge" | "doctor"
         )
       });
       let stores = self
@@ -2283,6 +2284,7 @@ fn record_limit(executing: bool, invocation: Option<&crate::invocation::Summary>
           | "parents"
           | "quarantine"
           | "purge"
+          | "doctor"
       )
     })
   {

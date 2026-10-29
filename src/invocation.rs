@@ -365,6 +365,68 @@ pub(crate) fn parent_arm_request(input: &Intent) -> Option<ParentArm> {
   })
 }
 
+/// Diagnostic selection and explicit index-repair intent. Observation waits are not worker input.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DoctorRequest {
+  pub apply: bool,
+  pub id: Option<String>,
+  pub verbose: bool,
+  pub quarantine: bool,
+}
+
+impl DoctorRequest {
+  pub(crate) fn argv(&self) -> Vec<String> {
+    let mut argv = vec!["doctor".into()];
+    for (flag, enabled) in [
+      ("--apply", self.apply),
+      ("--verbose", self.verbose),
+      ("--quarantine", self.quarantine),
+    ] {
+      if enabled {
+        argv.push(flag.into());
+      }
+    }
+    if let Some(id) = &self.id {
+      argv.push(format!("--id={id}"));
+    }
+    argv
+  }
+}
+
+/// Parse diagnostic intent without filesystem access or an observer deadline.
+pub(crate) fn doctor_request(input: &Intent) -> Option<DoctorRequest> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "doctor" {
+    return None;
+  }
+  let crate::Cmd::Doctor {
+    apply,
+    id,
+    verbose,
+    quarantine,
+    wait: None,
+  } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  if id
+    .as_ref()
+    .is_some_and(|id| id.len() > 1024 || crate::provenance::clean(id).is_none())
+  {
+    return None;
+  }
+  Some(DoctorRequest {
+    apply,
+    id,
+    verbose,
+    quarantine,
+  })
+}
+
 /// Quarantine metadata intent, without payload moves or observer deadlines.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum QuarantineMetadata {
@@ -512,7 +574,7 @@ impl Summary {
       || self.operation == "parents" && self.mode == "apply"
       || matches!(
         self.operation.as_str(),
-        "lease" | "stores" | "quarantine" | "purge"
+        "lease" | "stores" | "quarantine" | "purge" | "doctor"
       ) && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
@@ -523,6 +585,20 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = doctor_request(input) {
+    return Some(Summary {
+      operation: "doctor".into(),
+      mode: if request.apply { "apply" } else { "read" }.into(),
+      requested_scope: request.id.unwrap_or_else(|| {
+        if request.quarantine {
+          "quarantine"
+        } else {
+          "leases"
+        }
+        .into()
+      }),
+    });
   }
   if let Some(request) = purge_request(input) {
     return Some(Summary {
@@ -1209,6 +1285,31 @@ mod tests {
       assert!(quarantine_metadata_request(&intent(&argv)).is_none());
       assert!(summary(&intent(&argv)).is_none());
     }
+  }
+
+  #[test]
+  fn doctor_arguments_keep_selection_and_waits_separate() {
+    for quarantine in [false, true] {
+      for apply in [false, true] {
+        let request = DoctorRequest {
+          apply,
+          quarantine,
+          verbose: true,
+          id: Some("--literal-id".into()),
+        };
+        let mut input = intent(&["doctor"]);
+        input.argv = request.argv();
+        assert_eq!(doctor_request(&input), Some(request));
+        let metadata = summary(&input).unwrap();
+        assert_eq!(metadata.operation, "doctor");
+        assert_eq!(metadata.mode, if apply { "apply" } else { "read" });
+        assert!(metadata.valid());
+        input.argv.push("--wait=1".into());
+        assert!(doctor_request(&input).is_none());
+      }
+    }
+    assert!(doctor_request(&intent(&["doctor", "--id="])).is_none());
+    assert!(doctor_request(&intent(&["doctor", "--id=invalid\nactor"])).is_none());
   }
 
   #[test]

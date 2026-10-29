@@ -1,5 +1,6 @@
 //! Legacy lifecycle metadata under shared reservations and native unit guards.
 
+mod doctor;
 mod purge;
 
 use std::collections::BTreeSet;
@@ -28,6 +29,7 @@ enum Command {
   ParentArm(crate::invocation::ParentArm),
   Quarantine(QuarantineMetadata),
   Purge(crate::invocation::PurgeRequest),
+  Doctor(crate::invocation::DoctorRequest),
 }
 
 impl Command {
@@ -264,6 +266,19 @@ impl Applying<'_, '_> {
     previous: Option<FileVersion>,
     helpers: &mut Helpers<'_>,
   ) -> io::Result<FileVersion> {
+    self.publish_guarded(label, path, bytes, previous, helpers, || Ok(()))
+  }
+
+  /// Reread operation-specific repair evidence after durable intent and before publication.
+  fn publish_guarded(
+    &mut self,
+    label: &str,
+    path: &Path,
+    bytes: &[u8],
+    previous: Option<FileVersion>,
+    helpers: &mut Helpers<'_>,
+    guard: impl FnOnce() -> io::Result<()>,
+  ) -> io::Result<FileVersion> {
     self.fresh()?;
     let hash = format!("{:x}", Sha256::digest(bytes));
     let fingerprint = self.fingerprint(label, path, &(hash.clone(), &previous))?;
@@ -295,6 +310,8 @@ impl Applying<'_, '_> {
     stop_at(&format!("{label}-intended"));
     unit_fixture(label, path)?;
     let outcome = held.commit(staged, self.grant, || {
+      self.fresh()?;
+      guard()?;
       self.fresh()?;
       Ok(fingerprint)
     })?;
@@ -416,6 +433,9 @@ pub(crate) fn assess(
     return Err(invalid("lease scope or grant changed after resolution"));
   }
   context.enter()?;
+  if let Command::Doctor(request) = &context.command {
+    return doctor::assess(&context, request, input, expected, grant, helpers);
+  }
   if let Command::Purge(request) = &context.command {
     return purge::assess(&context, request, input, expected, grant, helpers);
   }
@@ -657,6 +677,7 @@ pub(crate) fn assess(
       Command::Quarantine(_) => "quarantine",
       Command::Lease(_) => "lease",
       Command::Purge(_) => "purge",
+      Command::Doctor(_) => "doctor",
     },
     "action":action,"error":result.as_ref().err().map(|error| error.to_string()),
     "worker_observation":{"completed_units":applying.effects,"unknown_effects":applying.unknown},
@@ -802,6 +823,8 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     Command::Quarantine(request)
   } else if let Some(request) = crate::invocation::purge_request(&intent) {
     Command::Purge(request)
+  } else if let Some(request) = crate::invocation::doctor_request(&intent) {
+    Command::Doctor(request)
   } else {
     return Err(invalid("unsupported lease metadata arguments"));
   };
@@ -832,7 +855,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
       LeaseCmd::Add { path, .. } | LeaseCmd::Renew { path, .. } | LeaseCmd::Release { path },
     ) => Some(PathBuf::from(path)),
     Command::ParentArm(request) => Some(PathBuf::from(&request.path)),
-    Command::Quarantine(_) | Command::Purge(_) => None,
+    Command::Quarantine(_) | Command::Purge(_) | Command::Doctor(_) => None,
   };
   let target = raw_target
     .map(|path| {
@@ -869,7 +892,9 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   let mut forbidden = vec![state.clone()];
   let mut quarantine = None;
   let mut quarantine_missing = false;
-  if command.creates_state() || matches!(command, Command::Quarantine(_) | Command::Purge(_)) {
+  let uses_quarantine = matches!(command, Command::Quarantine(_) | Command::Purge(_))
+    || matches!(&command, Command::Doctor(request) if request.quarantine);
+  if command.creates_state() || uses_quarantine {
     let home = intent.namespace.home.to_string_lossy();
     let raw_quarantine = configuration
       .quarantine
@@ -899,7 +924,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
       return Err(invalid("purge quarantine root is not a real directory"));
     }
     let path = inspector.canonical_path(&absolute)?;
-    if matches!(command, Command::Quarantine(_) | Command::Purge(_)) {
+    if uses_quarantine {
       let (path, missing) = destination(&mut inspector, &path)?;
       quarantine_missing = !missing.is_empty();
       if matches!(&command, Command::Quarantine(request) if request.applying()) {
@@ -910,6 +935,9 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
       quarantine = Some(path.clone());
     }
     forbidden.push(path);
+  }
+  if let Command::Doctor(request) = &command {
+    doctor::inspect(&mut inspector, request, &state, quarantine.as_deref())?;
   }
   Ok(Context {
     inspector,
@@ -982,6 +1010,14 @@ fn unit_fixture(label: &str, path: &Path) -> io::Result<()> {
         config.join("config.json"),
         br#"{"roots":[],"governed_roots":[]}"#,
       )?;
+    }
+    ("doctor-late-source-role", "index") => {
+      let source = PathBuf::from(
+        std::env::var_os("REAP_NATIVE_DOCTOR_SOURCE")
+          .ok_or_else(|| invalid("doctor fixture source is absent"))?,
+      );
+      std::fs::write(source.join(crate::lifetime::FILE_NAME),
+        br#"{"version":2,"role":"permanent_archive","keep":{"reason":"late source protection"},"seal":true}"#)?;
     }
     ("quarantine-directory-replacement", "index") => {
       let directory = path

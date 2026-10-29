@@ -65,6 +65,10 @@ Use `reap files [PATH] --apply --wait 30` to await authorized cleanup through th
 Use `reap plan [PATH] --wait 30` for completed Cargo assessment, or `reap clean [PATH] --wait 30` for completed cleanup.
 Use `reap lease add`, `renew`, `release`, or `list` with `--wait 30` before a dependent step.
 Use `reap stores [PATH] --wait 30`, including `--init`, `--bind`, or `--apply`, before a dependent step.
+Use `reap doctor [--quarantine] --wait 30` for completed diagnosis; explicit `--apply` repairs only proved index records.
+Read its terminal detail counts and blocked records. A safe partial repair is not complete success.
+Doctor shares a 128-observation and 32 KiB scope bound. Over-limit requests have zero effects; narrow the request with `--id ID`.
+Bound marker and entry-evidence inputs must be regular, single-linked files of at most 64 KiB.
 Observe the original key after interruption; do not resubmit to obtain progress.
 Lease listing reads metadata only. It does not establish workspace availability.
 Use TTL only for expressly disposable work, not an estimated completion time. Do not add a lease over a co-located lifetime.

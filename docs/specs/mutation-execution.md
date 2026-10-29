@@ -184,6 +184,33 @@
   Bindings: `dispatch::tests::purge`; `invocation::tests::purge_arguments_keep_selectors_modes_and_waits_separate`;
   `tests/test_public_mutations.py::PublicMutations::test_purge_commands_do_not_wait_for_configuration_fifo`.
 
+- **C18 — Diagnosis and repairs retain separate outcomes.** Doctor uses the bounded client and
+  shared lifecycle worker. Read-only diagnosis creates no state and does not acquire the lifecycle lock.
+  Explicit application publishes only proved lease or quarantine index repairs through journaled units.
+  Exact prior index bytes and fresh source diagnosis remain guards after durable intent.
+  Source files, quarantine payloads, unrelated records and indexed holds survive every repair.
+  A completed safe repair does not hide blocked records: application still returns a nonzero result.
+  Unknown index schemas, changed evidence, lost native identity and busy locks prevent replacement.
+  Exact replay and recovery never repeat an issued publication. Bounded report capacity refuses
+  before repair rather than hiding completed effects.
+  The current shared scope permits at most 128 object observations and 32 KiB of serialized scope.
+  Directory, marker and ancestor observations share those limits; there is no fixed record-count allowance.
+  An over-limit request has zero effects. `--id` narrows source and slot bindings for a scoped repair.
+  Bound marker and entry-evidence inputs have the Inspector's 64 KiB single-link regular-file limit.
+  Unsupported metadata refuses the request; it cannot become an empty or successful diagnosis.
+  Bindings: `dispatch::tests::lease::native_doctor_repairs_only_proved_lease_records_and_replays`;
+  `dispatch::tests::lease::native_doctor_lease_diagnosis_does_not_open_quarantine`;
+  `dispatch::tests::lease::native_doctor_late_source_roles_refuse_an_index_repair`;
+  `dispatch::tests::lease::native_doctor_scope_capacity_preserves_sources_and_allows_an_exact_id_repair`;
+  `dispatch::tests::lease::native_doctor_report_capacity_refuses_before_an_index_repair`;
+  `dispatch::tests::lease::native_doctor_recovers_only_proved_quarantine_metadata_and_preserves_payloads`;
+  `dispatch::tests::lease::native_doctor_readonly_and_refusal_cases_preserve_sources_and_indexes`;
+  `dispatch::tests::lease::native_doctor_interrupted_index_repairs_preserve_sources_and_exact_replay`;
+  `invocation::tests::doctor_arguments_keep_selection_and_waits_separate`;
+  `service::tests::native::native_doctor_client_repairs_only_index_and_replays_after_writer_restart`;
+  `tests/test_public_mutations.py::PublicMutations::test_doctor_does_not_wait_for_configuration_fifo`.
+  Detail-limit binding: `tests/lifecycle_state.rs::doctor_dry_run_bounds_details`.
+
 ## Conformance boundary
 
 The public mutation fixtures contain both refusal controls and actual allowed effects with protected

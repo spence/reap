@@ -129,6 +129,15 @@ pub(crate) fn run_purge(
   run_argv(request.argv(), request.apply, wait, entered)
 }
 
+/// Submit diagnostics or explicit index repairs without foreground state or target access.
+pub(crate) fn run_doctor(
+  request: invocation::DoctorRequest,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  run_argv(request.argv(), request.apply, wait, entered)
+}
+
 fn run_prepared(
   operation: &str,
   path: Option<String>,

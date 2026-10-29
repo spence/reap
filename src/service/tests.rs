@@ -824,6 +824,101 @@ mod native {
   }
 
   #[test]
+  fn native_doctor_client_repairs_only_index_and_replays_after_writer_restart() {
+    use crate::client::{Client, State};
+    let fixture = Fixture::new();
+    fixture.install(Role::ContextResolver);
+    let mut input = intent(&fixture);
+    let source = fixture.root.join("diagnostic-source");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("valuable"), b"retained diagnostic bytes").unwrap();
+    let mut leases = crate::lease::LeaseFile::default();
+    crate::lease::add_lease(
+      &mut leases,
+      &source,
+      crate::lease::AddOpts {
+        ttl_secs: 0,
+        scratch: true,
+        owner: Some("owned native diagnostic fixture".into()),
+        purpose: "client repair proof".into(),
+        project: None,
+        actor: None,
+        session: None,
+        creation_method: None,
+      },
+      crate::plan::now_secs() as i64,
+      &[],
+    )
+    .unwrap();
+    let state = input
+      .namespace
+      .xdg_state_home
+      .as_ref()
+      .unwrap()
+      .join("reap");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+      state.join("leases.json"),
+      serde_json::to_vec_pretty(&leases).unwrap(),
+    )
+    .unwrap();
+    fs::write(state.join("state.lock"), []).unwrap();
+    let retained = fixture.root.join("retained-source");
+    fs::rename(&source, &retained).unwrap();
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    for apply in [false, true] {
+      input.argv = invocation::DoctorRequest {
+        apply,
+        id: None,
+        verbose: true,
+        quarantine: false,
+      }
+      .argv();
+      let job_key = key(&fixture);
+      let started = Instant::now();
+      let admitted = client.submit(input.clone(), Some(job_key.clone()));
+      assert!(
+        started.elapsed() < Duration::from_millis(1250),
+        "{admitted:?}"
+      );
+      assert_eq!(admitted.state, State::Pending, "{admitted:?}");
+      let done = client.wait(job_key.clone(), Duration::from_secs(30));
+      assert_eq!(done.state, State::Completed, "{done:?}");
+      let job = done.job.as_ref().unwrap();
+      assert_eq!(job.invocation.as_ref().unwrap().operation, "doctor");
+      assert_eq!(
+        job.invocation.as_ref().unwrap().mode,
+        if apply { "apply" } else { "read" }
+      );
+      assert_eq!(job.result.as_ref().unwrap().effects, u64::from(apply));
+      let detail: serde_json::Value =
+        serde_json::from_str(&job.result.as_ref().unwrap().detail).unwrap();
+      assert_eq!(detail["repaired"], usize::from(apply));
+      assert_eq!(
+        crate::lease::load_leases(&state).unwrap().leases.len(),
+        usize::from(!apply)
+      );
+      assert_eq!(
+        fs::read(retained.join("valuable")).unwrap(),
+        b"retained diagnostic bytes"
+      );
+      assert_eq!(
+        client.submit(input.clone(), Some(job_key.clone())).job,
+        done.job
+      );
+      fixture.stop(Role::StateWriter);
+      fixture.install(Role::StateWriter);
+      fixture.epoch();
+      assert_eq!(client.show(job_key.clone()).job, done.job);
+      assert_eq!(client.submit(input.clone(), Some(job_key)).job, done.job);
+      assert_eq!(
+        fs::read(retained.join("valuable")).unwrap(),
+        b"retained diagnostic bytes"
+      );
+    }
+  }
+
+  #[test]
   fn native_files_apply_client_commits_payload_and_index_and_replays_one_result() {
     use crate::client::{Client, State};
     let fixture = Fixture::with_fault(Some("files-activity"));

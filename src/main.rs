@@ -70,8 +70,8 @@ use parents::ParentsCmd;
 use plan::{human, now_secs};
 use quarantine::{
   assess_retire, assess_retire_ignoring_dir_mtimes, diagnose_entry, entries_dir, execute_retire,
-  finalize_restore, finalize_retire, load_index, orphaned_ids, restore_entry, rollback_restore,
-  save_index, EntryDiagnosis, RetireOpts, RetirePass,
+  finalize_restore, finalize_retire, load_index, restore_entry, rollback_restore, save_index,
+  EntryDiagnosis, RetireOpts, RetirePass,
 };
 use util::{fmt_rel, hostname, lock_state, state_dir};
 
@@ -279,6 +279,9 @@ enum Cmd {
     /// Inspect quarantine slots and recover proved unindexed entries
     #[arg(long)]
     quarantine: bool,
+    /// Observe this same job for a finite duration (default when omitted: 30 seconds)
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// List, restore, or hold quarantined entries
   Quarantine {
@@ -546,7 +549,17 @@ fn main() {
       id,
       verbose,
       quarantine,
-    }) => cmd_doctor(apply, id, verbose, quarantine),
+      wait,
+    }) => client::run_doctor(
+      invocation::DoctorRequest {
+        apply,
+        id,
+        verbose,
+        quarantine,
+      },
+      wait,
+      entered,
+    ),
     Some(Cmd::Quarantine { cmd, wait }) => match cmd.unwrap_or(QuarantineCmd::List { owner: None })
     {
       QuarantineCmd::List { owner } => client::run_quarantine_metadata(
@@ -715,273 +728,6 @@ fn cmd_config(init: bool) -> i32 {
 // --------------------------------------------------------------------------- //
 // Leases / retire / quarantine / purge / inventory
 // --------------------------------------------------------------------------- //
-
-fn cmd_doctor(apply: bool, id: Option<String>, verbose: bool, quarantine: bool) -> i32 {
-  if quarantine {
-    return cmd_doctor_quarantine(apply, id, verbose);
-  }
-  let state = state_dir();
-  let _lock = match lock_state(&state) {
-    Ok(lock) => lock,
-    Err(e) => {
-      eprintln!("error: locking state: {e}");
-      return 1;
-    }
-  };
-  let mut lf = match load_leases(&state) {
-    Ok(file) => file,
-    Err(e) => {
-      eprintln!("error: {e}");
-      return 1;
-    }
-  };
-  let selected: Vec<lease::Lease> = lf
-    .leases
-    .iter()
-    .filter(|lease| id.as_deref().is_none_or(|id| lease.id == id))
-    .cloned()
-    .collect();
-  if selected.is_empty() {
-    if let Some(id) = &id {
-      eprintln!("error: lease id {id} not found");
-      return 1;
-    }
-  }
-
-  let mut results: Vec<(lease::Lease, doctor::Diagnosis)> = selected
-    .into_iter()
-    .map(|lease| {
-      let diagnosis = doctor::assess(&lease);
-      (lease, diagnosis)
-    })
-    .collect();
-  if apply {
-    for (lease, diagnosis) in &mut results {
-      if !matches!(
-        diagnosis,
-        doctor::Diagnosis::Gone | doctor::Diagnosis::Remounted(_)
-      ) {
-        continue;
-      }
-      let fresh = doctor::assess(lease);
-      if fresh != *diagnosis {
-        *diagnosis = doctor::Diagnosis::Blocked("state changed during repair".to_string());
-        continue;
-      }
-      match diagnosis {
-        doctor::Diagnosis::Gone => lf
-          .leases
-          .retain(|record| record.id != lease.id || record.path != lease.path),
-        doctor::Diagnosis::Remounted(dev) => {
-          if let Some(record) = lf
-            .leases
-            .iter_mut()
-            .find(|record| record.id == lease.id && record.path == lease.path)
-          {
-            record.dev = *dev;
-          }
-        }
-        _ => unreachable!(),
-      }
-    }
-    if results.iter().any(|(_, diagnosis)| {
-      matches!(
-        diagnosis,
-        doctor::Diagnosis::Gone | doctor::Diagnosis::Remounted(_)
-      )
-    }) {
-      if let Err(e) = save_leases(&state, &lf) {
-        eprintln!("error: saving leases: {e}");
-        return 1;
-      }
-    }
-  }
-
-  let count = |label| results.iter().filter(|(_, d)| d.label() == label).count();
-  println!(
-    "reap doctor -- {}: {} lease(s); valid {}, gone {}, remounted {}, blocked {}",
-    if apply {
-      "APPLY (index only)"
-    } else {
-      "DRY-RUN"
-    },
-    results.len(),
-    count("valid"),
-    count("gone"),
-    count("remounted"),
-    count("blocked")
-  );
-  let limit = if verbose { usize::MAX } else { 20 };
-  let mut shown = 0;
-  let mut omitted = 0;
-  for (lease, diagnosis) in &results {
-    if matches!(diagnosis, doctor::Diagnosis::Valid) && id.is_none() {
-      continue;
-    }
-    if shown >= limit {
-      omitted += 1;
-      continue;
-    }
-    let detail = match diagnosis {
-      doctor::Diagnosis::Gone => if apply {
-        "lease dropped"
-      } else {
-        "--apply drops lease"
-      }
-      .to_string(),
-      doctor::Diagnosis::Remounted(_) => if apply {
-        "device rebound"
-      } else {
-        "--apply rebinds device"
-      }
-      .to_string(),
-      doctor::Diagnosis::Blocked(reason) => reason.clone(),
-      doctor::Diagnosis::Valid => String::new(),
-    };
-    println!(
-      "  {:<10} {:<9} {}  {}",
-      lease.id,
-      diagnosis.label(),
-      lease.path,
-      detail
-    );
-    shown += 1;
-  }
-  if omitted > 0 {
-    println!("  ... {omitted} more non-valid lease(s); use --verbose to show all");
-  }
-  if apply && count("blocked") > 0 {
-    eprintln!("error: {} lease(s) remain blocked", count("blocked"));
-    1
-  } else {
-    0
-  }
-}
-
-fn cmd_doctor_quarantine(apply: bool, id: Option<String>, verbose: bool) -> i32 {
-  let state = state_dir();
-  let _lock = match lock_state(&state) {
-    Ok(lock) => lock,
-    Err(e) => {
-      eprintln!("error: locking state: {e}");
-      return 1;
-    }
-  };
-  let leases = match load_leases(&state) {
-    Ok(file) => file,
-    Err(e) => {
-      eprintln!("error: {e}");
-      return 1;
-    }
-  };
-  let (cfg, _) = load_config();
-  let qdir = cfg.quarantine_dir();
-  let mut index = match load_index(&qdir) {
-    Ok(index) => index,
-    Err(e) => {
-      eprintln!("error: {e}");
-      return 1;
-    }
-  };
-  let mut ids: Vec<String> = index.entries.iter().map(|entry| entry.id.clone()).collect();
-  ids.extend(orphaned_ids(&qdir, &index));
-  ids.sort();
-  ids.dedup();
-  if let Some(only) = &id {
-    ids.retain(|candidate| candidate == only);
-    if ids.is_empty() {
-      eprintln!("error: quarantine id {only} not found");
-      return 1;
-    }
-  }
-  let mut results: Vec<(String, EntryDiagnosis)> = ids
-    .into_iter()
-    .map(|id| {
-      let diagnosis = diagnose_entry(&qdir, &id, &index, &leases.leases);
-      (id, diagnosis)
-    })
-    .collect();
-  if apply {
-    let mut changed = false;
-    for (id, diagnosis) in &mut results {
-      if !matches!(diagnosis, EntryDiagnosis::Recoverable(_)) {
-        continue;
-      }
-      let fresh = diagnose_entry(&qdir, id, &index, &leases.leases);
-      if fresh != *diagnosis {
-        *diagnosis = EntryDiagnosis::Blocked("state changed during recovery".to_string());
-        continue;
-      }
-      if let EntryDiagnosis::Recoverable(entry) = diagnosis {
-        index.entries.push((**entry).clone());
-      }
-      changed = true;
-    }
-    if changed {
-      if let Err(e) = save_index(&qdir, &index) {
-        eprintln!("error: saving quarantine index: {e}");
-        return 1;
-      }
-    }
-  }
-  let count = |label| {
-    results
-      .iter()
-      .filter(|(_, diagnosis)| diagnosis.label() == label)
-      .count()
-  };
-  println!(
-    "reap doctor --quarantine -- {}: {} slot(s); indexed {}, recoverable {}, blocked {}",
-    if apply {
-      "APPLY (index only)"
-    } else {
-      "DRY-RUN"
-    },
-    results.len(),
-    count("indexed"),
-    count("recoverable"),
-    count("blocked")
-  );
-  let limit = if verbose { usize::MAX } else { 20 };
-  let mut shown = 0;
-  let mut omitted = 0;
-  for (slot_id, diagnosis) in &results {
-    if matches!(diagnosis, EntryDiagnosis::Indexed) && id.is_none() {
-      continue;
-    }
-    if shown >= limit {
-      omitted += 1;
-      continue;
-    }
-    let detail = match diagnosis {
-      EntryDiagnosis::Indexed => String::new(),
-      EntryDiagnosis::Recoverable(entry) => format!(
-        "{}  {}",
-        entry.original_path,
-        if apply {
-          "index rebuilt"
-        } else {
-          "--apply rebuilds index"
-        }
-      ),
-      EntryDiagnosis::Blocked(reason) => reason.clone(),
-    };
-    println!("  {:<10} {:<11} {}", slot_id, diagnosis.label(), detail);
-    shown += 1;
-  }
-  if omitted > 0 {
-    println!("  ... {omitted} more non-indexed slot(s); use --verbose to show all");
-  }
-  if apply && count("blocked") > 0 {
-    eprintln!(
-      "error: {} quarantine slot(s) remain blocked",
-      count("blocked")
-    );
-    1
-  } else {
-    0
-  }
-}
 
 fn cmd_retire(
   path: Option<String>,

@@ -122,6 +122,31 @@ class PublicMutations(unittest.TestCase):
             self.assertIn(result.receipt["state"], ("failed", "unavailable"))
             self.assertFalse((self.quarantine / "index.json").exists())
 
+    def test_doctor_does_not_wait_for_configuration_fifo(self):
+        self.config.unlink()
+        os.mkfifo(self.config)
+        for arguments in [(), ("--apply",), ("--quarantine",),
+                          ("--quarantine", "--id", "11223344", "--apply")]:
+            result = self.run_cli("doctor", *arguments)
+            self.assertIn(result.receipt["state"], ("failed", "unavailable"))
+            self.assertFalse((self.quarantine / "index.json").exists())
+
+    def test_doctor_applies_proved_index_repair_and_preserves_sources(self):
+        source = self.root / "diagnostic-source"
+        source.mkdir()
+        (source / "valuable").write_bytes(PAYLOAD)
+        self.complete("lease", "add", source, "--ttl", "0", "--scratch",
+                      "--owner", "owned native fixture", "--purpose", "diagnostic fixture")
+        retained = self.root / "retained-source"
+        source.rename(retained)
+        result = self.complete("doctor", "--apply")
+        detail = json.loads(result.receipt["job"]["result"]["detail"])
+        self.assertEqual(detail["repaired"], 1)
+        self.assertEqual(detail["blocked"], 0)
+        self.assertEqual((retained / "valuable").read_bytes(), PAYLOAD)
+        index = json.loads((self.root / "state/reap/leases.json").read_text())
+        self.assertEqual(index["leases"], [])
+
     def test_parent_listing_does_not_create_state_or_wait_for_a_busy_lock(self):
         absent = self.root / "absent-state"
         environment = dict(self.environment, XDG_STATE_HOME=str(absent))

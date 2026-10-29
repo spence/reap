@@ -109,6 +109,506 @@ fn quarantine_request(
   input
 }
 
+fn doctor_request(fixture: &Fixture, apply: bool, quarantine: bool) -> Prepared {
+  let mut input = fixture.input();
+  let mut intent: Intent = serde_json::from_str(&input.request).unwrap();
+  intent.argv = crate::invocation::DoctorRequest {
+    apply,
+    quarantine,
+    verbose: true,
+    id: None,
+  }
+  .argv();
+  input.request = serde_json::to_string(&intent).unwrap();
+  input
+}
+
+fn doctor_leases(fixture: &Fixture) -> crate::lease::LeaseFile {
+  let mut leases = crate::lease::LeaseFile::default();
+  for name in ["valid", "gone", "blocked"] {
+    let path = fixture.0.join(name);
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("valuable"), name.as_bytes()).unwrap();
+    crate::lease::add_lease(
+      &mut leases,
+      &path,
+      crate::lease::AddOpts {
+        ttl_secs: 0,
+        scratch: true,
+        owner: Some("doctor fixture".into()),
+        purpose: "retained native diagnostic fixture".into(),
+        project: None,
+        actor: None,
+        session: None,
+        creation_method: None,
+      },
+      crate::plan::now_secs() as i64,
+      &[],
+    )
+    .unwrap();
+  }
+  fs::rename(fixture.0.join("gone"), fixture.0.join("gone-retained")).unwrap();
+  leases
+    .leases
+    .iter_mut()
+    .find(|lease| lease.path.ends_with("/blocked"))
+    .unwrap()
+    .ino += 1;
+  let state = fixture.0.join("state/reap");
+  fs::create_dir_all(&state).unwrap();
+  fs::write(state.join("state.lock"), []).unwrap();
+  fs::write(
+    state.join("leases.json"),
+    serde_json::to_vec_pretty(&leases).unwrap(),
+  )
+  .unwrap();
+  leases
+}
+
+fn recoverable_doctor_entry(fixture: &Fixture, directory: &Path) -> crate::quarantine::Entry {
+  let original = doctor_leases(fixture);
+  let lease = original
+    .leases
+    .iter()
+    .find(|lease| lease.path.ends_with("/gone"))
+    .unwrap();
+  let id = &lease.id;
+  let slot = directory.join("entries").join(id);
+  fs::create_dir(&slot).unwrap();
+  fs::rename(fixture.0.join("gone-retained"), slot.join("payload")).unwrap();
+  let entry = crate::quarantine::Entry {
+    id: id.clone(),
+    name: "payload".into(),
+    original_path: lease.path.clone(),
+    owner: lease.owner.clone(),
+    purpose: lease.purpose.clone(),
+    scratch: lease.scratch,
+    machine: "native fixture".into(),
+    bytes: 4,
+    retired_unix: 1,
+    provenance: lease.provenance.clone(),
+    store: None,
+  };
+  fs::write(
+    slot.join(crate::quarantine::ENTRY_EVIDENCE),
+    serde_json::to_vec(&serde_json::json!({
+      "version":1,"entry":entry,"source_dev":lease.dev,"source_ino":lease.ino,
+    }))
+    .unwrap(),
+  )
+  .unwrap();
+  entry
+}
+
+#[test]
+fn native_doctor_repairs_only_proved_lease_records_and_replays() {
+  let fixture = Fixture::new();
+  let original = doctor_leases(&fixture);
+  let input = doctor_request(&fixture, true, false);
+  let root = fixture.0.join("journal");
+  let mut journal = Journal::open(&root).unwrap();
+  let (key, result) = submit(&mut journal, &input);
+  assert_eq!(result.exit_code, 1, "{}", result.detail);
+  assert_eq!(result.effects, 1, "{}", result.detail);
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["repaired"], 1);
+  assert_eq!(detail["blocked"], 1);
+  let index_path = fixture.0.join("state/reap/leases.json");
+  let after = crate::lease::load_leases(&fixture.0.join("state/reap")).unwrap();
+  assert_eq!(after.leases.len(), 2);
+  for record in &after.leases {
+    let before = original
+      .leases
+      .iter()
+      .find(|old| old.id == record.id)
+      .unwrap();
+    assert_eq!(
+      serde_json::to_value(record).unwrap(),
+      serde_json::to_value(before).unwrap()
+    );
+  }
+  for (path, bytes) in [
+    ("valid", b"valid".as_slice()),
+    ("blocked", b"blocked"),
+    ("gone-retained", b"gone"),
+  ] {
+    assert_eq!(
+      fs::read(fixture.0.join(path).join("valuable")).unwrap(),
+      bytes
+    );
+  }
+  let before = metadata_snapshot(&index_path);
+  let ledger = journal.mutation(&key).unwrap();
+  let view = journal.lookup(&key).unwrap();
+  drop(journal);
+  let mut journal = Journal::open(&root).unwrap();
+  assert_eq!(
+    journal.admit_execution(key.clone(), input, 5).unwrap(),
+    view
+  );
+  assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+  assert_eq!(metadata_snapshot(&index_path), before);
+  assert_eq!(journal.mutation(&key).unwrap(), ledger);
+}
+
+#[test]
+fn native_doctor_recovers_only_proved_quarantine_metadata_and_preserves_payloads() {
+  let fixture = Fixture::new();
+  let directory = quarantine_fixture(&fixture);
+  let entry = recoverable_doctor_entry(&fixture, &directory);
+  let id = &entry.id;
+  let slot = directory.join("entries").join(id);
+  let unknown = directory.join("entries/abcdef12");
+  fs::create_dir(&unknown).unwrap();
+  fs::write(unknown.join("valuable"), b"unindexed survivor").unwrap();
+  let before_leases = metadata_snapshot(&fixture.0.join("state/reap/leases.json"));
+  let input = doctor_request(&fixture, true, true);
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let (_, result) = submit(&mut journal, &input);
+  assert_eq!(result.exit_code, 1, "{}", result.detail);
+  assert_eq!(result.effects, 1, "{}", result.detail);
+  let detail: serde_json::Value = serde_json::from_str(&result.detail).unwrap();
+  assert_eq!(detail["repaired"], 1);
+  assert_eq!(detail["blocked"], 1);
+  let index = crate::quarantine::load_index(&directory).unwrap();
+  assert_eq!(index.entries.len(), 3);
+  assert_eq!(index.entries.iter().find(|row| &row.id == id), Some(&entry));
+  assert!(index.held_ids.contains("55667788"));
+  assert_eq!(fs::read(slot.join("payload/valuable")).unwrap(), b"gone");
+  assert_eq!(
+    fs::read(unknown.join("valuable")).unwrap(),
+    b"unindexed survivor"
+  );
+  assert_eq!(
+    metadata_snapshot(&fixture.0.join("state/reap/leases.json")),
+    before_leases
+  );
+}
+
+#[test]
+fn native_doctor_readonly_and_refusal_cases_preserve_sources_and_indexes() {
+  for mode in ["absent", "busy", "readonly", "unknown"] {
+    let fixture = Fixture::new();
+    if mode == "absent" {
+      let input = doctor_request(&fixture, false, false);
+      let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+      let (_, result) = submit(&mut journal, &input);
+      assert_eq!(
+        (result.exit_code, result.effects),
+        (0, 0),
+        "{}",
+        result.detail
+      );
+      assert!(!fixture.0.join("state").exists());
+      continue;
+    }
+    doctor_leases(&fixture);
+    let state = fixture.0.join("state/reap");
+    let index_path = state.join("leases.json");
+    if mode == "unknown" {
+      let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&index_path).unwrap()).unwrap();
+      value["future_protection"] = true.into();
+      fs::write(&index_path, serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+    let before = metadata_snapshot(&index_path);
+    let lock = File::open(state.join("state.lock")).unwrap();
+    if matches!(mode, "busy" | "readonly") {
+      lock.try_lock().unwrap();
+    }
+    let input = doctor_request(&fixture, mode != "readonly", false);
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let (_, result) = submit(&mut journal, &input);
+    assert_eq!(
+      result.exit_code,
+      u8::from(mode != "readonly"),
+      "{mode}: {}",
+      result.detail
+    );
+    assert_eq!(result.effects, 0, "{mode}: {}", result.detail);
+    assert_eq!(metadata_snapshot(&index_path), before, "{mode}");
+    assert_eq!(
+      fs::read(fixture.0.join("gone-retained/valuable")).unwrap(),
+      b"gone"
+    );
+  }
+}
+
+#[test]
+fn native_doctor_lease_diagnosis_does_not_open_quarantine() {
+  let fixture = Fixture::new();
+  doctor_leases(&fixture);
+  let quarantine = fixture.0.join("unavailable-quarantine");
+  let path = std::ffi::CString::new(quarantine.as_os_str().as_encoded_bytes()).unwrap();
+  // SAFETY: this is a fresh owned fixture path on internal storage.
+  assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+  let config = fixture.0.join("home/.config/reap");
+  fs::create_dir_all(&config).unwrap();
+  fs::write(
+    config.join("config.json"),
+    serde_json::to_vec(&serde_json::json!({"quarantine":{"dir":quarantine}})).unwrap(),
+  )
+  .unwrap();
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  for apply in [false, true] {
+    let input = doctor_request(&fixture, apply, false);
+    let (_, result) = submit(&mut journal, &input);
+    assert_eq!(
+      (result.exit_code, result.effects),
+      (u8::from(apply), u64::from(apply)),
+      "{}",
+      result.detail
+    );
+    assert!(fs::symlink_metadata(&quarantine)
+      .unwrap()
+      .file_type()
+      .is_fifo());
+    assert_eq!(
+      fs::read(fixture.0.join("gone-retained/valuable")).unwrap(),
+      b"gone"
+    );
+  }
+}
+
+#[test]
+fn native_doctor_interrupted_index_repairs_preserve_sources_and_exact_replay() {
+  const ENTRY: &str = "dispatch::tests::lease::native_doctor_interrupted_index_repairs_preserve_sources_and_exact_replay";
+  if std::env::var_os("REAP_DOCTOR_RECOVERY_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture"])
+      .env("REAP_DOCTOR_RECOVERY_FIXTURE", "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}\n{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  for point in ["index-intended", "index-published", "index-observed"] {
+    let fixture = Fixture::new();
+    doctor_leases(&fixture);
+    let input = doctor_request(&fixture, true, false);
+    let root = fixture.0.join("journal");
+    let mut journal = Journal::open(&root).unwrap();
+    let evidence = fixture.0.join("doctor-stop-evidence");
+    std::env::set_var("REAP_NATIVE_LEASE_STOP_EVIDENCE", &evidence);
+    std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", point);
+    let (key, result) = submit(&mut journal, &input);
+    std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+    std::env::remove_var("REAP_NATIVE_LEASE_STOP_EVIDENCE");
+    assert_eq!(fs::read_to_string(&evidence).unwrap(), point);
+    assert_eq!(result.exit_code, 1, "{point}: {}", result.detail);
+    let moved = point != "index-intended";
+    assert_eq!(
+      result.effects,
+      u64::from(moved),
+      "{point}: {}",
+      result.detail
+    );
+    let index_path = fixture.0.join("state/reap/leases.json");
+    let leases = crate::lease::load_leases(&fixture.0.join("state/reap")).unwrap();
+    assert_eq!(leases.leases.len(), if moved { 2 } else { 3 });
+    let index = metadata_snapshot(&index_path);
+    let ledger = journal.mutation(&key).unwrap();
+    let view = journal.lookup(&key).unwrap();
+    drop(journal);
+    let mut journal = Journal::open(&root).unwrap();
+    assert_eq!(
+      journal.admit_execution(key.clone(), input, 5).unwrap(),
+      view
+    );
+    assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+    assert_eq!(metadata_snapshot(&index_path), index);
+    assert_eq!(journal.mutation(&key).unwrap(), ledger);
+    assert_eq!(
+      fs::read(fixture.0.join("gone-retained/valuable")).unwrap(),
+      b"gone"
+    );
+    assert_eq!(
+      fs::read(fixture.0.join("blocked/valuable")).unwrap(),
+      b"blocked"
+    );
+  }
+}
+
+#[test]
+fn native_doctor_late_source_roles_refuse_an_index_repair() {
+  const ENTRY: &str =
+    "dispatch::tests::lease::native_doctor_late_source_roles_refuse_an_index_repair";
+  if std::env::var_os("REAP_DOCTOR_LATE_ROLE_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture"])
+      .env("REAP_DOCTOR_LATE_ROLE_FIXTURE", "1")
+      .output()
+      .unwrap();
+    assert!(
+      output.status.success(),
+      "{}\n{}",
+      String::from_utf8_lossy(&output.stdout),
+      String::from_utf8_lossy(&output.stderr)
+    );
+    return;
+  }
+  let fixture = Fixture::new();
+  let leases = doctor_leases(&fixture);
+  let source = fixture.0.join("valid");
+  let lease = leases
+    .leases
+    .iter()
+    .find(|lease| Path::new(&lease.path) == source)
+    .unwrap();
+  assert!(matches!(
+    crate::doctor::assess(lease),
+    crate::doctor::Diagnosis::Valid
+  ));
+  let index = fixture.0.join("state/reap/leases.json");
+  fs::write(&index, serde_json::to_vec_pretty(&leases).unwrap()).unwrap();
+  let before = metadata_snapshot(&index);
+  let input = doctor_request(&fixture, true, false);
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  std::env::set_var("REAP_NATIVE_DOCTOR_SOURCE", &source);
+  std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", "doctor-late-source-role");
+  let (_, result) = submit(&mut journal, &input);
+  std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+  std::env::remove_var("REAP_NATIVE_DOCTOR_SOURCE");
+  assert_eq!(
+    (result.exit_code, result.effects),
+    (1, 0),
+    "{}",
+    result.detail
+  );
+  assert!(
+    result.detail.contains("diagnostic evidence changed"),
+    "{}",
+    result.detail
+  );
+  assert_eq!(metadata_snapshot(&index), before);
+  assert!(source.join(crate::lifetime::FILE_NAME).is_file());
+  assert_eq!(fs::read(source.join("valuable")).unwrap(), b"valid");
+  assert_eq!(
+    fs::read(fixture.0.join("gone-retained/valuable")).unwrap(),
+    b"gone"
+  );
+}
+
+#[test]
+fn native_doctor_scope_capacity_preserves_sources_and_allows_an_exact_id_repair() {
+  let fixture = Fixture::new();
+  let mut leases = doctor_leases(&fixture);
+  let gone = leases
+    .leases
+    .iter()
+    .find(|lease| lease.path.ends_with("/gone"))
+    .unwrap()
+    .id
+    .clone();
+  for index in 0..80 {
+    let path = fixture.0.join(format!("bulk-{index}"));
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("valuable"), b"bulk survivor").unwrap();
+    crate::lease::add_lease(
+      &mut leases,
+      &path,
+      crate::lease::AddOpts {
+        ttl_secs: 0,
+        scratch: true,
+        owner: Some("doctor capacity fixture".into()),
+        purpose: "bounded native source closure".into(),
+        project: None,
+        actor: None,
+        session: None,
+        creation_method: None,
+      },
+      crate::plan::now_secs() as i64,
+      &[],
+    )
+    .unwrap();
+  }
+  let index = fixture.0.join("state/reap/leases.json");
+  fs::write(&index, serde_json::to_vec_pretty(&leases).unwrap()).unwrap();
+  let before = metadata_snapshot(&index);
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let input = doctor_request(&fixture, true, false);
+  let (_, refused) = submit(&mut journal, &input);
+  assert_eq!(
+    (refused.exit_code, refused.effects),
+    (1, 0),
+    "{}",
+    refused.detail
+  );
+  assert!(refused.detail.contains("bound"), "{}", refused.detail);
+  assert_eq!(metadata_snapshot(&index), before);
+  let mut selected = input;
+  let mut intent: Intent = serde_json::from_str(&selected.request).unwrap();
+  intent.argv.push(format!("--id={gone}"));
+  selected.request = serde_json::to_string(&intent).unwrap();
+  let (_, repaired) = submit(&mut journal, &selected);
+  assert_eq!(
+    (repaired.exit_code, repaired.effects),
+    (0, 1),
+    "{}",
+    repaired.detail
+  );
+  let after = crate::lease::load_leases(&fixture.0.join("state/reap")).unwrap();
+  assert_eq!(after.leases.len(), leases.leases.len() - 1);
+  assert!(!after.leases.iter().any(|lease| lease.id == gone));
+  for index in 0..80 {
+    assert_eq!(
+      fs::read(fixture.0.join(format!("bulk-{index}/valuable"))).unwrap(),
+      b"bulk survivor"
+    );
+  }
+  assert_eq!(
+    fs::read(fixture.0.join("gone-retained/valuable")).unwrap(),
+    b"gone"
+  );
+}
+
+#[test]
+fn native_doctor_report_capacity_refuses_before_an_index_repair() {
+  let fixture = Fixture::new();
+  let directory = quarantine_fixture(&fixture);
+  let entry = recoverable_doctor_entry(&fixture, &directory);
+  let entries = directory.join("entries");
+  for index in 0..1800 {
+    fs::write(
+      entries.join(format!("invalid-{index:04}-{}", "x".repeat(230))),
+      b"opaque survivor",
+    )
+    .unwrap();
+  }
+  let path = directory.join("index.json");
+  let before = metadata_snapshot(&path);
+  let input = doctor_request(&fixture, true, true);
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  let (_, refused) = submit(&mut journal, &input);
+  assert_eq!(
+    (refused.exit_code, refused.effects),
+    (1, 0),
+    "{}",
+    refused.detail
+  );
+  assert!(
+    refused.detail.contains("complete report bound"),
+    "{}",
+    refused.detail
+  );
+  assert_eq!(metadata_snapshot(&path), before);
+  assert_eq!(
+    fs::read(entries.join(&entry.id).join("payload/valuable")).unwrap(),
+    b"gone"
+  );
+  for index in 0..1800 {
+    assert_eq!(
+      fs::read(entries.join(format!("invalid-{index:04}-{}", "x".repeat(230)))).unwrap(),
+      b"opaque survivor"
+    );
+  }
+}
+
 #[test]
 fn native_quarantine_metadata_preserves_payloads_and_replays() {
   use crate::invocation::QuarantineMetadata;

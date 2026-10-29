@@ -1,6 +1,6 @@
 # SPEC-JOB-CLIENT — bounded submission and job observations
 
-- Status: source clients for `check`, Cargo, `files`, `lease`, `stores`, quarantine metadata, `purge`, job views and cancellation requests; fleet cutover remains open.
+- Status: source clients for `check`, Cargo, `files`, `lease`, `stores`, quarantine metadata, `purge`, `doctor`, job views and cancellation requests; fleet cutover remains open.
 - Consumers: Reap CLI adapters and native integration fixtures.
 - Grounds: `DEC-LIFETIME-AUTHORITY`, sections 7 and 8.
 - Bindings: `src/client.rs`, the named tests below, and native service fixtures.
@@ -30,7 +30,7 @@
   Invalid identifiers do not produce executable command suggestions.
 - **C7** — A successful writer observation includes its supplied observation time when available.
   Missing freshness is explicit; the client does not invent a filesystem observation time.
-- **C8** — `check`, `files`, `plan`, `clean`, `sweep`, `lease`, `stores`, `parents arm`, quarantine listing/holds, `purge`, and bare `reap` use native preparation and durable admission, not a foreground
+- **C8** — `check`, `files`, `plan`, `clean`, `sweep`, `lease`, `stores`, `parents arm`, quarantine listing/holds, `purge`, `doctor`, and bare `reap` use native preparation and durable admission, not a foreground
   filesystem route. Its ordinary response budget starts at application entry and is one second.
   Each named command's `--wait [SECONDS]` permits a longer observation deadline; an omitted value means
   30 seconds. Preparation and admission retain their one-second budget. Waiting observes the same
@@ -45,7 +45,7 @@
   Attribution values must have at most 1024 UTF-8 bytes and contain no control characters.
   Invalid actor values and overlong attribution values refuse admission.
   Empty session values and session values with control characters are omitted.
-- **C9** — A valid public invocation supplies its exact operation (`check`, `files`, `plan`, `clean`, `sweep`, `lease`, `stores`, `parents`, `quarantine`, or `purge`), mode, and the requested
+- **C9** — A valid public invocation supplies its exact operation (`check`, `files`, `plan`, `clean`, `sweep`, `lease`, `stores`, `parents`, `quarantine`, `purge`, or `doctor`), mode, and the requested
   scope in its receipt. New executable jobs retain this summary with their immutable input. Restart, lookup,
   and exact replay preserve it. A mismatched summary cannot establish success. The requested
   scope is presentation metadata, not native target identity or cleanup permission.
@@ -62,6 +62,10 @@
   Purge argv retains every supplied selector, including option-like ID and owner values.
   Selection retains legacy precedence: all, then ID, then owner, then automatic policy.
   Observer waits do not enter worker arguments.
+  Doctor mode is `apply` only with `--apply`; otherwise it is `read`.
+  Its exact ID filter, quarantine selection and verbosity remain immutable worker input.
+  Diagnostic counts include every selected record; non-valid details default to twenty records.
+  An omitted detail count is explicit. `--verbose` supplies every non-valid detail within the bounded result capacity.
 - **C10** — `job cancel ID` requests durable cancellation for that exact retained key within the ordinary one-second budget.
   It does not prepare another invocation, admit work, signal a process, or release an unresolved reservation.
   The job records `cancel_requested_at` only after durable publication. Repeated requests retain that first value.
@@ -97,6 +101,8 @@ These are named code bindings, not an automated specification-fixture registrati
 | C8 | `lease_creator_attribution_never_uses_the_fallback_owner_label`; `native_lease_default_owner_does_not_infer_a_creator` |
 | C1, C8, C9 | `test_store_commands_do_not_wait_for_manifest_fifo`; `store_arguments_keep_scope_modes_binding_and_waits_separate`; `dispatch::tests::stores` |
 | C1, C8, C9 | `test_quarantine_metadata_does_not_wait_for_configuration_fifo`; `quarantine_metadata_keeps_selection_and_wait_separate`; native quarantine metadata cases in `dispatch::tests::lease` |
+| C1, C8, C9 | `test_doctor_does_not_wait_for_configuration_fifo`; `doctor_arguments_keep_selection_and_waits_separate`; native Doctor cases in `dispatch::tests::lease` |
+| C1, C2, C8, C9 | `native_doctor_client_repairs_only_index_and_replays_after_writer_restart` |
 | C1, C8, C9 | `test_purge_commands_do_not_wait_for_configuration_fifo`; `purge_arguments_keep_selectors_modes_and_waits_separate`; `dispatch::tests::purge` |
 | C1, C8 | `native_client_waits_for_cold_writer_within_original_admission_budget` |
 | C9 | `native_invocation_summary_survives_restart_and_exact_replay`; `test_actual_cwd_and_requested_scope_survive_public_lookup`; malformed-summary client cases |
@@ -108,7 +114,7 @@ does not prove cumulative timing, context capture, process ownership, or actual 
 
 ## Delivery boundary
 
-`check`, Cargo commands, read/apply `files`, `lease`, `stores`, quarantine metadata, `purge`, `job show ID`, `job wait ID`, `job page ID INDEX`, and `job cancel ID` use this client and emit JSON receipts.
+`check`, Cargo commands, read/apply `files`, `lease`, `stores`, quarantine metadata, `purge`, `doctor`, `job show ID`, `job wait ID`, `job page ID INDEX`, and `job cancel ID` use this client and emit JSON receipts.
 Other filesystem commands retain their current route. The client does not register platform services,
 grant cleanup permission, migrate lifetimes, or release conversation sources. Native Linux conformance remains open.
 The full CLI and operator migration must preserve terminal-versus-pending semantics before activation.
