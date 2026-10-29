@@ -1,0 +1,233 @@
+{
+  "schema": "reap.proof.quarantine-metadata/v1",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "work_state": "active",
+  "boundary": "Accepted source checkpoint with final native fixtures. Not installed Quarantine acceptance, full cargo test, T19 completion or combined-goal completion.",
+  "source_revision": "43ded19226d20cbafef37e599ac4d975dba11d9d",
+  "source_files_sha256": {
+    "README.md": "fac4e9ed657e3652eaf08cb5c9725d1d401fe717acf5b5cf419e75b1580dd1c1",
+    "docs/specs/invocation.md": "bb12c90f2a38faeb58b1796cd360cc34e62e9ee8a5ce57c92bef67bbd3ab65a9",
+    "docs/specs/job-client.md": "155b0f3081b6300378e45b6e59c7209239384bbfd40d4c8091811bee71d263da",
+    "docs/specs/mutation-execution.md": "8d9c2509eb2e2b8c424c53d5b59c8e61303447e6aa60afd894ed6f9f4e47631e",
+    "skill/SKILL.md": "7f34b9a9e36ceeaab7c3e717855b4328b373fff33ab5e2a712e853f855e337fe",
+    "src/client.rs": "1470df511ac38f82e8e2b43168223e70cc9e09e7b02c430ca27ece267cdacdca",
+    "src/dispatch.rs": "d8838aee82d5c6e75ae60154fcbcbe5268fca0c93d8216875747344fb245cb5f",
+    "src/dispatch/lease_job.rs": "cf23dd4def3874976e68ac2cc859e6bc3d35f8c4769fe9f58b7af3d073c0cc3d",
+    "src/dispatch/tests.rs": "c68cee65972c7815afc6d4fb8a4c4ec99a9a325f856de1c8bd20ab1dd0d7909b",
+    "src/dispatch/tests/lease.rs": "28c714411a5985bb8cb8f5f8653836dc336f8377c8a7734a43d938bbe0f5d5d3",
+    "src/invocation.rs": "ceb31143890d497c7f3c5671c088006d70220791f1526c351353932fb872ada2",
+    "src/journal.rs": "66c4d5e66da440aefbc383b864d4b0888e2b1e9aa05f0621881ebc764c085692",
+    "src/main.rs": "fb33a04ff952f94a5b9097bcec57d4a946d4632e263a92a0bbc402d8887da0a7",
+    "src/worker.rs": "31d9e647dd9bd85c5f2e5a8ffcdf22ee104b7dab15ba7c9040d4a9cf7c860df8",
+    "tests/lifecycle_state.rs": "9fd820490ff8ce963f6999d93340e4f8b51aef0421d481f946ce79099948b962",
+    "tests/test_preservation.py": "e52152e7383cc753f96670c3b6c955793b5b52fc1d1ad2c89df8d2b472418e1a",
+    "tests/test_public_mutations.py": "571b81eb8b0dc44ef92a4bd813c7b86c878809f10de22408c1cf71a984279961"
+  },
+  "frozen_artifacts": {
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/quarantine-metadata-frozen-v3/unit",
+      "sha256": "e66c984a6b7767b61f530783edd251a89a4b25a40529a6e7bbe41ff93c00e31e",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 36910048,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/quarantine-metadata-frozen-v3/app",
+      "sha256": "ef15ea7c96e3ebc288daf9c3b2a1de010f1e57fc4087b54e42d8a99b7e8ab01e",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27607904,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    }
+  },
+  "root_binary_units": {
+    "passed": 426,
+    "failed": 0,
+    "ignored": 6,
+    "filtered": 0,
+    "seconds": 771.11,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/quarantine-metadata-full-units-v3.log",
+      "sha256": "9395701e7c6516f58a27575dbbbc16134f109e14ffa1efc5f623b0461b1b065c",
+      "bytes": 42055
+    }
+  },
+  "root_focused_native": {
+    "passed": 7,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 425,
+    "seconds": 24.34,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/quarantine-metadata-focused-v3.log",
+      "sha256": "0888187f6cf7f278ec4036c0ff1a415031fd361b0d9d93ec64e8ea26735d56b2",
+      "bytes": 851
+    }
+  },
+  "mini_selected_native": {
+    "passed": 7,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 425,
+    "seconds": 20.69,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/quarantine-mini-native-v3.log",
+      "sha256": "5178c7c9104e8831835c901290e587f26a356b2ca257de4c431672e2ce979932",
+      "bytes": 851
+    }
+  },
+  "native_identity_before_after": [
+    {
+      "path": "target/control-t13/mutation-bridge/quarantine-root-pre-v3.json",
+      "sha256": "256c1aec0a37e34e3a158c6a80cebcff5f373d303cb1ab6d324729628d8bbd25",
+      "bytes": 1378
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/quarantine-root-post-v3.json",
+      "sha256": "256c1aec0a37e34e3a158c6a80cebcff5f373d303cb1ab6d324729628d8bbd25",
+      "bytes": 1378
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/quarantine-mini-pre-v3.json",
+      "sha256": "091f6751fd280b2260a1f848210dc0a31398a9062c03af1505dcbcf3ed226643",
+      "bytes": 1340
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/quarantine-mini-post-v3.json",
+      "sha256": "091f6751fd280b2260a1f848210dc0a31398a9062c03af1505dcbcf3ed226643",
+      "bytes": 1340
+    }
+  ],
+  "rust_targets": {
+    "compiled": 3,
+    "integration_runtime_executed": false,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/quarantine-metadata-build-v5.log",
+      "sha256": "976f565fe2d038c2d1e95f78d4651b5e6040dcff77bbc862bb9f2ff13b158771",
+      "bytes": 864
+    }
+  },
+  "public_fifo": {
+    "cases_per_host": 1,
+    "command_forms_per_host": 5,
+    "root_selection_seconds": 0.679,
+    "mini_selection_seconds": 0.524,
+    "root": {
+      "path": "target/control-t13/mutation-bridge/quarantine-client-fifo-green-v3.log",
+      "sha256": "ab85b6455c062b1676e4c267ba1f57472dd306b62595bd6dc88d961e58c865ed",
+      "bytes": 268
+    },
+    "mini": {
+      "path": "target/control-t13/mutation-bridge/quarantine-mini-public-v3.log",
+      "sha256": "69f69d53121e05ee861b6d44682eeda232142b21aee50ed1020a15a7dfeacf7b",
+      "bytes": 268
+    },
+    "old_signed_client_red": {
+      "path": "target/control-t13/mutation-bridge/quarantine-client-fifo-red-v1.log",
+      "sha256": "3caa5ece11ee24746c78e9ee03470cd7b9689cec1ea9242ed1a84d04b0992b57",
+      "bytes": 2429
+    },
+    "outcome": "Prompt failed or unavailable receipts through the older installed cohort. Not useful installed execution."
+  },
+  "help": {
+    "path": "target/control-t13/mutation-bridge/quarantine-help-v3.log",
+    "sha256": "ac63ed68884f0cdbd0ba33104f52fb40a96765b81d583110e13b43608d427549",
+    "bytes": 4402
+  },
+  "invariants": [
+    "Actual hold and unhold publications preserve payloads and unrelated holds.",
+    "Exact replay preserves the index native identity, bytes and retained ledger without another publication.",
+    "Listing is read-only with no state creation or lifecycle-lock wait; it retains entries, held IDs, orphan names, policy and unobserved-payload status.",
+    "The first-use external-index fixture creates exactly four local-state/index units and preserves source payloads.",
+    "Three publication stops each require direct evidence, exact effect counts, visible index state and the retained ledger phase.",
+    "Unknown-field refusal begins with valid index membership and also requires unchanged index bytes.",
+    "Busy locks, duplicate or absent IDs, unheld entries, unknown metadata, protected roles, symlinks and replacements refuse the affected request.",
+    "Restore remains on its existing foreground move route; no fallback metadata writer remains."
+  ],
+  "review": {
+    "peer": "peer-18e2d6c31f2e8d30-561545",
+    "conversation": "conversation-18e2d6c320690ce8-561549",
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "initial_request": "cmsg-18e2d6c3210a2ee8-561552",
+    "initial_dispatch_failure": "claude_sdk_host_backpressure; retained, not quota exhaustion",
+    "findings_request": "cmsg-18e2d6ed629e81b8-561803",
+    "corrected_acceptance_request": "cmsg-18e2d77cf1f00be0-563620",
+    "final_accepted_request": "cmsg-18e2d8107a7881e8-566578",
+    "findings": {
+      "path": "target/control-t13/mutation-bridge/quarantine-review-first-use-messages-v2.json",
+      "sha256": "ec648be24994432612220e37615ea13273adb9bde59217f45e8b750b8b0cfd87",
+      "bytes": 9751
+    },
+    "corrected_acceptance": {
+      "path": "target/control-t13/mutation-bridge/quarantine-review-corrected-current-v1.json",
+      "sha256": "b0fa9819183ff9c6022521701a94c9f68dac07ec234b0af3385c840aeb636649",
+      "bytes": 7257
+    },
+    "final_acceptance": {
+      "path": "target/control-t13/mutation-bridge/quarantine-review-noindex-current-v1.json",
+      "sha256": "7d0ca689cc7181bd8be57e1e16674505ec75d09370fce679134705480bc8c3eb",
+      "bytes": 6702
+    },
+    "state": "Final source accepted. Runtime and full-goal acceptance remain separately gated."
+  },
+  "retained_failure": {
+    "full_run": {
+      "passed": 425,
+      "failed": 1,
+      "ignored": 6,
+      "filtered": 0,
+      "seconds": 734.71,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/quarantine-metadata-full-units-v2.log",
+        "sha256": "7f0bef4215fe4313b9cd2e6c8fa2ee131bf83edef8d328472b9e38d7205e356f",
+        "bytes": 44666
+      }
+    },
+    "issue": "ISS-CLASSIFY-NATIVE-ACTIVITY-REFUSALS-WITHOU",
+    "fixture": "target/control-t13/dispatch-dcf969d2338bce7b5802fb856e1d8787",
+    "effects": 0,
+    "source_survives": true,
+    "scope_match": {
+      "pid": 99224,
+      "reported_command": "mdworker_shared",
+      "reported_type": "REG",
+      "native_owner_identity": "not retained"
+    },
+    "selected_checksummed_journal": {
+      "path": "target/control-t13/mutation-bridge/quarantine-spotlight-refusal-selected-v1.json",
+      "sha256": "61e3a96a9c2060177b29bdef504a8f6e0624e6d7d57f7cc916002f9fb2605f2a",
+      "bytes": 7518
+    },
+    "finding": "The final Store stop was absent after an actual open-handle refusal. The captured name is correlation evidence for this occurrence, not native ownership proof or identification of actors in earlier failures.",
+    "fixture_correction": "New owned dispatch fixture names end in .noindex. Production guards, direct stops, deadlines, active-reader controls and foreign processes remain unchanged.",
+    "primary_reference": "https://developer.apple.com/documentation/xcode/locating-a-missing-debug-symbol-file",
+    "historical_diagnostic_issue_closed": false
+  },
+  "storage": {
+    "all_owned_quick_check_inputs_and_artifacts_internal": true,
+    "root_device": 16777232,
+    "mini_device": 16777234
+  },
+  "open_gates": [
+    "Five native fault-library cases and one inventory-cost case were ignored; separate acceptance remains required.",
+    "Complete Rust integration runtime, full cargo test and installed preservation/workspace proof remain open.",
+    "Other applying callers, remaining foreground reads, NativeFiles bookkeeping, cross-volume recovery, old-reader fences and full-scale efficiency remain required.",
+    "Useful installed effects with protected survivors, same-Micro fleet release and applicable operator guides remain required on both Macs.",
+    "Default-KEEP creation, safe migration, native conversation capture/retrieval and separate source-release/provider/consumer proof remain required.",
+    "Earlier unidentified activity refusals and Mini host-wide activity-health progress remain distinct unresolved findings."
+  ],
+  "activation": {
+    "product_installed": false,
+    "services_replaced": false,
+    "operator_guides_deployed": false,
+    "lifetime_conversion": false,
+    "conversation_source_pruned": false
+  }
+}
