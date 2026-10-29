@@ -1,0 +1,80 @@
+{
+  "citation": "REF-ACTIVITY-CLASSIFICATION-T19",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "source_revision": "59759e0e9947aacc097c7752a8693fe30f384537",
+  "source_base_revision": "089a93e6f080dcaf168c23563c29e6d42fcd4f72",
+  "source_files": {
+    "src/quarantine.rs": "9b2a656dfe45fc47120fff78ae47a7f5c97bc5d876907e4f7649dbdb92d0afc3",
+    "README.md": "5f99f402c150b440c977a2ceacff52940f094c37a2b0e19e472f097f80dbf478",
+    "skill/SKILL.md": "991f9e633f918e0ffde160a83174367d93292278abdb85a08fc2aabc9c539392",
+    "docs/specs/worker-grants.md": "97486a582bb452a718c16652ba951ec22dc1526a3cb637dd2d5a79be05b72f4a"
+  },
+  "binary_unit_result": {
+    "passed": 439,
+    "failed": 0,
+    "ignored": 6,
+    "elapsed_seconds": 1008.63
+  },
+  "native_selections": {
+    "catalyst": {
+      "activity_passed": 17,
+      "prior_cargo_case_passed": 1
+    },
+    "catalyst-mini": {
+      "activity_passed": 17,
+      "prior_cargo_case_passed": 1
+    }
+  },
+  "artifacts": {
+    "unit": {
+      "sha256": "a8adf0c541092dd829c2f73763a9cf061bbc318832a772f463f65d563c65c78f",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 37309776
+    },
+    "app": {
+      "sha256": "4b7b0d388762bb34e246fe1c43e0102947d56aeac019a219cef637931ef6e25c",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27757376
+    }
+  },
+  "native_identity_receipts": {
+    "activity-classification-root-pre-v2.json": "42412f62cc9b04a5e8426b124353eb2b8a2bbd751538c1980f03c763b38da97e",
+    "activity-classification-root-post-v2-status.json": "42412f62cc9b04a5e8426b124353eb2b8a2bbd751538c1980f03c763b38da97e",
+    "activity-classification-mini-pre-v2.json": "149238205ddc5a647f1d401b17dc089727c05a5a6af710f78d14c5f563b3c484",
+    "activity-classification-mini-post-v2.json": "149238205ddc5a647f1d401b17dc089727c05a5a6af710f78d14c5f563b3c484"
+  },
+  "raw_evidence": {
+    "target/control-t13/mutation-bridge/activity-classification-domain-red-v1.log": "aab7446a7eb81fd2a77f1f208409ed5edd40a58bce29c091f4361233c55ed86f",
+    "target/control-t13/mutation-bridge/activity-classification-diagnostic-red-v1.log": "75d0f02e899fe43fe4f6bb66af7fccbf5b5e48cce4c8761bca7c1626577c7f71",
+    "target/control-t13/mutation-bridge/activity-classification-focused-v1.log": "4fd5c94d7fcc99914af3b79a878aa058baa273febdd5bf1633eec013de987356",
+    "target/control-t13/mutation-bridge/activity-classification-cargo-v1.log": "a291e6b4fa26febc6e8de5619716c0c4892b5a3e698776d2ba1fc1e32a296a94",
+    "target/control-t13/mutation-bridge/activity-classification-full-units-v2.log": "55a46a73c3b69b724519d1f76c8214b2d405ff1088c2f3ea99aad30150207607",
+    "target/control-t13/mutation-bridge/activity-classification-mini-activity-v2.log": "7f57866e7255faf82d1cda9d6372a7bf2d8bbce07e6fcae43f50a444fcf7e87b",
+    "target/control-t13/mutation-bridge/activity-classification-mini-cargo-v2.log": "8846d5bc065901742ee57f9920c063ab287cf2fcad42354bb2c7217b46818383",
+    "target/control-t13/mutation-bridge/activity-classification-review-launch-v1.json": "3490efdb6ab15f5bdfd6c7b300f6acdb1de34e317585968cda2ebac658ebc8d7",
+    "target/control-t13/mutation-bridge/activity-classification-review-wait-v1.json": "b6a65748e27a6461bfa36eee551e4b6e07a90a5ac1b80fc3b850e7495846176f",
+    "target/control-t13/mutation-bridge/activity-classification-review-send-v2.json": "21b69adb584b0a8c26ad129d065476b51651d3423b6cdf8491d73b01c11da165",
+    "target/control-t13/mutation-bridge/activity-classification-review-wait-v2.json": "fcf3e307aee2a3729773cdb1cf57788fdb8392614f6f0f73b2926e15b466baed",
+    "target/control-t13/mutation-bridge/activity-classification-review-conversation-close.json": "78a515630bffa70797a5bd1e91cf05bddceda3ef6278b560d13d5c92524295e6",
+    "target/control-t13/mutation-bridge/activity-classification-review-peer-close.json": "f59933bddc87ada5731ee81d52dc4c90b30051274cb56e9e2f41927f0e6b473a",
+    "target/control-t13/mutation-bridge/activity-relative-classification-v1.json": "649ab6fa62e5165ab581eb0fc5f7e1087aabe2a9748fa2693b7f016b6b2b2d05",
+    "target/control-t13/mutation-bridge/activity-relative-classification-v2.json": "b406ca52009c7a0eab8ee17bf8b123462ff2b3a8993680ccf96e87e447ae81bf"
+  },
+  "sources": [
+    "https://github.com/apple-oss-distributions/lsof/blob/main/lsof/dialects/darwin/libproc/dfile.c",
+    "https://github.com/apple-oss-distributions/lsof/blob/main/lsof/dialects/darwin/libproc/dproc.c"
+  ],
+  "limits": [
+    "The uncaptured historical 42-byte refusal remains unidentified.",
+    "Mapped-region permission failures remain refusals.",
+    "The separate Mini activity-tool health limitation remains unresolved.",
+    "The broad integration, native fault and installed fleet gates remain open.",
+    "This source correction activates no product, operator guide, conversion or conversation-source pruning."
+  ],
+  "activation": false,
+  "full_goal_complete": false
+}
