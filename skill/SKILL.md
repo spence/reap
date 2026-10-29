@@ -90,6 +90,8 @@ Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
 A wait timeout does not cancel or resubmit the job. Require terminal success before a dependent step.
 An unavailable broker is not permission for a synchronous fallback.
 Files preview can request supervised native activity evidence. Pending or incomplete evidence grants no cleanup permission.
+Native activity requests have cumulative five-second worker waits.
+A timeout refuses evidence; it does not terminate a helper or release its unresolved reservation.
 Its Git tracking uses bounded snapshots. Unsupported or changed dependencies protect the selection.
 macOS installation registers the three fixed on-demand roles. Ordinary commands never install them.
 `files --apply` uses the same bounded client and records its exact payload and index units.

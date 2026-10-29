@@ -54,10 +54,12 @@
   Their 512 KiB capture requires complete coverage of every PID, regular-file type, device, inode, and link count.
   Replies contain only sorted unique nonzero device/inode pairs, within 48 KiB of serialized evidence.
   Unknown, oversized, or incomplete evidence refuses the snapshot; no truncated subset is successful evidence.
-  Each supervised executable health or vnode request has one cumulative five-second worker wait.
-  Expiry refuses the snapshot. It does not terminate the helper or release its native reservation.
+  Each supervised native health, open-handle or text-vnode request has one cumulative five-second worker wait.
+  Expiry refuses evidence. It does not terminate the helper or release its native reservation.
   A transport, reply-framing, or invalid-reply failure makes the worker's channel unusable for all later requests.
   No later helper or unit request is sent on that channel. A complete semantic refusal does not desynchronize it.
+  Deadline reads retain complete buffered bytes after peer exit without socket-option changes.
+  Partial EOF and expired deadlines still refuse evidence.
   A pending native helper retains its process and physical slots; control observation does not wait for its exit.
 
 ## Boundary
@@ -122,6 +124,8 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 | --- | --- |
 | C9 | `native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence`; `native_files_batches_activity_helpers_and_preserves_open_and_retained_work`; `activity::tests` |
 | C9 | `process_scoped_vnodes_require_complete_coverage_and_bounded_evidence`; `helper_probe_deadline_retains_sequence_after_a_partial_reply` |
+| C9 | `native_probe_default_wait_expires_without_retry_or_late_evidence` |
+| C3, C9 | `deadline_reader_keeps_buffered_reply_after_peer_exit_and_refuses_incomplete_evidence` |
 | C9 | `activity_stream_accepts_native_closed_descriptors_but_preserves_later_live_paths`; `activity_stream_refusals_classify_native_errors_without_disclosing_raw_names` |
 | C1, C2, C5 | `unresolved_launch_reserves_all_volumes_across_restart_without_blocking_other_volumes` |
 | C2 | `resource_sets_require_sorted_unique_safe_keys`; `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |

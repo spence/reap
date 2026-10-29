@@ -3,7 +3,8 @@
 //! These records control process ownership, not cleanup policy. Filesystem effects still
 //! require current scope, identity, policy, recovery, and commit permission.
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
@@ -408,28 +409,73 @@ impl Grant {
 }
 
 /// Read the exact slice within one cumulative deadline. EOF and timeout refuse the frame.
+/// Socket options and descriptor modes remain unchanged, including after peer exit.
 pub(crate) fn read_frame(
   pipe: &mut UnixStream,
   mut bytes: &mut [u8],
   deadline: Instant,
 ) -> io::Result<()> {
   while !bytes.is_empty() {
+    deadline
+      .checked_duration_since(Instant::now())
+      .filter(|duration| !duration.is_zero())
+      .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "worker grant deadline"))?;
+
+    // read buffered data without a socket-option change that can fail after peer exit.
+    // SAFETY: pipe owns a live socket; bytes is writable for its complete length.
+    let count = unsafe {
+      libc::recv(
+        pipe.as_raw_fd(),
+        bytes.as_mut_ptr().cast(),
+        bytes.len(),
+        libc::MSG_DONTWAIT,
+      )
+    };
+    if count > 0 {
+      bytes = &mut bytes[count as usize..];
+      continue;
+    }
+    if count == 0 {
+      return Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "worker grant incomplete",
+      ));
+    }
+    let reason = io::Error::last_os_error();
+    if reason.kind() == io::ErrorKind::Interrupted {
+      continue;
+    }
+    if reason.kind() != io::ErrorKind::WouldBlock {
+      return Err(reason);
+    }
+
+    // wait only for the remaining budget; readiness, EOF and errors return to recv.
     let remaining = deadline
       .checked_duration_since(Instant::now())
       .filter(|duration| !duration.is_zero())
       .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "worker grant deadline"))?;
-    pipe.set_read_timeout(Some(remaining))?;
-    match pipe.read(bytes) {
-      Ok(0) => {
-        return Err(io::Error::new(
-          io::ErrorKind::UnexpectedEof,
-          "worker grant incomplete",
-        ))
+    let millis = remaining
+      .as_millis()
+      .saturating_add(1)
+      .min(i32::MAX as u128) as i32;
+    let mut ready = libc::pollfd {
+      fd: pipe.as_raw_fd(),
+      events: libc::POLLIN,
+      revents: 0,
+    };
+    // SAFETY: ready is writable for one entry and its borrowed socket remains live.
+    if unsafe { libc::poll(&mut ready, 1, millis) } < 0 {
+      let reason = io::Error::last_os_error();
+      if reason.kind() != io::ErrorKind::Interrupted {
+        return Err(reason);
       }
-      Ok(count) => bytes = &mut bytes[count..],
-      Err(reason) if reason.kind() == io::ErrorKind::Interrupted => continue,
-      Err(reason) => return Err(reason),
     }
+  }
+  if Instant::now() >= deadline {
+    return Err(io::Error::new(
+      io::ErrorKind::TimedOut,
+      "worker grant deadline",
+    ));
   }
   Ok(())
 }

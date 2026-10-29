@@ -1272,6 +1272,8 @@ It handles queued requests between bounded batches. The idle wait has a 20 ms li
 Read-only declaration preview batches activity targets into one supervised native scan per selected root.
 The granted helper becomes the fixed system tool in the same process. Complete parsed output,
 empty stderr, native exit, and durable release precede a successful activity reply.
+Each native activity request has a cumulative five-second worker wait.
+Expiry refuses evidence; it does not terminate a helper or release an unresolved reservation.
 Incomplete evidence protects the selection. Native preview reads Git tracking from bounded index snapshots
 inside its granted worker. Native file identity resolves case and Unicode aliases.
 Changed or unsupported Git dependencies protect the selection. Native Git recovery uses granted snapshots

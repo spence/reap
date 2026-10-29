@@ -339,7 +339,14 @@ fn owned_helpers_use_their_own_tokens_and_keep_worker_reservations() {
 #[cfg(target_os = "macos")]
 #[test]
 fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
-  for case in ["complete", "vnodes", "stderr", "partial", "path_leak"] {
+  for case in [
+    "complete",
+    "vnodes",
+    "handles",
+    "stderr",
+    "partial",
+    "path_leak",
+  ] {
     let fixture = Fixture::new();
     fs::write(fixture.0.join("valuable"), b"activity survivor").unwrap();
     let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
@@ -350,6 +357,10 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
       probe: if case == "vnodes" {
         crate::activity::Probe::TextVnodes {
           pids: vec![std::process::id() as i32],
+        }
+      } else if case == "handles" {
+        crate::activity::Probe::Handles {
+          directories: vec![fixture.0.clone()],
         }
       } else {
         crate::activity::Probe::Health
@@ -402,6 +413,7 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
       Start::Rejected(reason) if reason.contains("coordinator"))
     );
     assert_eq!(journal.launch(&key).unwrap(), before);
+    let probe_started = Instant::now();
     let mut helper = spawned(
       parent
         .start_helper(&mut journal, 0, 1, &random_token().unwrap(), probe)
@@ -424,6 +436,7 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
       assert!(Instant::now() < deadline);
       std::thread::sleep(Duration::from_millis(5));
     }
+    let probe_elapsed = probe_started.elapsed();
     assert!(
       !helper.needs_poll(),
       "an empty unclosed stderr pipe is not runnable"
@@ -484,6 +497,15 @@ fn native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence() {
       assert!(matches!(done.report, Ok(Report::Probed {
         evidence: crate::activity::Evidence::TextVnodes { identities }
       }) if identities.contains(&(metadata.dev(),metadata.ino()))));
+    } else if case == "handles" {
+      assert!(matches!(done.report, Ok(Report::Probed {
+        evidence: crate::activity::Evidence::Handles { active }
+      }) if active == [true]));
+      assert!(probe_elapsed < Duration::from_secs(5));
+      println!(
+        "native handles helper completed in {:.6}s",
+        probe_elapsed.as_secs_f64()
+      );
     } else {
       let error = done.report.unwrap_err();
       assert!(!error.contains("SECRET"));
@@ -1161,11 +1183,69 @@ fn failed_activity_evidence_is_not_retried_for_later_selections() {
   let executable = helpers.executables(Path::new("/unread")).err().unwrap();
   assert_eq!(first.to_string(), second.to_string());
   assert_eq!(first.to_string(), executable.to_string());
-  assert!(first.to_string().contains("activity path is unavailable"));
-  assert!(first.to_string().contains("name bytes 15"));
+  assert!(
+    first.to_string().contains("activity path is unavailable"),
+    "{first}"
+  );
+  assert!(first.to_string().contains("name bytes 15"), "{first}");
   assert!(!first.to_string().contains("SECRET"));
   assert_eq!(helpers.request_id, 1);
   thread.join().unwrap();
+}
+
+#[test]
+fn native_probe_default_wait_expires_without_retry_or_late_evidence() {
+  for probe in [
+    crate::activity::Probe::Health,
+    crate::activity::Probe::Handles {
+      directories: vec!["/owned".into()],
+    },
+  ] {
+    let (mut client, mut server) = UnixStream::pair().unwrap();
+    let (release, released) = std::sync::mpsc::channel();
+    let expected = probe.clone();
+    let peer = std::thread::spawn(move || {
+      let request: HelperRequest =
+        serde_json::from_slice(&receive_packet(&mut server).unwrap()).unwrap();
+      assert!(matches!(request.task, Task::Probe { probe, .. } if probe == expected));
+      server.write_all(&32_u32.to_be_bytes()).unwrap();
+      server.write_all(b"{").unwrap();
+
+      // keep the reply incomplete beyond the contract budget, then bound a failed regression.
+      let _ = released.recv_timeout(Duration::from_secs(8));
+      server.set_nonblocking(true).unwrap();
+      match server.read(&mut [0_u8; 1]) {
+        Err(reason) if reason.kind() == io::ErrorKind::WouldBlock => false,
+        Ok(0) => false,
+        _ => true,
+      }
+    });
+    let resources = Resources::Bulk {
+      physical_volumes: vec!["fixture-physical".into()],
+    };
+    let mut helpers = Helpers::fixture(&mut client, &resources);
+    let task = Task::Probe {
+      probe,
+      physical_volumes: vec!["fixture-physical".into()],
+    };
+    let started = Instant::now();
+    let result = helpers.run(task.clone());
+    let elapsed = started.elapsed();
+    let following = helpers.run(task);
+    let sequence = helpers.request_id;
+    let _ = release.send(());
+    let later_bytes = peer.join().unwrap();
+
+    // expiry must be the worker deadline, not peer EOF or a new request on the old channel.
+    assert!(matches!(
+      result.unwrap_err().kind(),
+      io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    ));
+    assert!(elapsed < Duration::from_secs(6));
+    assert_eq!(sequence, 1);
+    assert!(following.is_err());
+    assert!(!later_bytes);
+  }
 }
 
 #[test]

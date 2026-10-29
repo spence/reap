@@ -1,5 +1,6 @@
 use super::*;
 use std::fs;
+use std::io::Read;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -57,6 +58,34 @@ fn bulk(volumes: &[&str]) -> Resources {
   Resources::Bulk {
     physical_volumes: volumes.iter().map(|v| (*v).into()).collect(),
   }
+}
+
+#[test]
+fn deadline_reader_keeps_buffered_reply_after_peer_exit_and_refuses_incomplete_evidence() {
+  let (mut reader, mut writer) = UnixStream::pair().unwrap();
+  writer.write_all(b"kept reply").unwrap();
+  drop(writer);
+  let deadline = Instant::now() + Duration::from_secs(1);
+  let mut bytes = [0; 10];
+  read_frame(&mut reader, &mut bytes, deadline).unwrap();
+  assert_eq!(&bytes, b"kept reply");
+  assert_eq!(
+    read_frame(&mut reader, &mut [0], deadline)
+      .unwrap_err()
+      .kind(),
+    io::ErrorKind::UnexpectedEof
+  );
+
+  // available bytes cannot turn an expired deadline into accepted evidence.
+  let (mut reader, mut writer) = UnixStream::pair().unwrap();
+  writer.write_all(b"late").unwrap();
+  drop(writer);
+  assert_eq!(
+    read_frame(&mut reader, &mut [0; 4], Instant::now())
+      .unwrap_err()
+      .kind(),
+    io::ErrorKind::TimedOut
+  );
 }
 
 #[test]

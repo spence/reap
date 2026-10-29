@@ -867,8 +867,12 @@ impl Helpers<'_> {
     }
   }
 
+  /// Each native probe request has its own cumulative five-second send-and-reply deadline.
+  /// Expiry poisons the channel without releasing unresolved native ownership.
   pub(crate) fn run(&mut self, task: Task) -> io::Result<Report> {
-    self.request(task, None)
+    let deadline =
+      matches!(&task, Task::Probe { .. }).then(|| Instant::now() + Duration::from_secs(5));
+    self.request(task, deadline)
   }
 
   /// A probe deadline bounds this worker's wait, not the native helper's lifetime or reservation.
@@ -900,7 +904,6 @@ impl Helpers<'_> {
         deadline.map_or(send_deadline, |limit| limit.min(send_deadline)),
       )?;
       // only this worker waits; the fixed coordinator continues polling and serving control
-      self.pipe.set_read_timeout(None)?;
       let mut length = [0; 4];
       if let Some(deadline) = deadline {
         crate::launch::read_frame(self.pipe, &mut length, deadline)?;
