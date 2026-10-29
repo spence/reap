@@ -1,0 +1,382 @@
+{
+  "schema": "reap.proof.purge-executor/v1",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "work_state": "active",
+  "boundary": "Reviewed source checkpoint with native Purge proof. Whole-unit gate failed; not a verified release, full cargo test, installed applying acceptance, T19 completion or combined-goal completion.",
+  "aggregate_gate_passed": false,
+  "source_revision": "49672c8fc694b342021efa249ae29128bc9e2d5c",
+  "source_files_sha256": {
+    "README.md": "1abcbfe48cb7940a838151a395e630fbf4767f76a8da8c6aa9a44910b434e99b",
+    "skill/SKILL.md": "a1707aafdb6737d8e56b142c5a93d681cdc3d293ae8ff7dd7d4b4204a8595087",
+    "docs/specs/invocation.md": "b2180c488c49c3ab45f0232aa51fbc4de34c475d3ee7940ad0727bcc139c261a",
+    "docs/specs/job-client.md": "edd30569fb56dccbba4e62b9f4992635b3e94af4e4ef0ba8fc779b65d9c8f7a5",
+    "docs/specs/mutation-execution.md": "ee68784ad0f2658eb5436e718bc81fe76c4933db304675c1b931db25714ca2e4",
+    "src/client.rs": "346bc12bfe386cb56657d63d124304c545510e996f263c0932cf8d5560ed5798",
+    "src/dispatch.rs": "b6cd1fe6049c02070656a6aece97f04b35b94561b625462870044cbfaec46b6a",
+    "src/dispatch/lease_job.rs": "4dc1a53c127848273287561e7fa257767d8a3d0749eec31047041cc66717ac71",
+    "src/dispatch/lease_job/purge.rs": "31e08890e0b355da59c9aeee11607242a425fd5b0b105bdd3d02df01264437d7",
+    "src/dispatch/tests.rs": "b4493a069b7a9b51f880b8b3fcc9c02bff16f1407a12d11918bd2dd4a8b53af4",
+    "src/dispatch/tests/purge.rs": "429d784c9e92e2ab38fe297fcc6657d600afc53ed4a308454579b37725de92fa",
+    "src/invocation.rs": "f2da58ca1635d3a3bd815643fb87edba11f25409bc79a080defc1962bdcbf60f",
+    "src/journal.rs": "aa0c184c5acbb623985d4bb18f3664ab086c0973d0bd0a64a8b2ebbfd0cdb369",
+    "src/main.rs": "973155a6dd47d55c0882c2b846ca8f8809b7ab1751f1d2d054b7e6d808204e32",
+    "src/maintenance.rs": "1ca8f8cadb031728d6d8f3cd2ba694e65a9e3ea33b7d249b60f5889fbd8e9efb",
+    "src/quarantine.rs": "4aa555d42abadbbbaa06e2a085a73504058c09a4b319f14b75d04032bde41243",
+    "src/worker.rs": "eb0967d534a9c30f39562a977c3d6a71f2213584a92f8778ac0d3d93ad8be6b2",
+    "tests/lifecycle_state.rs": "0dd2aa82943ea5c00378b4caf4db83e5ba2d03e465c93babdef768b638b7f6a1",
+    "tests/test_preservation.py": "0ebb73d627ddd05300b0bdac7a2d9d7b32b21ab23575d01a46e1a5dc0623688f",
+    "tests/test_public_mutations.py": "12c7b05632f0455e1ebc8890e7ad72ed0acee2e04c2494e450a88f3cc8b17434"
+  },
+  "frozen_artifacts": {
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/purge-frozen-v4/unit",
+      "sha256": "aa9a69ffaa42946805629ca8a98a1fc19ebd7bbc8b4ece65eefd94e3bb1aa774",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 37306736,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/purge-frozen-v4/app",
+      "sha256": "5c463c8c29087e331343ddcbea1f3044e6e023c756afb363dff70d550dcebc80",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27755008,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    }
+  },
+  "root_binary_units": {
+    "passed": 437,
+    "failed": 1,
+    "ignored": 6,
+    "filtered": 0,
+    "seconds": 1063.79,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/purge-full-units-v4.log",
+      "sha256": "a5160c40ccd81d08922d94db2d8721e6e1fa24e2239f09f5ef514cbaac5cc69c",
+      "bytes": 47649
+    }
+  },
+  "mini_selected_native": {
+    "passed": 15,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 429,
+    "seconds": 178.79,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/purge-mini-native-v4.log",
+      "sha256": "330c207083acecc2210b9138d2a6c940c186e479fbc88a08f5a31721cc0f52a4",
+      "bytes": 1711
+    }
+  },
+  "root_focused": {
+    "purge-evidence-green-v4.log": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 443,
+      "seconds": 0.9,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-evidence-green-v4.log",
+        "sha256": "e25c0520ea469f500137fc4d0d2abd77191b5355d961a3f47d2b8ca724918e7b",
+        "bytes": 233
+      }
+    },
+    "purge-evidence-capacity-green-v4.log": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 443,
+      "seconds": 0.44,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-evidence-capacity-green-v4.log",
+        "sha256": "f489ee1222f5f05d00d74a53b61c226e2d9ec469117ea25296715c1723c5e606",
+        "bytes": 229
+      }
+    },
+    "purge-quarantine-green-v4.log": {
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 427,
+      "seconds": 8.92,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-quarantine-green-v4.log",
+        "sha256": "8530a37dbbba7c6ce9fa45e7f63add57f2f6262fb9db866364dfe1729457d6ba",
+        "bytes": 2413
+      }
+    },
+    "purge-publication-green-v3.log": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 442,
+      "seconds": 17.13,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-publication-green-v3.log",
+        "sha256": "d780b3c0046a45d4ec32b0c698769d1945dc6629c5a7847d738163fac93be44f",
+        "bytes": 226
+      }
+    },
+    "purge-first-use-green-v3.log": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 442,
+      "seconds": 20.35,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-first-use-green-v3.log",
+        "sha256": "63939fe8a6d962e5e5e0b71ed743d96af28ce19d8993e015dff40ff27521ca5d",
+        "bytes": 238
+      }
+    },
+    "purge-maintenance-green-v3.log": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 442,
+      "seconds": 4.77,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-maintenance-green-v3.log",
+        "sha256": "203c96c3e7df34ed31327482ad094ec672e9a595732e3dd72c70b492d36b845b",
+        "bytes": 227
+      }
+    }
+  },
+  "earlier_complete_selection": {
+    "root": {
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 429,
+      "seconds": 291.37,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-focused-v2.log",
+        "sha256": "9fd9645c8ea592f2b77fbb7365de534f31b0d8681ad4cd4831fdde67f2617476",
+        "bytes": 1366
+      }
+    },
+    "mini": {
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 429,
+      "seconds": 141.9,
+      "log": {
+        "path": "target/control-t13/mutation-bridge/purge-mini-native-v2.log",
+        "sha256": "2edbeb96fb3cbc69ac2f00d8e3a86e84dbb42273fb1e6289c1d5c70fa3750edf",
+        "bytes": 1366
+      }
+    },
+    "boundary": "Twelve-case selection before the final evidence-read correction. Final v4 whole run covers all final Purge cases."
+  },
+  "native_identity_before_after": [
+    {
+      "path": "target/control-t13/mutation-bridge/purge-root-pre-v4.json",
+      "sha256": "207f03004d424824ceefccf408e8a8fc3eb3cca5bffc286273baac5c91c0625d",
+      "bytes": 1350
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/purge-root-post-v4.json",
+      "sha256": "207f03004d424824ceefccf408e8a8fc3eb3cca5bffc286273baac5c91c0625d",
+      "bytes": 1350
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/purge-mini-pre-v4.json",
+      "sha256": "1118117e95909827f042ead46ca2484ed9cf01885b21dbe479b105e4bf737871",
+      "bytes": 1312
+    },
+    {
+      "path": "target/control-t13/mutation-bridge/purge-mini-post-v4.json",
+      "sha256": "1118117e95909827f042ead46ca2484ed9cf01885b21dbe479b105e4bf737871",
+      "bytes": 1312
+    }
+  ],
+  "rust_targets": {
+    "compiled": 3,
+    "integration_runtime_executed": false,
+    "log": {
+      "path": "target/control-t13/mutation-bridge/purge-build-v6.log",
+      "sha256": "216745a2ae92c680aeecb25686c902b9db12995c82544694fd56bd35f6e33bfd",
+      "bytes": 865
+    }
+  },
+  "public_fifo": {
+    "cases_per_host": 1,
+    "command_forms_per_host": 5,
+    "root": {
+      "path": "target/control-t13/mutation-bridge/purge-client-fifo-green-v4.log",
+      "sha256": "93c4f87173d3245ebce367b88a50cd090264c3556a81506faee18e34c1e147ad",
+      "bytes": 98
+    },
+    "mini": {
+      "path": "target/control-t13/mutation-bridge/purge-mini-public-v4.log",
+      "sha256": "203224cf834889c547680663ae950be8e3d72841d86cc84356069e8a104d98e9",
+      "bytes": 98
+    },
+    "root_selection_seconds": 0.639,
+    "mini_selection_seconds": 0.391,
+    "outcome": "Prompt failed/unavailable receipts through the older installed cohort. Not useful installed applying proof.",
+    "help": {
+      "path": "target/control-t13/mutation-bridge/purge-help-v4.log",
+      "sha256": "5a216a5baa574c7cbb7fffb6ce15a32e21b7f81cdab8db27a6d5f107ad5fbb3c",
+      "bytes": 430
+    }
+  },
+  "invariants": [
+    "Per-unlink and index-publication intent/outcome preserve actual effects and protected survivors.",
+    "Explicit selectors retain legacy precedence and automatic-policy exceptions; only all includes unindexed slots.",
+    "Fresh automatic marker absence and post-inventory diagnosis refuse newly inserted evidence before any effect.",
+    "Valid normal entry evidence is indexed; valid JSON beyond the 1 MiB read bound refuses without payload effects.",
+    "Role, caller, activity, identity, mount, recognized-index and exact-inventory guards remain.",
+    "Known failed candidates permit independent cleanup; uncertainty or output capacity stops unreportable work.",
+    "First use journals only local state components; exact replay cannot resume partial or completed deletion.",
+    "Cancellation and six interruption boundaries retain exact unit count, phase, sources and replay."
+  ],
+  "review": {
+    "peer": "peer-18e2dbe3274c2700-575487",
+    "conversation": "conversation-18e2dbe3289cf990-575491",
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "initial_request": "cmsg-18e2dbe3292c1260-575494",
+    "final_accepted_request": "cmsg-18e2dd2b3573b390-579571",
+    "findings": {
+      "path": "target/control-t13/mutation-bridge/purge-review-wait-v4.json",
+      "sha256": "357afa9a347cd1e7407e81f9124b136b6863922c258638ddc45028cdae358912",
+      "bytes": 8453
+    },
+    "first_acceptance": {
+      "path": "target/control-t13/mutation-bridge/purge-review-wait-v5.json",
+      "sha256": "d9d23454e2d6dcf8839f0b89e2d1dcee7b4996837fa8415755e40519ecc3c1ff",
+      "bytes": 5767
+    },
+    "final_acceptance": {
+      "path": "target/control-t13/mutation-bridge/purge-review-wait-v6.json",
+      "sha256": "6d55242510dc1f2b8b24a0e7d31e26f3d2296a5a9300cd0a1b15d12300db5aa6",
+      "bytes": 4868
+    },
+    "conversation_close": {
+      "path": "target/control-t13/mutation-bridge/purge-review-conversation-close.json",
+      "sha256": "0d7f5ad82ada991e4ef21b31de8cac7893737c4e5900dfed9c5b68aed6b01997",
+      "bytes": 469
+    },
+    "peer_close": {
+      "path": "target/control-t13/mutation-bridge/purge-review-peer-close.json",
+      "sha256": "da19f376e45b7f90bbae681134e784e0ff2b4cf2eeb7ed508d22ed52f1e10ec5",
+      "bytes": 1330
+    },
+    "state": "Final source accepted. Runtime and fleet acceptance remain independently gated."
+  },
+  "retained_failures": {
+    "old_client_fifo": {
+      "path": "target/control-t13/mutation-bridge/purge-client-fifo-red-v1.log",
+      "sha256": "1101006fdffd85a5599408aa082a8c376edee220e8d4349c2abbfd5c170ac160",
+      "bytes": 2390
+    },
+    "initial_completion_allowance": {
+      "run": {
+        "passed": 8,
+        "failed": 1,
+        "ignored": 0,
+        "filtered": 429,
+        "seconds": 174.82,
+        "log": {
+          "path": "target/control-t13/mutation-bridge/purge-focused-v1.log",
+          "sha256": "09b9910dff4568f2ced1fbf543d7366c62fce134eff91d9b96c82e3adde00d45",
+          "bytes": 11744
+        }
+      },
+      "old_fixture_seconds": 30,
+      "current_fixture_seconds": 90,
+      "ordinary_cli_seconds": 1,
+      "finding": "Broad all fixture reached 12 completed units and its next unit before the native completion allowance expired. Not a changed CLI deadline."
+    },
+    "marker_before_capture": {
+      "run": {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0,
+        "filtered": 442,
+        "seconds": 24.0,
+        "log": {
+          "path": "target/control-t13/mutation-bridge/purge-marker-red-v1.log",
+          "sha256": "7f55fe14670cde55aabb40e340b1f000ff9bbc18e2fbab8f0016e2fe8f5f2cf3",
+          "bytes": 1984
+        }
+      },
+      "red_artifacts": {
+        "path": "target/control-t13/mutation-bridge/purge-marker-red-frozen-v1/manifest.json",
+        "sha256": "dcdc5afde637bfed41ffc1507b43245ef86bcc682a5cffc249ad246dee391bc0",
+        "bytes": 1602
+      },
+      "observed_effects": 7,
+      "required_effects": 0,
+      "corrected": true
+    },
+    "mini_first_use_timing": {
+      "issue": "ISS-CLASSIFY-THE-MINI-FIRST-USE-PUBLIC-RESPO",
+      "first": {
+        "path": "target/control-t13/mutation-bridge/purge-mini-public-v2.log",
+        "sha256": "90fe4d8dfa9dd8747cc100371c80157cfb72456d0c8eedd6dbc607a3f183c7bd",
+        "bytes": 959
+      },
+      "repeat": {
+        "path": "target/control-t13/mutation-bridge/purge-mini-public-repeat-v2.log",
+        "sha256": "21504e82d36a18f9bfb6e877c3e27e4fc530c985cb07c1b8839544c91cc53b51",
+        "bytes": 98
+      },
+      "first_outer_seconds": 1.4037755,
+      "repeat_selection_seconds": 0.095,
+      "cause_established": false,
+      "repaired_by_repeat": false,
+      "issue_readback": {
+        "path": "target/control-t13/mutation-bridge/purge-mini-first-use-issue-readback.json",
+        "sha256": "bc7759340a4f81bbacd8288768c28bbe0beaeb64fc6d9a03112e055986401780",
+        "bytes": 3820
+      }
+    },
+    "full_unit_activity": {
+      "issue": "ISS-CLASSIFY-NATIVE-ACTIVITY-REFUSALS-WITHOU",
+      "evidence": {
+        "path": "target/control-t13/mutation-bridge/purge-full-failure-v4.json",
+        "sha256": "fde306ea190914ca855aa68022f0f8473dcf82ebc29885e515539b8012067ddf",
+        "bytes": 1511
+      },
+      "issue_readback": {
+        "path": "target/control-t13/mutation-bridge/purge-activity-issue-readback.json",
+        "sha256": "83221a75650a2b52d3750de3a5af11603dd6a621fec3024df9f65d0a482ad84c",
+        "bytes": 11566
+      },
+      "cause_established": false,
+      "raw_failed_activity_name_retained": false,
+      "all_five_payloads_survive": true
+    }
+  },
+  "storage": {
+    "all_owned_quick_check_inputs_and_artifacts_internal": true,
+    "root_device": 16777232,
+    "mini_device": 16777234,
+    "measured_root_kib": 17638412,
+    "measured_mini_parent_kib": 3335204
+  },
+  "open_gates": [
+    "Full binary-unit gate has one Cargo activity-record failure. Diagnose before an unchanged full-run retry.",
+    "Five native fault-library cases and the explicit inventory-cost case were ignored; separate proof remains required.",
+    "Complete Cargo integration runtime, native nested mounts and useful installed applying outcomes on both Macs remain open.",
+    "Large cleanup remains quadratic; lifecycle-lock duration, fair discovery, healthy-scope progress and cold installed response remain open.",
+    "Other applying adapters, foreground reads, NativeFiles bookkeeping, cross-volume recovery and actual old-reader drains/fences remain open.",
+    "Default-KEEP creation, safe conversion, native provider archives, independent retrieval, separate source release, guides and actual fleet delivery remain required."
+  ],
+  "activation": {
+    "product_installed": false,
+    "services_replaced": false,
+    "operator_guides_deployed": false,
+    "lifetime_conversion": false,
+    "conversation_source_pruned": false
+  }
+}
