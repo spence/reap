@@ -213,6 +213,26 @@
   `tests/test_public_mutations.py::PublicMutations::test_doctor_does_not_wait_for_configuration_fifo`.
   Detail-limit binding: `tests/lifecycle_state.rs::doctor_dry_run_bounds_details`.
 
+- **C19 — Retirement preserves the complete authorized source.** Retirement preview and application
+  use the bounded client and shared lifecycle executor. Legacy identity, marker, expiry or explicit
+  `--now`, quiet time, caller, activity, mount, nested-lease, and preservation guards remain mandatory.
+  Non-scratch sources require native Git recovery. Exact disposable Cargo targets permit only the
+  validated Cargo closure; unrelated ignored evidence remains a veto. Preview has no effects.
+  Same-volume retirement journals directory creation, recovery evidence, payload movement, quarantine
+  index publication, lease-index publication, and marker removal as separate exact units.
+  An interruption retains the completed prefix and all recovery data. Exact replay does not issue
+  another effect. Missing sources retain their lease and require separate Doctor repair.
+  Parent quiet-time credit requires the expected child removal with unchanged sibling evidence.
+  Selection remains the inspected lease set; later expiry cannot silently add another source.
+  Whole-source and Cargo snapshots retain complete metadata fingerprints without a per-entry heap
+  inventory. The depth-bounded scan rejects incomplete observations and changes before the move.
+  Same-volume movement is not freed space. Cross-volume movement is refused until staged-copy proof
+  exists. The adapter does not run broad Git administration pruning; exact linked-worktree cleanup
+  and complete cutover remain separate unmet requirements.
+  Bindings: `dispatch::tests::retire`;
+  `invocation::tests::retire_arguments_keep_exact_cargo_selection_and_waits_separate`;
+  `tests/test_public_mutations.py::PublicMutations::test_retire_commands_do_not_wait_for_configuration_fifo`.
+
 ## Conformance boundary
 
 The public mutation fixtures contain both refusal controls and actual allowed effects with protected

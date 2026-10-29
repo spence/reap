@@ -2,6 +2,7 @@
 
 mod doctor;
 mod purge;
+mod retire;
 
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
@@ -30,6 +31,7 @@ enum Command {
   Quarantine(QuarantineMetadata),
   Purge(crate::invocation::PurgeRequest),
   Doctor(crate::invocation::DoctorRequest),
+  Retire(crate::invocation::RetireRequest),
 }
 
 impl Command {
@@ -37,6 +39,7 @@ impl Command {
     matches!(self, Self::Lease(LeaseCmd::Add { .. }) | Self::ParentArm(_))
       || matches!(self, Self::Quarantine(request) if request.applying())
       || matches!(self, Self::Purge(request) if request.apply)
+      || matches!(self, Self::Retire(request) if request.apply)
   }
 }
 
@@ -51,10 +54,12 @@ struct Context<'a> {
   project: Option<PathBuf>,
   quarantine: Option<PathBuf>,
   quarantine_missing: bool,
+  quarantine_bootstrap: Vec<PathBuf>,
   quarantine_policy: crate::config::QuarantineConfig,
   forbidden: Vec<PathBuf>,
   bootstrap: Vec<PathBuf>,
   namespace_missing: Vec<PathBuf>,
+  retire_selected: Vec<crate::lease::Lease>,
 }
 
 impl Context<'_> {
@@ -127,15 +132,32 @@ struct Applying<'a, 'b> {
   created: Vec<Object>,
   namespace_prefix: Vec<Object>,
   published: Vec<FileVersion>,
+  moved: Vec<(PathBuf, PathBuf)>,
   lock: Option<Lock>,
 }
 
 impl Applying<'_, '_> {
   /// Original dependencies remain bound; only observed owned publications advance mutable inputs.
   fn fresh(&self) -> io::Result<()> {
-    self.context.inspector.revalidate()?;
+    for (source, _) in &self.moved {
+      if !matches!(std::fs::symlink_metadata(source), Err(error) if error.kind() == io::ErrorKind::NotFound)
+      {
+        return Err(invalid("retired source reappeared or is unavailable"));
+      }
+    }
+    self.context.inspector.revalidate_renamed(&self.moved)?;
     crate::invocation::fresh_with_state_prefix(self.input, &self.namespace_prefix)?;
-    for path in &self.context.bootstrap {
+    for object in &self.created {
+      if ObjectIdentity::read(&crate::files::open_physical(&object.path)?)? != object.identity {
+        return Err(invalid("created lifecycle directory changed identity"));
+      }
+    }
+    for path in self
+      .context
+      .bootstrap
+      .iter()
+      .chain(&self.context.quarantine_bootstrap)
+    {
       if let Some(object) = self.created.iter().find(|object| &object.path == path) {
         if ObjectIdentity::read(&crate::files::open_physical(path)?)? != object.identity {
           return Err(invalid("created lease state directory changed"));
@@ -433,6 +455,9 @@ pub(crate) fn assess(
     return Err(invalid("lease scope or grant changed after resolution"));
   }
   context.enter()?;
+  if let Command::Retire(request) = &context.command {
+    return retire::assess(&context, request, input, expected, grant, helpers);
+  }
   if let Command::Doctor(request) = &context.command {
     return doctor::assess(&context, request, input, expected, grant, helpers);
   }
@@ -473,6 +498,7 @@ pub(crate) fn assess(
     created: vec![],
     namespace_prefix: vec![],
     published: vec![],
+    moved: vec![],
     lock: None,
   };
   let mut selected = None;
@@ -678,6 +704,7 @@ pub(crate) fn assess(
       Command::Lease(_) => "lease",
       Command::Purge(_) => "purge",
       Command::Doctor(_) => "doctor",
+      Command::Retire(_) => "retire",
     },
     "action":action,"error":result.as_ref().err().map(|error| error.to_string()),
     "worker_observation":{"completed_units":applying.effects,"unknown_effects":applying.unknown},
@@ -825,6 +852,8 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     Command::Purge(request)
   } else if let Some(request) = crate::invocation::doctor_request(&intent) {
     Command::Doctor(request)
+  } else if let Some(request) = crate::invocation::retire_request(&intent) {
+    Command::Retire(request)
   } else {
     return Err(invalid("unsupported lease metadata arguments"));
   };
@@ -855,6 +884,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
       LeaseCmd::Add { path, .. } | LeaseCmd::Renew { path, .. } | LeaseCmd::Release { path },
     ) => Some(PathBuf::from(path)),
     Command::ParentArm(request) => Some(PathBuf::from(&request.path)),
+    Command::Retire(request) => request.path.as_ref().map(PathBuf::from),
     Command::Quarantine(_) | Command::Purge(_) | Command::Doctor(_) => None,
   };
   let target = raw_target
@@ -892,8 +922,11 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   let mut forbidden = vec![state.clone()];
   let mut quarantine = None;
   let mut quarantine_missing = false;
-  let uses_quarantine = matches!(command, Command::Quarantine(_) | Command::Purge(_))
-    || matches!(&command, Command::Doctor(request) if request.quarantine);
+  let mut quarantine_bootstrap = vec![];
+  let uses_quarantine = matches!(
+    command,
+    Command::Quarantine(_) | Command::Purge(_) | Command::Retire(_)
+  ) || matches!(&command, Command::Doctor(request) if request.quarantine);
   if command.creates_state() || uses_quarantine {
     let home = intent.namespace.home.to_string_lossy();
     let raw_quarantine = configuration
@@ -923,22 +956,30 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     {
       return Err(invalid("purge quarantine root is not a real directory"));
     }
-    let path = inspector.canonical_path(&absolute)?;
-    if uses_quarantine {
-      let (path, missing) = destination(&mut inspector, &path)?;
+    let path = if uses_quarantine {
+      let (path, missing) = destination(&mut inspector, &absolute)?;
       quarantine_missing = !missing.is_empty();
+      quarantine_bootstrap = missing;
       if matches!(&command, Command::Quarantine(request) if request.applying()) {
         inspector.directory(&path)?;
       } else if !quarantine_missing {
         inspector.optional_directory(&crate::quarantine::entries_dir(&path))?;
       }
       quarantine = Some(path.clone());
-    }
+      path
+    } else {
+      inspector.canonical_path(&absolute)?
+    };
     forbidden.push(path);
   }
   if let Command::Doctor(request) = &command {
     doctor::inspect(&mut inspector, request, &state, quarantine.as_deref())?;
   }
+  let retire_selected = if let Command::Retire(request) = &command {
+    retire::inspect(&mut inspector, request, &state, target.as_deref())?
+  } else {
+    vec![]
+  };
   Ok(Context {
     inspector,
     intent,
@@ -950,10 +991,12 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     project,
     quarantine,
     quarantine_missing,
+    quarantine_bootstrap,
     quarantine_policy: configuration.quarantine,
     forbidden,
     bootstrap,
     namespace_missing,
+    retire_selected,
   })
 }
 
@@ -1018,6 +1061,12 @@ fn unit_fixture(label: &str, path: &Path) -> io::Result<()> {
       );
       std::fs::write(source.join(crate::lifetime::FILE_NAME),
         br#"{"version":2,"role":"permanent_archive","keep":{"reason":"late source protection"},"seal":true}"#)?;
+    }
+    ("retire-late-keep", "retire-payload") => {
+      std::fs::write(
+        path.join(crate::lifetime::FILE_NAME),
+        br#"{"version":2,"keep":{"reason":"unfinished source work"}}"#,
+      )?;
     }
     ("quarantine-directory-replacement", "index") => {
       let directory = path

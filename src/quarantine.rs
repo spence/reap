@@ -18,9 +18,8 @@ use std::{process::Command, sync::OnceLock, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
-use crate::discover::is_cargo_target_dir;
 use crate::lease::{read_marker, Lease, LEASE_MARKER};
-use crate::manifest::{load_manifest, MANIFEST_NAME};
+use crate::manifest::MANIFEST_NAME;
 use crate::plan::Guards;
 use crate::provenance::Provenance;
 use crate::util::{
@@ -114,6 +113,7 @@ pub struct Assessment {
   /// Directory no longer exists; volume verification is still required.
   pub gone: bool,
   /// Main working tree when the leased dir is a linked git worktree.
+  #[cfg(test)]
   pub main_repo: Option<PathBuf>,
 }
 
@@ -136,7 +136,6 @@ pub struct RetireOpts {
 pub struct Retired {
   pub entry: Entry,
   pub dest: PathBuf,
-  pub copied: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -368,6 +367,7 @@ pub fn save_index(qdir: &Path, f: &IndexFile) -> io::Result<()> {
 
 /// Re-validate a lease at retirement time. Cheap refusal checks run before
 /// the tree walk; deep checks run only for a still-eligible lease.
+#[cfg(test)]
 pub fn assess_retire(
   lease: &Lease,
   now: f64,
@@ -379,6 +379,7 @@ pub fn assess_retire(
   assess_retire_ignoring_dir_mtimes(lease, now, opts, cwd, qdir, others, &HashSet::new())
 }
 
+#[cfg(test)]
 pub fn assess_retire_ignoring_dir_mtimes(
   lease: &Lease,
   now: f64,
@@ -388,10 +389,50 @@ pub fn assess_retire_ignoring_dir_mtimes(
   others: &[Lease],
   ignored_dir_mtimes: &HashSet<PathBuf>,
 ) -> Assessment {
+  assess_retire_with_probes(
+    lease,
+    now,
+    opts,
+    cwd,
+    qdir,
+    others,
+    ignored_dir_mtimes,
+    None,
+    &mut |dir| {
+      #[cfg(target_os = "macos")]
+      {
+        open_handle_within(dir).map_err(|error| error.to_string())
+      }
+      #[cfg(not(target_os = "macos"))]
+      {
+        let _ = dir;
+        Ok(None)
+      }
+    },
+    &mut git_checks,
+  )
+}
+
+/// Reuse retirement safety checks with the worker's granted activity and recovery evidence.
+/// Probe failure preserves the source. This assessment cannot move data or publish metadata.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn assess_retire_with_probes(
+  lease: &Lease,
+  now: f64,
+  opts: &RetireOpts,
+  cwd: &Path,
+  qdir: &Path,
+  others: &[Lease],
+  ignored_dir_mtimes: &HashSet<PathBuf>,
+  resources: Option<&crate::launch::Resources>,
+  activity: &mut dyn FnMut(&Path) -> Result<Option<PathBuf>, String>,
+  recovery: &mut dyn FnMut(&mut Assessment, &Path, bool, &[PathBuf]),
+) -> Assessment {
   let mut a = Assessment {
     checks: vec![],
     bytes: 0,
     gone: false,
+    #[cfg(test)]
     main_repo: None,
   };
   let dir = PathBuf::from(&lease.path);
@@ -425,7 +466,7 @@ pub fn assess_retire_ignoring_dir_mtimes(
     }
   };
 
-  if let Err(error) = crate::preservation::check_legacy(&dir, None) {
+  if let Err(error) = crate::preservation::check_legacy(&dir, resources) {
     a.checks.push(RetireCheck {
       label: "preservation",
       ok: false,
@@ -505,9 +546,8 @@ pub fn assess_retire_ignoring_dir_mtimes(
     return a;
   }
 
-  #[cfg(target_os = "macos")]
   {
-    match open_handle_within(&dir) {
+    match activity(&dir) {
       Ok(Some(path)) => push(
         &mut a.checks,
         "open-files",
@@ -552,7 +592,7 @@ pub fn assess_retire_ignoring_dir_mtimes(
   }
 
   match validate_disposable_cargo_targets(&dir, &opts.disposable_cargo_targets) {
-    Ok(targets) => git_checks(&mut a, &dir, lease.scratch, &targets),
+    Ok(targets) => recovery(&mut a, &dir, lease.scratch, &targets),
     Err(error) => push(&mut a.checks, "cargo-target", false, error),
   }
   a
@@ -563,6 +603,31 @@ pub fn assess_retire_ignoring_dir_mtimes(
 fn validate_disposable_cargo_targets(
   dir: &Path,
   requested: &[PathBuf],
+) -> Result<Vec<PathBuf>, String> {
+  validate_disposable_cargo_targets_with(dir, requested, &mut |directory| {
+    let path = directory.join(MANIFEST_NAME);
+    let mut file = fs::OpenOptions::new()
+      .read(true)
+      .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+      .open(&path)
+      .map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    (&mut file)
+      .take(crate::mutation::MAX_METADATA_BYTES as u64 + 1)
+      .read_to_end(&mut bytes)
+      .map_err(|error| error.to_string())?;
+    if bytes.len() > crate::mutation::MAX_METADATA_BYTES {
+      return Err("retirement manifest exceeds its bound".into());
+    }
+    crate::manifest::parse_manifest(directory, Some(&bytes)).map_err(|error| error.to_string())
+  })
+}
+
+/// Native callers bind manifest bytes through their existing granted reader.
+pub(crate) fn validate_disposable_cargo_targets_with(
+  dir: &Path,
+  requested: &[PathBuf],
+  manifest: &mut dyn FnMut(&Path) -> Result<crate::manifest::Manifest, String>,
 ) -> Result<Vec<PathBuf>, String> {
   let mut approved = Vec::new();
   for relative in requested {
@@ -581,7 +646,7 @@ fn validate_disposable_cargo_targets(
     if fs::canonicalize(&target).ok().as_ref() != Some(&target)
       || !fs::symlink_metadata(&target).is_ok_and(|meta| meta.is_dir())
       || !fs::symlink_metadata(target.join("CACHEDIR.TAG")).is_ok_and(|meta| meta.is_file())
-      || !is_cargo_target_dir(&target)
+      || !bounded_cargo_marker(&target)?
     {
       return Err(format!(
         "{}: not a real, contained Cargo target",
@@ -602,9 +667,7 @@ fn validate_disposable_cargo_targets(
       let path = ancestor.join(MANIFEST_NAME);
       match fs::symlink_metadata(&path) {
         Ok(meta) if meta.is_file() => {
-          let mut keep = load_manifest(ancestor)
-            .map_err(|error| error.to_string())?
-            .keep;
+          let mut keep = manifest(ancestor)?.keep;
           keep.names.extend(keep.binaries.iter().cloned());
           guards.push(Guards::new(&keep));
         }
@@ -625,40 +688,61 @@ fn validate_disposable_cargo_targets(
       ));
     }
 
-    let mut pending = vec![target.clone()];
-    while let Some(path) = pending.pop() {
-      let meta =
-        fs::symlink_metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    crate::tree_snapshot::Snapshot::visit(&target, None, &mut |path, meta| {
       let rel = path.strip_prefix(&target).unwrap().to_string_lossy();
       let name = path.file_name().unwrap().to_string_lossy();
-      if meta.file_type().is_symlink()
-        || matches!(
-          name.as_ref(),
-          ".reap" | ".reap.json" | ".reap-lease" | ".git"
-        )
+      if meta.st_mode & libc::S_IFMT == libc::S_IFLNK
+        || [".reap", ".reap.json", ".reap-lease", ".git"]
+          .iter()
+          .any(|reserved| name.eq_ignore_ascii_case(reserved))
         || guards
           .iter()
           .any(|guard| guard.is_protected(&rel) || guard.is_protected(&name))
       {
-        return Err(format!(
+        return Err(io::Error::other(format!(
           "{}: protected data, lifecycle metadata, or symlink",
           path.display()
-        ));
+        )));
       }
-      if meta.is_dir() {
-        for entry in fs::read_dir(&path).map_err(|error| format!("{}: {error}", path.display()))? {
-          pending.push(entry.map_err(|error| error.to_string())?.path());
-        }
-      } else if !meta.is_file() {
-        return Err(format!(
-          "{}: not a regular file or directory",
-          path.display()
-        ));
-      }
-    }
+      Ok(())
+    })
+    .map_err(|error| error.to_string())?;
     approved.push(relative.clone());
   }
   Ok(approved)
+}
+
+/// Cache permission never requires an unbounded read of a marker or a special file.
+fn bounded_cargo_marker(target: &Path) -> Result<bool, String> {
+  let path = target.join("CACHEDIR.TAG");
+  let mut file = fs::OpenOptions::new()
+    .read(true)
+    .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+    .open(&path)
+    .map_err(|error| format!("{}: {error}", path.display()))?;
+  if !file
+    .metadata()
+    .map_err(|error| error.to_string())?
+    .is_file()
+  {
+    return Err(format!("{}: not a regular cache marker", path.display()));
+  }
+  let mut bytes = Vec::new();
+  (&mut file)
+    .take(64 * 1024 + 1)
+    .read_to_end(&mut bytes)
+    .map_err(|error| error.to_string())?;
+  if bytes.len() > 64 * 1024 {
+    return Err(format!(
+      "{}: cache marker exceeds its bound",
+      path.display()
+    ));
+  }
+  let text = std::str::from_utf8(&bytes).map_err(|error| error.to_string())?;
+  Ok(text.lines().any(|line| {
+    line.trim().strip_prefix("Signature:").map(str::trim)
+      == Some(crate::plan::CARGO_CACHEDIR_SIGNATURE)
+  }))
 }
 
 #[cfg(target_os = "macos")]
@@ -952,6 +1036,7 @@ pub(crate) fn kernel_blocked_lsof(output: &[u8]) -> bool {
 
 /// Move the leased dir into `<quarantine>/entries/<lease id>/<basename>` and
 /// return its index entry. Cross-device moves copy+verify+delete (`move_dir`).
+#[cfg(test)]
 pub fn execute_retire(
   lease: &Lease,
   bytes: u64,
@@ -962,7 +1047,7 @@ pub fn execute_retire(
   let src = PathBuf::from(&lease.path);
   let (entry, dest) = prepare_retire(lease, bytes, qdir, machine, now)?;
   let slot = dest.parent().expect("prepared payload has a slot");
-  let moved = move_dir(&src, &dest).map_err(|e| {
+  move_dir(&src, &dest).map_err(|e| {
     format!(
       "move {} -> {}: {}; inspect {} before retrying",
       src.display(),
@@ -971,11 +1056,7 @@ pub fn execute_retire(
       slot.display()
     )
   })?;
-  Ok(Retired {
-    entry,
-    dest,
-    copied: matches!(moved, Moved::Copied),
-  })
+  Ok(Retired { entry, dest })
 }
 
 /// Stage a path removed by a `.reap` declaration with the declaration's owner and reason.
@@ -1089,7 +1170,7 @@ fn retire_unit(
   };
   write_json_atomic(&evidence_path(&slot), &evidence)
     .map_err(|e| format!("writing {}: {e}", evidence_path(&slot).display()))?;
-  let moved = mover(source, &dest, &entry).map_err(|e| {
+  mover(source, &dest, &entry).map_err(|e| {
     format!(
       "move {} -> {}: {e}; inspect {} before retrying",
       source.display(),
@@ -1097,13 +1178,10 @@ fn retire_unit(
       slot.display()
     )
   })?;
-  Ok(Retired {
-    entry,
-    dest,
-    copied: matches!(moved, Moved::Copied),
-  })
+  Ok(Retired { entry, dest })
 }
 
+#[cfg(test)]
 fn prepare_retire(
   lease: &Lease,
   bytes: u64,
@@ -1150,6 +1228,7 @@ fn prepare_retire(
   Ok((entry, dest))
 }
 
+#[cfg(test)]
 pub fn finalize_retire(retired: &Retired, main_repo: Option<&Path>) -> Result<(), String> {
   if let Some(main) = main_repo {
     git_capture(main, &["worktree", "prune"]).map_err(|e| match e {
@@ -1501,6 +1580,7 @@ fn push(checks: &mut Vec<RetireCheck>, label: &'static str, ok: bool, fail_detai
   });
 }
 
+#[cfg(test)]
 fn git_checks(a: &mut Assessment, dir: &Path, scratch: bool, cargo_targets: &[PathBuf]) {
   let dot = dir.join(".git");
   let gm = match fs::symlink_metadata(&dot) {
@@ -2021,7 +2101,6 @@ mod tests {
     let retired = Retired {
       entry: entry.clone(),
       dest: dest.clone(),
-      copied: false,
     };
     finalize_retire(&retired, None).unwrap();
     assert_eq!(

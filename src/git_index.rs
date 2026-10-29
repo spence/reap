@@ -22,7 +22,8 @@ pub(crate) struct Tracking {
   resources: Option<Resources>,
   repositories: BTreeMap<PathBuf, Result<Repository, String>>,
   absent_markers: BTreeSet<PathBuf>,
-  recovery: BTreeMap<(PathBuf, Vec<PathBuf>), Result<(), RecoveryError>>,
+  recovery: BTreeMap<(PathBuf, Vec<PathBuf>, Vec<PathBuf>), Result<(), RecoveryError>>,
+  cargo_working_reserved: bool,
 }
 
 struct Repository {
@@ -34,6 +35,7 @@ struct Repository {
   index: Option<Index>,
   sources: Vec<Source>,
   aliases: BTreeMap<PathBuf, Option<ObjectIdentity>>,
+  cargo: Vec<crate::tree_snapshot::Snapshot>,
 }
 
 struct Source {
@@ -216,6 +218,7 @@ impl Tracking {
       repositories: BTreeMap::new(),
       absent_markers: BTreeSet::new(),
       recovery: BTreeMap::new(),
+      cargo_working_reserved: false,
     }
   }
 
@@ -274,6 +277,9 @@ impl Tracking {
       let repository = repository.as_ref().map_err(|reason| invalid(reason))?;
       for source in &repository.sources {
         source.revalidate(resources)?;
+      }
+      for snapshot in &repository.cargo {
+        snapshot.fresh(Some(resources))?;
       }
     }
     Ok(())
@@ -457,6 +463,7 @@ impl Repository {
       index,
       sources,
       aliases: BTreeMap::new(),
+      cargo: vec![],
     };
     for source in &repository.sources {
       source.revalidate(resources)?;

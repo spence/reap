@@ -54,6 +54,7 @@ removal units are also protected, outside governed roots too. Scratch, seals, `-
 purge selectors do not waive this guard. Uncertain role evidence refuses the affected mutation.
 Ordinary KEEP still permits authorized Cargo compaction. This guard does not activate conversation
 archives, source pruning, or version 2 lifetime disposal.
+Directory-candidate preservation scans refuse more than 64 directory levels or incomplete evidence.
 
 Do not use legacy disposal across an honored version 2 lifetime before conversion.
 Ordinary lifetime policy applies only within governed roots; unknown configuration or Git evidence refuses disposal.
@@ -70,6 +71,7 @@ Use `reap plan [PATH] --wait 30` for completed Cargo assessment, or `reap clean 
 Use `reap lease add`, `renew`, `release`, or `list` with `--wait 30` before a dependent step.
 Use `reap stores [PATH] --wait 30`, including `--init`, `--bind`, or `--apply`, before a dependent step.
 Use `reap doctor [--quarantine] --wait 30` for completed diagnosis; explicit `--apply` repairs only proved index records.
+Use `reap retire [PATH] [--apply] --wait 30` before a dependent step. Read terminal `reports`.
 Read its terminal detail counts and blocked records. A safe partial repair is not complete success.
 Doctor shares a 128-observation and 32 KiB scope bound. Over-limit requests have zero effects; narrow the request with `--id ID`.
 Bound marker and entry-evidence inputs must be regular, single-linked files of at most 64 KiB.
@@ -258,13 +260,13 @@ from a merge, a completed goal, a worktree name, or an agent-created directory.
 When leases expire:
 
 ```bash
-reap retire                     # dry-run: what would move, and why/why not
-reap retire --apply             # move expired leased dirs into the quarantine
-reap retire <dir> --now --apply # finished early with a specific one
+reap retire --wait 30              # await a preview of expired leased directories
+reap retire --apply --wait 30      # await authorized quarantine moves
+reap retire <dir> --now --apply --wait 30 # await this explicitly authorized move
 ```
 
 For a normal leased worktree with disposable Cargo output, first complete required
-preservation. Then use `reap retire <dir> --now --disposable-cargo-target target`.
+preservation. Then use `reap retire <dir> --now --disposable-cargo-target target --wait 30`.
 Repeat the option for each exact relative target, such as `build-executable/target`.
 Inspect the dry-run before adding `--apply`. This authorizes quarantine of **all
 contents** of those targets for that command only; the lease stays non-scratch.
@@ -294,15 +296,12 @@ If a kernel-blocked `lsof` is already present, Reap refuses without spawning
 another one. Renewal remains available; do not bypass that activity refusal.
 Reap verifies the expected child removal before discounting its directory mtime from the
 parent's quiet brake. `retire <dir>` does not implicitly retire descendants.
-Worktrees get `git worktree prune` on their main repo. Nothing is deleted —
-the directory MOVES to the quarantine
-(per-machine location, can be an external drive) and stays restorable:
-
-The dry-run reports eligible logical bytes to move separately from estimated
-free-space change by volume. Same-volume retirement frees an estimated 0 B;
-cross-volume retirement costs space on the quarantine volume and frees it on
-the source volume. Physical free-space changes can differ from these logical-
-byte estimates (for example, with APFS compression or shared blocks).
+Retirement moves the complete directory into quarantine. Same-volume moves free no space.
+Read terminal reports and observe the original key after an interruption; do not resubmit for progress.
+Use Doctor for a missing lease path; retirement does not remove that index record.
+The native adapter refuses cross-volume moves and retains linked-worktree administration.
+Do not use a legacy executor to bypass either boundary.
+Retirement refuses incomplete scans, changed metadata, and more than 64 directory levels.
 
 ```bash
 reap quarantine --wait 30        # list; quarantine list --owner <name> filters

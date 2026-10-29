@@ -243,6 +243,7 @@ pub(super) fn assess(
     created: vec![],
     namespace_prefix: vec![],
     published: vec![],
+    moved: vec![],
     lock: None,
   };
   let mut repaired = 0;

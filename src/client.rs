@@ -129,6 +129,18 @@ pub(crate) fn run_purge(
   run_argv(request.argv(), request.apply, wait, entered)
 }
 
+/// Submit retirement without foreground state, target access, or lock acquisition.
+pub(crate) fn run_retire(
+  request: invocation::RetireRequest,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  match request.argv() {
+    Ok(argv) => run_argv(argv, request.apply, wait, entered),
+    Err(reason) => emit(Receipt::new(State::Invalid, None, Some(reason))),
+  }
+}
+
 /// Submit diagnostics or explicit index repairs without foreground state or target access.
 pub(crate) fn run_doctor(
   request: invocation::DoctorRequest,

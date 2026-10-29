@@ -4,11 +4,11 @@
 //! leaves, never inspection paths. This does not activate lifetime or archive authority.
 //! These snapshots do not serialize a concurrent writer with the final operating-system call.
 
-use std::ffi::{CStr, CString, OsString};
+use std::ffi::CString;
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, Read};
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 
@@ -257,8 +257,7 @@ fn inspect(path: &Path, closure: bool, legacy: Option<Legacy<'_>>) -> Result<(),
   if entry.st_dev as u64 != parent_file.metadata().map_err(|e| at(parent, e))?.dev() {
     return Err(at(&candidate, "candidate is a mount boundary"));
   }
-  let mut stack = Vec::new();
-  if entry.st_mode & libc::S_IFMT == libc::S_IFDIR {
+  let tree = if entry.st_mode & libc::S_IFMT == libc::S_IFDIR {
     let file = open_at(parent_file, Path::new(name), true).map_err(|e| at(&candidate, e))?;
     if !stat_identity(&entry, &file.metadata().map_err(|e| at(&candidate, e))?) {
       return Err(at(
@@ -266,7 +265,28 @@ fn inspect(path: &Path, closure: bool, legacy: Option<Legacy<'_>>) -> Result<(),
         "candidate changed before preservation inspection",
       ));
     }
-    stack.push((file, candidate.clone()));
+    if closure {
+      let snapshot =
+        crate::tree_snapshot::Snapshot::visit(&candidate, None, &mut |path, metadata| {
+          if metadata.st_mode & libc::S_IFMT == libc::S_IFDIR {
+            let file = open_directory_path(path).map_err(refusal)?;
+            if !stat_identity(metadata, &file.metadata()?) {
+              return Err(refusal("preservation directory changed before inspection"));
+            }
+            let observed = Directory::inspect(file, path.into(), true).map_err(refusal)?;
+            observed.revalidate().map_err(refusal)?;
+            if observed.declaration.is_some() {
+              directories.push(observed);
+            }
+          }
+          Ok(())
+        })
+        .map_err(|e| at(&candidate, e))?;
+      Some(snapshot)
+    } else {
+      directories.push(Directory::inspect(file, candidate.clone(), false)?);
+      None
+    }
   } else if entry.st_mode & libc::S_IFMT != libc::S_IFREG
     && entry.st_mode & libc::S_IFMT != libc::S_IFLNK
   {
@@ -274,47 +294,17 @@ fn inspect(path: &Path, closure: bool, legacy: Option<Legacy<'_>>) -> Result<(),
       &candidate,
       "special file has incomplete preservation evidence",
     ));
-  }
-  let device = entry.st_dev as u64;
-  while let Some((file, directory)) = stack.pop() {
-    let observed = Directory::inspect(file, directory, closure)?;
-    if closure {
-      let children = directory_names(&observed.file).map_err(|e| at(&observed.path, e))?;
-      for name in children {
-        if name == FILE_NAME {
-          continue;
-        }
-        let path = observed.path.join(&name);
-        let meta = stat_at(&observed.file, Path::new(&name)).map_err(|e| at(&path, e))?;
-        if meta.st_dev as u64 != device {
-          return Err(at(
-            &path,
-            "nested mount has incomplete preservation evidence",
-          ));
-        }
-        if meta.st_mode & libc::S_IFMT == libc::S_IFDIR {
-          let file = open_at(&observed.file, Path::new(&name), true).map_err(|e| at(&path, e))?;
-          if !stat_identity(&meta, &file.metadata().map_err(|e| at(&path, e))?) {
-            return Err(at(&path, "child changed during preservation inspection"));
-          }
-          stack.push((file, path));
-        } else if meta.st_mode & libc::S_IFMT != libc::S_IFREG
-          && meta.st_mode & libc::S_IFMT != libc::S_IFLNK
-        {
-          return Err(at(
-            &path,
-            "special file has incomplete preservation evidence",
-          ));
-        }
-      }
-    }
-    directories.push(observed);
-  }
+  } else {
+    None
+  };
   if let Some(legacy) = legacy {
     legacy.inspect(&directories, &candidate)?;
   }
   for directory in &directories {
     directory.revalidate()?;
+  }
+  if let Some(tree) = tree {
+    tree.fresh(None).map_err(|e| at(&candidate, e))?;
   }
 
   // prove that names still reach the inspected objects, not a replacement tree
@@ -502,57 +492,6 @@ fn stat_at(parent: &File, name: &Path) -> io::Result<libc::stat> {
   }
   // SAFETY: successful fstatat initialized the output buffer.
   Ok(unsafe { result.assume_init() })
-}
-
-fn directory_names(parent: &File) -> io::Result<Vec<OsString>> {
-  let fd = open_at(parent, Path::new("."), true)?.into_raw_fd();
-  // SAFETY: fdopendir takes ownership of a new independent directory descriptor on success.
-  let stream = unsafe { libc::fdopendir(fd) };
-  if stream.is_null() {
-    let error = io::Error::last_os_error();
-    // SAFETY: failed fdopendir did not take ownership of the new descriptor.
-    unsafe {
-      libc::close(fd);
-    }
-    return Err(error);
-  }
-  struct Stream(*mut libc::DIR);
-  impl Drop for Stream {
-    fn drop(&mut self) {
-      // SAFETY: this guard uniquely owns the live directory stream.
-      unsafe {
-        libc::closedir(self.0);
-      }
-    }
-  }
-  let stream = Stream(stream);
-  let mut names = Vec::new();
-  loop {
-    #[cfg(target_os = "macos")]
-    // SAFETY: __error returns this thread's errno pointer.
-    unsafe {
-      *libc::__error() = 0;
-    }
-    #[cfg(target_os = "linux")]
-    // SAFETY: __errno_location returns this thread's errno pointer.
-    unsafe {
-      *libc::__errno_location() = 0;
-    }
-    // SAFETY: the stream is live and its entry buffer is consumed before the next call.
-    let entry = unsafe { libc::readdir(stream.0) };
-    if entry.is_null() {
-      let error = io::Error::last_os_error();
-      if error.raw_os_error() != Some(0) {
-        return Err(error);
-      }
-      return Ok(names);
-    }
-    // SAFETY: readdir returned a terminated name within its live entry buffer.
-    let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
-    if name != b"." && name != b".." {
-      names.push(OsString::from_vec(name.to_vec()));
-    }
-  }
 }
 
 fn stat_identity(a: &libc::stat, b: &Metadata) -> bool {

@@ -393,6 +393,81 @@ impl DoctorRequest {
   }
 }
 
+/// Exact legacy retirement intent; an observer wait is not part of the retained job.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RetireRequest {
+  pub path: Option<String>,
+  pub apply: bool,
+  pub now: bool,
+  pub min_age_minutes: Option<f64>,
+  pub disposable_cargo_targets: Vec<PathBuf>,
+}
+
+impl RetireRequest {
+  pub(crate) fn argv(&self) -> Result<Vec<String>, String> {
+    let mut argv = vec!["retire".into()];
+    if self.apply {
+      argv.push("--apply".into());
+    }
+    if self.now {
+      argv.push("--now".into());
+    }
+    if let Some(age) = self.min_age_minutes {
+      argv.push(format!("--min-age-minutes={age}"));
+    }
+    for path in &self.disposable_cargo_targets {
+      let path = path.to_str().ok_or("Cargo target path is not UTF-8")?;
+      argv.push(format!("--disposable-cargo-target={path}"));
+    }
+    if let Some(path) = &self.path {
+      argv.push("--".into());
+      argv.push(path.clone());
+    }
+    Ok(argv)
+  }
+}
+
+/// Parse retirement without state, configuration, target access, or cleanup permission.
+pub(crate) fn retire_request(input: &Intent) -> Option<RetireRequest> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "retire" {
+    return None;
+  }
+  let crate::Cmd::Retire {
+    path,
+    apply,
+    now,
+    min_age_minutes,
+    disposable_cargo_target,
+    wait: None,
+  } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  if now && path.is_none()
+    || min_age_minutes.is_some_and(|age| !age.is_finite() || age < 0.0)
+    || path
+      .as_ref()
+      .is_some_and(|path| path.is_empty() || path.len() > 4096 || path.contains('\0'))
+    || disposable_cargo_target
+      .iter()
+      .any(|path| path.as_os_str().len() > 4096 || path.as_os_str().is_empty())
+  {
+    return None;
+  }
+  Some(RetireRequest {
+    path,
+    apply,
+    now,
+    min_age_minutes,
+    disposable_cargo_targets: disposable_cargo_target,
+  })
+}
+
 /// Parse diagnostic intent without filesystem access or an observer deadline.
 pub(crate) fn doctor_request(input: &Intent) -> Option<DoctorRequest> {
   use clap::Parser;
@@ -574,7 +649,7 @@ impl Summary {
       || self.operation == "parents" && self.mode == "apply"
       || matches!(
         self.operation.as_str(),
-        "lease" | "stores" | "quarantine" | "purge" | "doctor"
+        "lease" | "stores" | "quarantine" | "purge" | "doctor" | "retire"
       ) && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
@@ -585,6 +660,13 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = retire_request(input) {
+    return Some(Summary {
+      operation: "retire".into(),
+      mode: if request.apply { "apply" } else { "read" }.into(),
+      requested_scope: request.path.unwrap_or_else(|| "expired leases".into()),
+    });
   }
   if let Some(request) = doctor_request(input) {
     return Some(Summary {
@@ -826,6 +908,7 @@ pub(crate) fn fresh_with_state_prefix(
       && parent_arm_request(&intent).is_none()
       && !quarantine_metadata_request(&intent).is_some_and(|request| request.applying())
       && !purge_request(&intent).is_some_and(|request| request.apply)
+      && !retire_request(&intent).is_some_and(|request| request.apply)
     {
       return Err(unavailable("state creation is not part of this operation"));
     }
@@ -1317,6 +1400,37 @@ mod tests {
     ] {
       assert!(quarantine_metadata_request(&intent(&argv)).is_none());
       assert!(summary(&intent(&argv)).is_none());
+    }
+  }
+
+  #[test]
+  fn retire_arguments_keep_exact_cargo_selection_and_waits_separate() {
+    for apply in [false, true] {
+      let request = RetireRequest {
+        path: Some("--literal workspace".into()),
+        apply,
+        now: true,
+        min_age_minutes: Some(0.0),
+        disposable_cargo_targets: vec![PathBuf::from("target"), PathBuf::from("build/target")],
+      };
+      let mut input = intent(&["retire"]);
+      input.argv = request.argv().unwrap();
+      assert_eq!(retire_request(&input), Some(request));
+      let metadata = summary(&input).unwrap();
+      assert_eq!(metadata.operation, "retire");
+      assert_eq!(metadata.mode, if apply { "apply" } else { "read" });
+      assert!(metadata.valid());
+      input.argv.insert(1, "--wait=1".into());
+      assert!(retire_request(&input).is_none());
+    }
+    for argv in [
+      vec!["retire", "--now"],
+      vec!["retire", "--min-age-minutes=NaN"],
+      vec!["retire", "--min-age-minutes=-1"],
+      vec!["retire", "--", ""],
+    ] {
+      assert!(retire_request(&intent(&argv)).is_none(), "{argv:?}");
+      assert!(summary(&intent(&argv)).is_none(), "{argv:?}");
     }
   }
 

@@ -60,9 +60,34 @@ impl Tracking {
     control_files: &[PathBuf],
     budget: &Cell<usize>,
   ) -> Result<(), RecoveryError> {
-    let key = (root.to_path_buf(), control_files.to_vec());
+    self.recoverable_with_cargo(root, control_files, &[], budget)
+  }
+
+  /// Cargo paths are exact per-job exceptions, validated by retirement's shared cache guard.
+  /// They do not excuse other ignored data. Fresh entry bindings remain part of recovery.
+  pub(crate) fn recoverable_with_cargo(
+    &mut self,
+    root: &Path,
+    control_files: &[PathBuf],
+    disposable_cargo: &[PathBuf],
+    budget: &Cell<usize>,
+  ) -> Result<(), RecoveryError> {
+    for path in disposable_cargo {
+      if path == root || !path.starts_with(root) || fs::canonicalize(path)? != *path {
+        return Err(invalid("disposable Cargo permission leaves its recovery checkout").into());
+      }
+    }
+    let key = (
+      root.to_path_buf(),
+      control_files.to_vec(),
+      disposable_cargo.to_vec(),
+    );
     if let Some(result) = self.recovery.get(&key) {
       return result.clone();
+    }
+    if !disposable_cargo.is_empty() && !self.cargo_working_reserved {
+      charge(budget, crate::tree_snapshot::WORKING_BYTES)?;
+      self.cargo_working_reserved = true;
     }
     charge(
       budget,
@@ -71,6 +96,10 @@ impl Tracking {
         + control_files
           .iter()
           .map(|p| 128 + p.as_os_str().len() * 2)
+          .sum::<usize>()
+        + disposable_cargo
+          .iter()
+          .map(|path| 128 + path.as_os_str().len() * 2)
           .sum::<usize>(),
     )?;
     let resources = self
@@ -88,7 +117,7 @@ impl Tracking {
       .expect("captured repository")
       .as_mut()
       .map_err(|reason| invalid(reason))?
-      .recoverable(control_files, resources, budget);
+      .recoverable(control_files, disposable_cargo, resources, budget);
     self.recovery.insert(key, result.clone());
     result
   }
@@ -98,9 +127,59 @@ impl Repository {
   fn recoverable(
     &mut self,
     controls: &[PathBuf],
+    disposable_cargo: &[PathBuf],
     resources: &Resources,
     budget: &Cell<usize>,
   ) -> Result<(), RecoveryError> {
+    // bind cache entries and policy before the shared validator can inspect their contents.
+    let root = self.root.clone();
+    let mut relative = Vec::new();
+    for path in disposable_cargo {
+      if fs::symlink_metadata(path)?.dev() != fs::symlink_metadata(&root)?.dev() {
+        return Err(invalid("disposable Cargo target crosses a mount").into());
+      }
+      let snapshot =
+        crate::tree_snapshot::Snapshot::visit(path, Some(resources), &mut |entry, metadata| {
+          if metadata.st_mode & libc::S_IFMT == libc::S_IFLNK
+            || entry.file_name().is_some_and(|name| {
+              [b".git".as_slice(), b".reap", b".reap.json", b".reap-lease"]
+                .iter()
+                .any(|reserved| name.as_encoded_bytes().eq_ignore_ascii_case(reserved))
+            })
+          {
+            return Err(invalid(
+              "disposable Cargo tree has protected or unknown entries",
+            ));
+          }
+          Ok(())
+        })?;
+      charge(budget, 512 + path.as_os_str().len() * 2)?;
+      self.cargo.push(snapshot);
+      relative.push(
+        path
+          .strip_prefix(&root)
+          .map_err(|_| invalid("Cargo target leaves checkout"))?
+          .to_path_buf(),
+      );
+    }
+    if !relative.is_empty() {
+      crate::quarantine::validate_disposable_cargo_targets_with(
+        &root,
+        &relative,
+        &mut |directory| {
+          let bytes = capture_bytes(
+            &directory.join(crate::manifest::MANIFEST_NAME),
+            resources,
+            budget,
+            &mut self.sources,
+          )
+          .map_err(|error| error.to_string())?;
+          crate::manifest::parse_manifest(directory, bytes.as_deref())
+            .map_err(|error| error.to_string())
+        },
+      )
+      .map_err(|error| invalid(&error))?;
+    }
     if self.directory == self.common {
       let worktrees = self.common.join("worktrees");
       if binding_source(&worktrees, resources, budget, &mut self.sources)?.is_some()
@@ -208,12 +287,16 @@ impl Repository {
       &mut self.sources,
     )?
     .ok_or_else(|| invalid("Git HEAD is missing"))?;
-    let Reference::Symbolic(branch) = Reference::parse(&head, self.kind)? else {
-      return Err(protected("Git HEAD has no explicit branch upstream"));
+    let (head, upstream) = match Reference::parse(&head, self.kind)? {
+      Reference::Symbolic(branch) => {
+        let upstream = upstream(&self.config, &branch)?;
+        (
+          resolve_ref(&branch, &refs)?,
+          Some(resolve_ref(&upstream, &refs)?),
+        )
+      }
+      Reference::Id(id) => (id, None),
     };
-    let head = resolve_ref(&branch, &refs)?;
-    let upstream = upstream(&self.config, &branch)?;
-    let upstream = resolve_ref(&upstream, &refs)?;
     let mut required = BTreeSet::from([head]);
     let mut remote = Vec::new();
     for name in refs.keys() {
@@ -238,10 +321,12 @@ impl Repository {
         "Git branch commits are not recoverable on a remote",
       ));
     }
-    let mut required = BTreeSet::from([head]);
-    reachable(&mut objects, vec![upstream], &mut required)?;
-    if !required.is_empty() {
-      return Err(protected("Git HEAD is ahead of its explicit upstream"));
+    if let Some(upstream) = upstream {
+      let mut required = BTreeSet::from([head]);
+      reachable(&mut objects, vec![upstream], &mut required)?;
+      if !required.is_empty() {
+        return Err(protected("Git HEAD is ahead of its explicit upstream"));
+      }
     }
     let commit = objects.read(head)?;
     let (tree, _) = commit_links(&commit)?;
@@ -287,9 +372,11 @@ impl Repository {
           continue;
         }
         let metadata = fs::symlink_metadata(&path)?;
-        if metadata.is_dir() {
+        if metadata.is_dir() && !disposable_cargo.contains(&path) {
           charge(budget, 128 + path.as_os_str().len() * 2)?;
           directories.push(path);
+        } else if metadata.is_dir() {
+          continue;
         } else if controls.contains(&path) {
           capture_bytes(&path, resources, budget, &mut self.sources)?
             .ok_or_else(|| invalid("Git lifecycle control disappeared"))?;
@@ -302,6 +389,9 @@ impl Repository {
     }
     for source in &self.sources {
       source.revalidate(resources)?;
+    }
+    for snapshot in &self.cargo {
+      snapshot.fresh(Some(resources))?;
     }
     Ok(())
   }
@@ -894,6 +984,151 @@ mod tests {
   }
 
   #[test]
+  #[cfg(target_os = "macos")]
+  fn native_recovery_allows_only_exact_disposable_cargo_and_retains_ignored_evidence() {
+    let fixture = Fixture::new("sha1");
+    fs::write(fixture.root.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(fixture.root.join(".gitignore"), b"target/\nevidence/\n").unwrap();
+    fixture.git(&["add", "Cargo.toml", ".gitignore"]);
+    fixture.git(&["commit", "-m", "fixture Cargo project"]);
+    fixture.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let target = fixture.root.join("target");
+    fs::create_dir_all(target.join("debug/deps")).unwrap();
+    fs::write(
+      target.join("CACHEDIR.TAG"),
+      format!("Signature: {}\n", crate::plan::CARGO_CACHEDIR_SIGNATURE),
+    )
+    .unwrap();
+    let newest = target.join("debug/deps/newest.rlib");
+    File::create(&newest)
+      .unwrap()
+      .set_len(16 * 1024 * 1024)
+      .unwrap();
+    let controls = [fixture.root.join(".reap")];
+    let mut tracking = fixture.tracking();
+    tracking
+      .recoverable_with_cargo(
+        &fixture.root,
+        &controls,
+        std::slice::from_ref(&target),
+        &Cell::new(32 * 1024 * 1024),
+      )
+      .unwrap();
+    assert!(
+      tracking
+        .recoverable(&fixture.root, &controls, &Cell::new(32 * 1024 * 1024))
+        .is_err(),
+      "cache permission cannot enter an ordinary verdict"
+    );
+    fs::create_dir(fixture.root.join("evidence")).unwrap();
+    fs::write(
+      fixture.root.join("evidence/required"),
+      b"required ignored evidence",
+    )
+    .unwrap();
+    assert!(fixture
+      .tracking()
+      .recoverable_with_cargo(
+        &fixture.root,
+        &controls,
+        std::slice::from_ref(&target),
+        &Cell::new(32 * 1024 * 1024)
+      )
+      .is_err());
+    assert_eq!(
+      fs::read(fixture.root.join("evidence/required")).unwrap(),
+      b"required ignored evidence"
+    );
+    assert_eq!(fs::metadata(newest).unwrap().len(), 16 * 1024 * 1024);
+  }
+
+  #[test]
+  #[cfg(target_os = "macos")]
+  fn native_cargo_recovery_binds_entries_and_refuses_keep_policy_links_and_false_targets() {
+    let fixture = Fixture::new("sha1");
+    fs::write(fixture.root.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(fixture.root.join(".gitignore"), b"target/\n").unwrap();
+    fixture.git(&["add", "Cargo.toml", ".gitignore"]);
+    fixture.git(&["commit", "-m", "fixture Cargo project"]);
+    fixture.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let target = fixture.root.join("target");
+    fs::create_dir_all(target.join("debug/deps")).unwrap();
+    fs::write(
+      target.join("CACHEDIR.TAG"),
+      format!("Signature: {}\n", crate::plan::CARGO_CACHEDIR_SIGNATURE),
+    )
+    .unwrap();
+    let payload = target.join("debug/deps/required.rlib");
+    fs::write(&payload, b"regenerable output").unwrap();
+    let controls = [fixture.root.join(".reap"), fixture.root.join(".reap.json")];
+    let mut tracking = fixture.tracking();
+    tracking
+      .recoverable_with_cargo(
+        &fixture.root,
+        &controls,
+        std::slice::from_ref(&target),
+        &Cell::new(32 * 1024 * 1024),
+      )
+      .unwrap();
+    fs::write(&payload, b"a producer changed this output").unwrap();
+    assert!(tracking.revalidate().is_err());
+    fs::write(
+      fixture.root.join(".reap.json"),
+      br#"{"version":2,"keep":{"paths":["debug/deps/required.rlib"]}}"#,
+    )
+    .unwrap();
+    let assess = || {
+      fixture.tracking().recoverable_with_cargo(
+        &fixture.root,
+        &controls,
+        std::slice::from_ref(&target),
+        &Cell::new(32 * 1024 * 1024),
+      )
+    };
+    assert!(
+      assess().is_err(),
+      "manifest KEEP survives whole-target permission"
+    );
+    fs::remove_file(fixture.root.join(".reap.json")).unwrap();
+    fs::write(
+      target.join(".reap"),
+      br#"{"version":2,"keep":{"reason":"required evidence"}}"#,
+    )
+    .unwrap();
+    assert!(assess().is_err());
+    fs::remove_file(target.join(".reap")).unwrap();
+    for name in [".GIT", ".REAP.JSON", ".Reap-Lease"] {
+      fs::write(target.join(name), b"protected metadata").unwrap();
+      assert!(assess().is_err(), "metadata case alias {name}");
+      fs::remove_file(target.join(name)).unwrap();
+    }
+    std::os::unix::fs::symlink(&payload, target.join("alias")).unwrap();
+    assert!(assess().is_err());
+    fs::remove_file(target.join("alias")).unwrap();
+    fs::remove_file(target.join("CACHEDIR.TAG")).unwrap();
+    assert!(assess().is_err(), "a target name is not cache permission");
+    assert_eq!(
+      fs::read(payload).unwrap(),
+      b"a producer changed this output"
+    );
+  }
+
+  #[test]
+  #[cfg(target_os = "macos")]
+  fn native_detached_head_requires_remote_recovery_for_the_exact_commit() {
+    let fixture = Fixture::new("sha1");
+    fixture.git(&["checkout", "--detach", "HEAD"]);
+    fixture.assess().unwrap();
+    fs::write(fixture.root.join("tracked"), b"unpublished detached work\n").unwrap();
+    fixture.git(&["commit", "-am", "fixture detached work"]);
+    assert!(fixture.assess().is_err());
+    assert_eq!(
+      fs::read(fixture.root.join("tracked")).unwrap(),
+      b"unpublished detached work\n"
+    );
+  }
+
+  #[test]
   fn pushed_clean_checkout_has_native_recovery_with_loose_and_packed_objects() {
     for format in ["sha1", "sha256"] {
       let fixture = Fixture::new(format);
@@ -1064,6 +1299,8 @@ mod tests {
         }
         "detached" => {
           fixture.git(&["checkout", "--detach"]);
+          fs::write(fixture.root.join("tracked"), b"unpublished detached work\n").unwrap();
+          fixture.git(&["commit", "-am", "unpublished detached fixture"]);
         }
         _ => unreachable!(),
       }

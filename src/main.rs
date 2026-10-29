@@ -48,12 +48,11 @@ mod service;
 mod status;
 mod store_bindings;
 mod stores;
+mod tree_snapshot;
 mod util;
 pub mod volumes;
 pub mod worker;
 
-use std::collections::BTreeMap;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::Instant;
@@ -64,16 +63,15 @@ use config::{config_path, load_config, write_default_config};
 use create::CreateCmd;
 use discover::discover_targets;
 use inventory::scan_projects;
-use lease::{find_by_path, load_leases, save_leases};
+use lease::load_leases;
 use manifest::{Policy, MANIFEST_NAME};
 use parents::ParentsCmd;
 use plan::{human, now_secs};
 use quarantine::{
-  assess_retire, assess_retire_ignoring_dir_mtimes, diagnose_entry, entries_dir, execute_retire,
-  finalize_restore, finalize_retire, load_index, restore_entry, rollback_restore, save_index,
-  EntryDiagnosis, RetireOpts, RetirePass,
+  diagnose_entry, finalize_restore, load_index, restore_entry, rollback_restore, save_index,
+  EntryDiagnosis,
 };
-use util::{fmt_rel, hostname, lock_state, state_dir};
+use util::{fmt_rel, lock_state, state_dir};
 
 #[derive(Parser)]
 #[command(
@@ -264,6 +262,9 @@ enum Cmd {
     /// Authorize quarantine of this disposable Cargo target, relative to PATH (repeatable)
     #[arg(long, value_name = "RELATIVE_PATH", requires = "path")]
     disposable_cargo_target: Vec<PathBuf>,
+    /// Observe this same retirement job for a finite period
+    #[arg(long, num_args = 0..=1, default_missing_value = "30", value_parser = client::parse_timeout)]
+    wait: Option<std::time::Duration>,
   },
   /// Inspect lease state or quarantine slots; --apply repairs proved index records
   Doctor {
@@ -543,7 +544,18 @@ fn main() {
       now,
       min_age_minutes,
       disposable_cargo_target,
-    }) => cmd_retire(path, apply, now, min_age_minutes, disposable_cargo_target),
+      wait,
+    }) => client::run_retire(
+      invocation::RetireRequest {
+        path,
+        apply,
+        now,
+        min_age_minutes,
+        disposable_cargo_targets: disposable_cargo_target,
+      },
+      wait,
+      entered,
+    ),
     Some(Cmd::Doctor {
       apply,
       id,
@@ -637,14 +649,6 @@ fn apply_overrides(p: &mut Policy, o: &PolicyArgs) {
   }
 }
 
-fn absolutize(p: &Path) -> PathBuf {
-  if p.is_absolute() {
-    p.to_path_buf()
-  } else {
-    std::env::current_dir().unwrap_or_default().join(p)
-  }
-}
-
 // --------------------------------------------------------------------------- //
 // Commands
 // --------------------------------------------------------------------------- //
@@ -728,355 +732,6 @@ fn cmd_config(init: bool) -> i32 {
 // --------------------------------------------------------------------------- //
 // Leases / retire / quarantine / purge / inventory
 // --------------------------------------------------------------------------- //
-
-fn cmd_retire(
-  path: Option<String>,
-  apply: bool,
-  now_flag: bool,
-  min_age: Option<f64>,
-  disposable_cargo_targets: Vec<PathBuf>,
-) -> i32 {
-  if now_flag && path.is_none() {
-    eprintln!("error: --now requires a specific leased dir");
-    return 1;
-  }
-  let state = state_dir();
-  let _lock = match lock_state(&state) {
-    Ok(lock) => lock,
-    Err(e) => {
-      eprintln!("error: locking state: {}", e);
-      return 1;
-    }
-  };
-  let mut lf = match load_leases(&state) {
-    Ok(f) => f,
-    Err(e) => {
-      eprintln!("error: {}", e);
-      return 1;
-    }
-  };
-  let (cfg, _) = load_config();
-  let qdir = cfg.quarantine_dir();
-  let now = now_secs();
-  let cwd = std::env::current_dir()
-    .ok()
-    .and_then(|d| std::fs::canonicalize(d).ok())
-    .unwrap_or_else(|| PathBuf::from("/"));
-
-  let mut selected: Vec<lease::Lease> = match &path {
-    Some(p) => {
-      let abs = absolutize(&PathBuf::from(p));
-      match find_by_path(&lf, &abs) {
-        Some(l) => vec![l.clone()],
-        None => {
-          eprintln!(
-            "error: {} is not leased (reap only retires explicitly leased dirs; `reap lease add` first)",
-            abs.display()
-          );
-          return 1;
-        }
-      }
-    }
-    None => {
-      let now_i = now as i64;
-      lf.leases
-        .iter()
-        .filter(|l| l.expired(now_i))
-        .cloned()
-        .collect()
-    }
-  };
-  if selected.is_empty() {
-    println!(
-      "no expired leases ({} active). `reap lease list` shows them.",
-      lf.leases.len()
-    );
-    return 0;
-  }
-  selected.sort_by(|left, right| {
-    Path::new(&right.path)
-      .components()
-      .count()
-      .cmp(&Path::new(&left.path).components().count())
-      .then_with(|| left.path.cmp(&right.path))
-  });
-
-  println!(
-    "reap retire -- {} -- quarantine: {}\n",
-    if apply {
-      "APPLY (moving)"
-    } else {
-      "DRY-RUN (nothing moved)"
-    },
-    qdir.display()
-  );
-  let opts = RetireOpts {
-    require_expired: !now_flag,
-    min_age_minutes: min_age.unwrap_or(10.0),
-    disposable_cargo_targets,
-  };
-  let machine = hostname();
-  let mut idx = if apply {
-    match load_index(&qdir) {
-      Ok(i) => i,
-      Err(e) => {
-        eprintln!("error: {}", e);
-        return 1;
-      }
-    }
-  } else {
-    Default::default()
-  };
-  let mut rc = 0;
-  let mut planned = lf.leases.clone();
-  let mut pass = RetirePass::default();
-  let mut failed_paths: Vec<PathBuf> = vec![];
-  let mut eligible_moves: Vec<(PathBuf, u64, u64)> = vec![];
-  for l in &selected {
-    let source = Path::new(&l.path);
-    for target in &opts.disposable_cargo_targets {
-      println!(
-        "    disposable Cargo target: {}",
-        source.join(target).display()
-      );
-    }
-    if lf.overlaps_creation(source) {
-      println!("  {}  REFUSED: overlaps a pending creation intent", l.path);
-      failed_paths.push(source.to_path_buf());
-      rc = 1;
-      continue;
-    }
-    if lf.contains_managed_parent(source) {
-      println!("  {}  REFUSED: contains a managed parent", l.path);
-      failed_paths.push(source.to_path_buf());
-      rc = 1;
-      continue;
-    }
-    if let Some(parent) = parents::invalid_containing_parent(&lf, source) {
-      println!(
-        "  {}  REFUSED: managed parent {} changed identity",
-        l.path, parent.path
-      );
-      failed_paths.push(source.to_path_buf());
-      rc = 1;
-      continue;
-    }
-    if apply && failed_paths.iter().any(|failed| failed.starts_with(source)) {
-      println!("  {}  REFUSED: a descendant failed retirement", l.path);
-      failed_paths.push(source.to_path_buf());
-      rc = 1;
-      continue;
-    }
-    let ignored = if apply {
-      match pass.quiet_ignores(source) {
-        Ok(dirs) => dirs,
-        Err(e) => {
-          println!("  {}  REFUSED: {e}", l.path);
-          failed_paths.push(source.to_path_buf());
-          rc = 1;
-          continue;
-        }
-      }
-    } else {
-      Default::default()
-    };
-    let a = if apply {
-      assess_retire_ignoring_dir_mtimes(l, now_secs(), &opts, &cwd, &qdir, &lf.leases, &ignored)
-    } else {
-      assess_retire(l, now, &opts, &cwd, &qdir, &planned)
-    };
-    if a.gone {
-      match doctor::assess(l) {
-        doctor::Diagnosis::Gone => {
-          if apply {
-            lf.leases.retain(|x| x.id != l.id || x.path != l.path);
-            if let Err(e) = save_leases(&state, &lf) {
-              eprintln!("error: saving leases: {e}");
-              return 1;
-            }
-            println!(
-              "  {}  directory gone on recorded volume -- lease {} dropped",
-              l.path, l.id
-            );
-          } else {
-            planned.retain(|other| other.id != l.id);
-            println!(
-              "  {}  directory gone on recorded volume (--apply drops the lease)",
-              l.path
-            );
-          }
-        }
-        diagnosis => {
-          println!("  {}  REFUSED: {}", l.path, diagnosis.label());
-          if let doctor::Diagnosis::Blocked(reason) = diagnosis {
-            println!("      {reason}");
-          }
-          rc = 1;
-          failed_paths.push(source.to_path_buf());
-        }
-      }
-      continue;
-    }
-    if !a.ok() {
-      println!("  {}  REFUSED:", l.path);
-      for c in a.failures() {
-        println!("      {:<16} {}", c.label, c.detail);
-      }
-      rc = 1;
-      failed_paths.push(source.to_path_buf());
-      continue;
-    }
-    if !apply {
-      planned.retain(|other| other.id != l.id);
-      eligible_moves.push((source.to_path_buf(), a.bytes, l.dev));
-      println!(
-        "  {}  ok to retire -> {}  ({}, owner {})",
-        l.path,
-        entries_dir(&qdir).join(&l.id).display(),
-        human(a.bytes),
-        l.owner
-      );
-      continue;
-    }
-    let has_selected_ancestor = selected
-      .iter()
-      .any(|other| other.id != l.id && source.starts_with(Path::new(&other.path)));
-    let pending = if has_selected_ancestor {
-      match pass.begin_move(source) {
-        Ok(pending) => Some(pending),
-        Err(e) => {
-          println!("  {}  REFUSED: {e}", l.path);
-          failed_paths.push(source.to_path_buf());
-          rc = 1;
-          continue;
-        }
-      }
-    } else {
-      None
-    };
-    match execute_retire(l, a.bytes, &qdir, &machine, now as i64) {
-      Ok(r) => {
-        idx.entries.push(r.entry.clone());
-        if let Err(e) = save_index(&qdir, &idx) {
-          eprintln!("error: saving quarantine index: {}", e);
-          match restore_entry(&qdir, &r.entry, None) {
-            Ok(_) => {
-              if let Err(cleanup) = finalize_restore(&qdir, &r.entry) {
-                eprintln!("error: cleaning rolled-back quarantine slot: {cleanup}");
-              }
-            }
-            Err(rollback) => {
-              eprintln!(
-                "error: restoring {} after index failure: {}; data remains at {}",
-                l.path,
-                rollback,
-                r.dest.display()
-              );
-            }
-          }
-          return 1;
-        }
-        lf.leases.retain(|x| x.id != l.id);
-        if let Err(e) = save_leases(&state, &lf) {
-          eprintln!(
-            "error: saving leases: {}; indexed data remains at {}",
-            e,
-            r.dest.display()
-          );
-          return 1;
-        }
-        if let Err(e) = finalize_retire(&r, a.main_repo.as_deref()) {
-          eprintln!("error: {}: {}", r.dest.display(), e);
-          failed_paths.push(source.to_path_buf());
-          rc = 1;
-        }
-        if let Some(pending) = pending {
-          if let Err(e) = pass.end_move(source, pending) {
-            eprintln!("error: {e}");
-            failed_paths.push(source.to_path_buf());
-            rc = 1;
-          }
-        }
-        println!(
-          "  retired {} -> {}  ({}{}, owner {})",
-          l.path,
-          r.dest.display(),
-          human(r.entry.bytes),
-          if r.copied {
-            ", copied cross-device"
-          } else {
-            ""
-          },
-          r.entry.owner
-        );
-      }
-      Err(e) => {
-        eprintln!("  {}  FAILED: {}", l.path, e);
-        failed_paths.push(source.to_path_buf());
-        rc = 1;
-      }
-    }
-  }
-  if !apply {
-    print_retire_move_estimate(&eligible_moves, &qdir);
-  }
-  rc
-}
-
-fn print_retire_move_estimate(moves: &[(PathBuf, u64, u64)], qdir: &Path) {
-  let outermost: Vec<_> = moves
-    .iter()
-    .filter(|(path, _, _)| {
-      !moves
-        .iter()
-        .any(|(other, _, _)| path != other && path.starts_with(other))
-    })
-    .collect();
-  let total: u128 = outermost.iter().map(|(_, bytes, _)| *bytes as u128).sum();
-  println!(
-    "\nretire move estimate: {} logical bytes in {} distinct tree(s)",
-    human(total.min(u64::MAX as u128) as u64),
-    outermost.len()
-  );
-  let qdev = match std::fs::metadata(qdir) {
-    Ok(meta) => meta.dev(),
-    Err(e) => {
-      println!("  net available change: unknown (quarantine volume unavailable: {e})");
-      return;
-    }
-  };
-  let mut same = 0u128;
-  let mut incoming = 0u128;
-  let mut source_gain: BTreeMap<u64, u128> = BTreeMap::new();
-  for (_, bytes, source_dev) in outermost {
-    if *source_dev == qdev {
-      same += *bytes as u128;
-    } else {
-      incoming += *bytes as u128;
-      *source_gain.entry(*source_dev).or_default() += *bytes as u128;
-    }
-  }
-  println!(
-    "  same-volume bytes moved: {} (estimated net free: 0 B)",
-    human(same.min(u64::MAX as u128) as u64)
-  );
-  println!(
-    "  quarantine volume {}: estimated net available change {}",
-    qdir.display(),
-    if incoming == 0 {
-      "0 B".to_string()
-    } else {
-      format!("-{}", human(incoming.min(u64::MAX as u128) as u64))
-    }
-  );
-  for (dev, gain) in source_gain {
-    println!(
-      "  source device {dev}: estimated net available change +{}",
-      human(gain.min(u64::MAX as u128) as u64)
-    );
-  }
-  println!("  logical-byte estimates can differ from physical free-space changes");
-}
 
 fn cmd_quarantine_restore(id: String, to: Option<String>) -> i32 {
   let _lock = match lock_state(&state_dir()) {

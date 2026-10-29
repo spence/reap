@@ -35,6 +35,11 @@
 - **C6** — Role inspection does not add filesystem work to control response loops. Its filesystem
   work remains on the executing path. No fixed I/O deadline or atomic snapshot against arbitrary
   external writers is claimed by this guard.
+  Directory-candidate closure inspection uses complete streaming metadata evidence, with at most
+  64 directory levels. Incomplete or changed observations preserve the candidate. Declaration-bearing
+  directory descriptors remain held through their final validation; ordinary directories do not.
+  Bindings: `tree_snapshot::tests::incomplete_depth_and_changed_visit_never_produce_a_snapshot`;
+  `tree_snapshot::tests::wide_directory_scans_release_descriptors_and_do_not_follow_child_links`.
 - **C7** — Lease, parent, and store marker writers refuse an enclosing role before creating or
   replacing marker bytes. A directory alias does not bypass this guard. A role in an unrelated
   descendant does not prohibit metadata creation in an ordinary enclosing container.

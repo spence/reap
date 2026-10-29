@@ -1,8 +1,8 @@
-# SPEC-EXECUTABLE-ACTIVITY — Cargo executable preservation
+# SPEC-EXECUTABLE-ACTIVITY — Executable preservation
 
 Work: `MS-LIFETIME-ENFORCE.T19`.
 Issue: `ISS-CARGO-CLEANUP-DELETES-A-RUNNING-EXECUTAB`.
-Scope: applying Cargo plans, including `plan`, `clean`, `sweep`, and maintenance's Cargo stage.
+Scope: applying Cargo plans and whole-directory retirement through the shared executor.
 
 ## Contract
 
@@ -23,7 +23,7 @@ Scope: applying Cargo plans, including `plan`, `clean`, `sweep`, and maintenance
   candidates remain reclaimable. Actual removed counts exclude protected survivors; incomplete
   applying results return nonzero. A later complete snapshot after process exit can permit the
   superseded executable's removal. Mapped-vnode matches also preserve the candidate.
-  Candidate identity walks share a 131,072-entry allowance and never follow symlink leaves.
+  Cargo candidate identity walks share a 131,072-entry allowance and never follow symlink leaves.
   An incomplete candidate walk preserves that candidate while unrelated candidates can proceed.
   Device/inode pairs supply transient activity evidence, not durable lifetime identity.
 - **C3 — Alias parity.** macOS Data-volume path spellings receive the same protection only after
@@ -35,6 +35,13 @@ Scope: applying Cargo plans, including `plan`, `clean`, `sweep`, and maintenance
   does not prove that every data file or mapped library is unused.
   Outside namespace changes are not serialized. Full applying-family integration and fleet proof
   remain T19 requirements; this source guard does not establish those outcomes.
+- **C5 — Whole-directory retirement keeps complete matching.** Retirement uses one complete
+  depth-bounded metadata scan to match mapped device/inode pairs. It retains all observed vnode
+  identities, including zero-link records, and never follows a child symlink. A scan error preserves
+  the source. The Cargo per-unit allowance stays separate: this scan neither consumes nor refunds it.
+  The 64-directory-level guard and complete observation requirements still apply.
+  Bindings: `activity::executable_paths::tests::whole_tree_matching_preserves_images_without_reusing_the_cargo_allowance`;
+  `dispatch::tests::retire::native_retire_large_cargo_target_outgrows_the_old_inventory_without_losing_data`.
 
 ## Bindings
 

@@ -203,6 +203,7 @@ The veto covers exact, ancestor, and descendant removal units outside governed r
 Uncertain declaration evidence refuses the affected mutation. Ordinary KEEP still permits
 authorized Cargo compaction. This protection does not activate archives, source pruning,
 or version 2 lifetime disposal. See the [preservation contract](docs/specs/preservation.md).
+Directory-candidate preservation scans refuse incomplete evidence and more than 64 directory levels.
 
 Within governed roots, an honored version 2 lifetime blocks legacy disposal before conversion.
 Unknown configuration or Git tracking preserves the affected candidate.
@@ -322,7 +323,7 @@ reap lease renew <dir> [--ttl DURATION] [--wait [SECONDS]]
 reap lease release <dir> [--wait [SECONDS]]
 reap lease list [--wait [SECONDS]]
 reap doctor [--quarantine] [--id ID] [--verbose] [--apply] [--wait [SECONDS]]
-reap retire [dir] [--now] [--apply]
+reap retire [dir] [--now] [--apply] [--wait [SECONDS]]
 
 # quarantine
 reap quarantine [--owner NAME]
@@ -836,8 +837,8 @@ After required preservation, authorize exact disposable Cargo targets for one
 normal leased worktree:
 
 ```bash
-reap retire ../bench-wt --now --disposable-cargo-target target
-reap retire ../bench-wt --now --disposable-cargo-target target --apply
+reap retire ../bench-wt --now --disposable-cargo-target target --wait 30
+reap retire ../bench-wt --now --disposable-cargo-target target --apply --wait 30
 ```
 
 Repeat `--disposable-cargo-target <relative-path>` for additional targets, such
@@ -853,11 +854,24 @@ Applicable `.reap.json` `keep.paths`, `keep.names`, and `keep.binaries` remain
 protection conditions. Invalid or unreadable manifests also cause refusal.
 Profile-generation retention does not apply to an explicitly disposable target.
 
-The dry-run lists the exact approved targets. All existing Git recoverability,
+Retirement uses the bounded job client and shared unit executor. Use `--wait 30`
+before a dependent step. Read structured terminal `reports`, not foreground text.
+Pending or unknown receipts do not mean completed retirement. The executor records
+directory, evidence, payload, recovery-index, lease-index, and marker units separately.
+Same-key replay observes the retained result and does not repeat a completed move.
+Whole-source and Cargo freshness use complete streaming metadata fingerprints without retaining
+every cache entry. Scans refuse more than 64 directory levels or changed/incomplete evidence.
+
+All existing Git recoverability,
 lease, activity, and mount guards remain in force. Reap moves the complete
 worktree, including its approved caches, into quarantine; it does not clear the
 caches first. `sweep` and `clean` retain their existing policy. Same-volume
 retirement frees no space until an authorized purge.
+
+The native adapter currently refuses cross-volume retirement and retains the source.
+It does not run broad `git worktree prune`; linked-worktree administration remains
+for recovery. Verified staged copy and exact administration cleanup remain required
+before the complete executor cutover. No fleet conversion is activated here.
 
 Regression coverage: `normal_worktree_retires_approved_cargo_output_without_cleaning_it`
 and the `disposable_cargo_` tests in `tests/lifecycle_state.rs`.
@@ -870,8 +884,8 @@ canonical surviving ancestor is on the lease's recorded device, or rebinds a
 changed device when the path, inode, marker ID and token still match on a live
 mounted volume. A missing path on an unavailable or remounted volume, or any
 marker or inode mismatch, stays blocked. It never removes a directory or its
-contents. `retire --apply` uses the same recorded-volume check before dropping
-a missing lease. `doctor --apply` repairs proved-safe entries even when others
+contents. Retirement retains a missing lease and directs index repair to Doctor.
+`doctor --apply` repairs proved-safe entries even when others
 remain blocked, then exits nonzero to report the incomplete repair.
 
 `reap doctor --quarantine` inspects indexed entries and unindexed quarantine

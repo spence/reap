@@ -33,6 +33,7 @@
 - **C6** — Native recovery starts no Git process and executes no attribute conversion, hook, filter, or filesystem monitor.
   All local branches and HEAD require commit reachability from current remote-tracking refs.
   The current branch also requires its explicit upstream proof, as required by version 1.
+  A detached HEAD requires remote reachability of that exact commit; an unrelated pushed branch is insufficient.
   HEAD trees, the index, raw worktree bytes, file kinds, and executable modes must agree.
   Stashes, dirty files, staged changes, untracked files, and ignored files protect the affected unit.
   Main-checkout tags, notes, and other non-branch refs require preservation, even when their target commit is remotely reachable.
@@ -44,8 +45,21 @@
   Pack data, indexes, and decoded objects require matching checksums or object identifiers.
   Decoder allocations, paths, graph traversal, directory names, and snapshots share the preview budget.
   All source bindings and full content or directory stamps are revalidated before publication.
-  Same-repository, same-control-file assessments reuse the captured proof, not a later filesystem state.
+  Same-repository assessments with identical control files and exact Cargo exceptions reuse captured proof, not a later filesystem state.
   Changed evidence and unsupported profiles cannot produce complete coverage.
+- **C8** — Retirement can exempt an exact per-job Cargo target from ignored-file protection.
+  A real Cargo marker, containment, no symlink or nested mount, and current manifest protections remain required.
+  Lifecycle metadata, nested Git metadata, unrelated ignored evidence, and protected target data remain vetoes.
+  Cache payloads need no content read, but their entry identities and stamps remain revalidated.
+  Whole-target evidence uses a complete streaming fingerprint, not retained state per entry.
+  Git reserves one reusable 8 MiB traversal allowance within its 32 MiB allocation budget.
+  Traversal keeps at most 64 directory levels. Excess depth, changed enumeration, special entries,
+  case aliases of lifecycle/Git metadata, and incomplete evidence preserve the source.
+  This permission is distinct from compaction's retained newest build. Files preview has no such exception.
+  Binding: `git_index::recovery::tests::native_recovery_allows_only_exact_disposable_cargo_and_retains_ignored_evidence`;
+  `git_index::recovery::tests::native_cargo_recovery_binds_entries_and_refuses_keep_policy_links_and_false_targets`;
+  `dispatch::tests::retire::native_retire_exact_cargo_permission_preserves_newest_build_in_recovery`.
+  Scale binding: `dispatch::tests::retire::native_retire_large_cargo_target_outgrows_the_old_inventory_without_losing_data`.
 
 ## Recovery profile
 

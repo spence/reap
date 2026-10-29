@@ -17,6 +17,31 @@ pub(crate) struct Snapshot {
 }
 
 impl Snapshot {
+  /// Match one whole-directory move with a complete depth-bounded scan.
+  /// The Cargo per-unit allowance is separate and is neither consumed nor refunded here.
+  pub(crate) fn protects_tree(&self, physical: &Path, relative: &Path) -> io::Result<bool> {
+    if self
+      .paths
+      .iter()
+      .any(|image| image == relative || image.starts_with(relative))
+    {
+      return Ok(true);
+    }
+    if self.mapped.is_empty() {
+      return Ok(false);
+    }
+    let mut matched = false;
+    crate::tree_snapshot::Snapshot::visit(physical, None, &mut |_, metadata| {
+      if metadata.st_mode & libc::S_IFMT != libc::S_IFLNK {
+        matched |= self
+          .mapped
+          .contains(&(metadata.st_dev as u64, metadata.st_ino as u64));
+      }
+      Ok(())
+    })?;
+    Ok(matched)
+  }
+
   /// Preserve a known image or matching mapped inode. Unknown candidate evidence refuses removal.
   /// Candidate walks never follow symlink leaves and share one fixed entry allowance per snapshot.
   pub(crate) fn protects(&mut self, physical: &Path, relative: &Path) -> io::Result<bool> {
@@ -231,6 +256,37 @@ fn native(_: &Path) -> io::Result<Snapshot> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn whole_tree_matching_preserves_images_without_reusing_the_cargo_allowance() {
+    use std::os::unix::fs::MetadataExt;
+    let root = std::env::temp_dir().join(format!(
+      "reap-activity-tree-{}.noindex",
+      crate::journal::random_token().unwrap()
+    ));
+    let source = root.join("source");
+    std::fs::create_dir_all(&source).unwrap();
+    let image = source.join("image");
+    std::fs::write(&image, b"mapped source bytes").unwrap();
+    let outside = root.join("outside");
+    std::fs::write(&outside, b"independent mapped bytes").unwrap();
+    std::os::unix::fs::symlink(&outside, source.join("alias")).unwrap();
+    let metadata = std::fs::metadata(&outside).unwrap();
+    let mut snapshot = Snapshot {
+      paths: BTreeSet::new(),
+      mapped: BTreeSet::from([(metadata.dev(), metadata.ino())]),
+      remaining_entries: 0,
+    };
+    assert!(!snapshot.protects_tree(&source, Path::new("")).unwrap());
+    assert_eq!(snapshot.remaining_entries, 0);
+    let metadata = std::fs::metadata(&image).unwrap();
+    snapshot.mapped.insert((metadata.dev(), metadata.ino()));
+    assert!(snapshot.protects_tree(&source, Path::new("")).unwrap());
+    assert_eq!(snapshot.remaining_entries, 0);
+    assert_eq!(std::fs::read(image).unwrap(), b"mapped source bytes");
+    assert_eq!(std::fs::read(outside).unwrap(), b"independent mapped bytes");
+    std::fs::remove_dir_all(root).unwrap();
+  }
 
   #[test]
   fn relative_activity_roots_refuse_before_any_collection() {

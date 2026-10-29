@@ -9,7 +9,7 @@
 //! results can be traced back to whoever created them.
 
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -45,7 +45,7 @@ impl Lease {
   }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LeaseFile {
   pub version: LeaseVersion,
@@ -110,7 +110,7 @@ pub struct ManagedParent {
 
 /// String version 2 makes older numeric-version readers fail closed instead
 /// of silently discarding creation intents or managed parents on index rewrite.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum LeaseVersion {
   Legacy(u32),
@@ -411,6 +411,7 @@ pub fn release_lease(leases: &mut LeaseFile, dir: &Path) -> Result<Lease, String
   Ok(leases.leases.remove(idx))
 }
 
+#[cfg(test)]
 pub fn find_by_path<'a>(leases: &'a LeaseFile, dir: &Path) -> Option<&'a Lease> {
   let key = canon_key(dir);
   leases.leases.iter().find(|l| l.path == key)
@@ -442,12 +443,35 @@ pub fn write_marker(dir: &Path, l: &Lease) -> io::Result<()> {
 }
 
 pub fn read_marker(dir: &Path) -> Option<LeaseMarker> {
-  let path = dir.join(LEASE_MARKER);
-  if !fs::symlink_metadata(&path).ok()?.is_file() {
+  let mut file = OpenOptions::new()
+    .read(true)
+    .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+    .open(dir.join(LEASE_MARKER))
+    .ok()?;
+  let before = file.metadata().ok()?;
+  if !before.is_file()
+    || before.nlink() != 1
+    || before.len() > crate::mutation::MAX_METADATA_BYTES as u64
+  {
     return None;
   }
-  let text = fs::read_to_string(path).ok()?;
-  serde_json::from_str(&text).ok()
+  let mut bytes = Vec::new();
+  (&mut file)
+    .take(crate::mutation::MAX_METADATA_BYTES as u64 + 1)
+    .read_to_end(&mut bytes)
+    .ok()?;
+  let after = file.metadata().ok()?;
+  if bytes.len() as u64 != before.len()
+    || bytes.len() > crate::mutation::MAX_METADATA_BYTES
+    || before.len() != after.len()
+    || before.mtime() != after.mtime()
+    || before.mtime_nsec() != after.mtime_nsec()
+    || before.ctime() != after.ctime()
+    || before.ctime_nsec() != after.ctime_nsec()
+  {
+    return None;
+  }
+  serde_json::from_slice(&bytes).ok()
 }
 
 /// Canonical string key for lookups; falls back to the given path when the

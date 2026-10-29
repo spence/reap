@@ -228,7 +228,7 @@ impl Scheduler {
         .is_some_and(|operation| matches!(operation, "plan" | "clean" | "sweep")),
       lease: matches!(
         operation.as_deref(),
-        Some("lease" | "parents" | "quarantine" | "purge" | "doctor")
+        Some("lease" | "parents" | "quarantine" | "purge" | "doctor" | "retire")
       ),
       stores: operation.as_deref() == Some("stores"),
       key,
@@ -879,7 +879,19 @@ impl Inspector<'_> {
 
   /// Revalidate every recorded dependency after the complete target assessment.
   fn revalidate(&self) -> io::Result<()> {
-    for object in &self.objects {
+    self.revalidate_renamed(&[])
+  }
+
+  /// Follow only the exact payload renames already observed by this job's unit journal.
+  fn revalidate_renamed(&self, moved: &[(PathBuf, PathBuf)]) -> io::Result<()> {
+    for original in &self.objects {
+      let mut current = original.clone();
+      for (source, destination) in moved {
+        if let Ok(relative) = current.path.strip_prefix(source) {
+          current.path = destination.join(relative);
+        }
+      }
+      let object = &current;
       let path = if object.missing.is_empty() {
         object.path.clone()
       } else {
@@ -903,7 +915,7 @@ impl Inspector<'_> {
             } else {
               0
             }
-            | if object.content.is_some() || self.nofollow.contains(&path) {
+            | if object.content.is_some() || self.nofollow.contains(&original.path) {
               libc::O_NOFOLLOW
             } else {
               0

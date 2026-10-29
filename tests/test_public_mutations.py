@@ -131,6 +131,16 @@ class PublicMutations(unittest.TestCase):
             self.assertIn(result.receipt["state"], ("failed", "unavailable"))
             self.assertFalse((self.quarantine / "index.json").exists())
 
+    def test_retire_commands_do_not_wait_for_configuration_fifo(self):
+        self.config.unlink()
+        os.mkfifo(self.config)
+        for arguments in [(), ("--apply",),
+                          (str(self.project), "--now", "--apply"),
+                          (str(self.project), "--disposable-cargo-target", "target", "--apply")]:
+            result = self.run_cli("retire", *arguments)
+            self.assertIn(result.receipt["state"], ("failed", "unavailable"))
+            self.assertFalse((self.quarantine / "index.json").exists())
+
     def test_doctor_applies_proved_index_repair_and_preserves_sources(self):
         source = self.root / "diagnostic-source"
         source.mkdir()

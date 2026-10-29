@@ -112,7 +112,7 @@ impl Task {
         .is_some_and(|summary| {
           matches!(
             summary.operation.as_str(),
-            "lease" | "parents" | "quarantine" | "purge" | "doctor"
+            "lease" | "parents" | "quarantine" | "purge" | "doctor" | "retire"
           ) && (summary.mode == "apply" || terminal.effects == 0)
         });
     }
