@@ -167,7 +167,8 @@
     "restore-metadata-v12.log": "053f0c9ac2a003c00e345d8cb2addf422dd95598d574a94df338642695290c39",
     "restore-store-integration-v12.log": "6c1cc6472cd05969c41210c04c066226dd2daa008166c8f2f13e2179347a1787",
     "restore-unit-full-v12.log": "45c8d8edbe959931dbe97ec910bc025e7c67eecb544391547ba22647b28fef4c",
-    "restore-isolated-files-v12.log": "85198be757cf66374c7844e6544b7b7065452d99acb93a20f3f66eb687f18e48"
+    "restore-isolated-files-v12.log": "85198be757cf66374c7844e6544b7b7065452d99acb93a20f3f66eb687f18e48",
+    "restore-unit-isolated-full-v12.log": "bf7a2fbc674ae6ae3999671f70a4a4cbf726275c989c44684df09f7d2ac73778"
   },
   "remaining": [
     "Green full Cargo runtime, including integration targets.",
@@ -187,12 +188,17 @@
     "scope": "Confirms this case can pass outside the enclosing source repository. It does not establish the cause of the earlier refusal."
   },
   "isolated_full_unit_v12": {
-    "state_at_update": "running",
+    "state": "completed",
+    "passed": 485,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 1507.0,
     "log": "restore-unit-isolated-full-v12.log",
     "fixture_root": "/private/tmp",
     "same_frozen_binary": true,
     "includes_ignored": true,
     "source_changed": false,
-    "guard_relaxed": false
+    "guard_relaxed": false,
+    "scope": "Binary-unit source checkpoint only. Full Cargo integration and installed fleet delivery remain open."
   }
 }

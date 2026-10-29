@@ -48,8 +48,10 @@ The full V12 unit run has 484 passes and one Git-dependency refusal, with no ign
 Its default fixture is beneath this repository; checkpoint commits changed the enclosing Git metadata during the run.
 This suggests verification interference, not a reason to relax the guard.
 The same signed binary passes the exact failed case with a private-temp fixture in 23.32 seconds.
-This establishes no cause repair. The unchanged full suite is now running with private-temp fixtures.
-The full unit gate remains open; no guard or source code changed for this run.
+The unchanged full binary-unit suite passes 485 cases, with none failed or ignored, in 1507.00 seconds.
+It uses private-temp fixtures and includes the native fault and inventory-cost cases.
+No guard or source code changed for this run. The earlier failure remains evidence, not a repaired product defect.
+This closes only the binary-unit checkpoint; full Cargo integration and installed fleet gates remain open.
 
 The late-tracking negative control first confirms the changed Git index, then demonstrates the old guard's unsafe success.
 The corrected guard passes the same regression.
