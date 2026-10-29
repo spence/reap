@@ -1,0 +1,163 @@
+{
+  "citation": "REF-RETIRE-JOBS-T19",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "source_revision": "925f94951eb965a421bab87ca5d0db3364a2576b",
+  "source_base_revision": "89522aecb34aabab829ac83f190d1470701c59f8",
+  "source_files": {
+    "README.md": "28911d7b309e6bf7a1e9c3653c6f23cd4ab89def191b97f3dedb9d53b1505e0a",
+    "skill/SKILL.md": "1e253980dd1b51f69e2ab97d2364de1e53a72d69d889d584c7920e7c90c627d8",
+    "docs/specs/git-tracking.md": "a332d0f1cbf363d6935fac8666fe7c224cc7d5dd185ae9b4616f1b54c14ead03",
+    "docs/specs/mutation-execution.md": "b31f2bfc028e7c8e3cec974b85f7637dff9cc36a96167d22146898f1d36b04c6",
+    "src/client.rs": "a00808986ab74f5a8c8f35330dd65b02a36f7cf35b7e3c849cd329d88885c990",
+    "src/dispatch.rs": "c630344c76fb453ea80dde58d50250710411d25d46844e7f8aca80ba4acf4cc9",
+    "src/dispatch/lease_job.rs": "551118e7783f274a4c01e4c50cf362fd28a1a9de4a99e879c32d7561bf063609",
+    "src/dispatch/lease_job/doctor.rs": "84bea391520eaf79bb2abf29ba97a1504e0705feb976de9af5362ddf7da988e0",
+    "src/dispatch/lease_job/purge.rs": "12894c4be10f888ecd903fa9081845d4f8f56a515fe59f54a12a81c3e2d0412f",
+    "src/dispatch/lease_job/retire.rs": "4ca9d9fa0b16f03fee4b157492bd589d54ba74a4d2b7c2f33978930d4d3c6eb8",
+    "src/dispatch/tests.rs": "83cb0faf5ba9034f2069050578d1225989fd93dde06d62c9b0bfe572041305c0",
+    "src/dispatch/tests/retire.rs": "b850d6895c97e65c643412204c29fb6d9e01276075b49ec166ca2e8e6c428433",
+    "src/git_index.rs": "8bdfcd48ce1070290ac83a31b25d953627dcc02825bdc00ccab57204dbe6de71",
+    "src/git_recovery.rs": "0e825d3ac95324f0ffbdb1d4f38dd281819a7387ded8beee659d20676a6c552f",
+    "src/invocation.rs": "89b3e3aaeb8f0c65305bf8de106abee7fd9de699597da1de0adf93655d911e09",
+    "src/journal.rs": "7cd9b9e98da3876744d7e5a0cca8c317ba73a8cb27e86052a861933fb097a216",
+    "src/lease.rs": "13bf4d4c7bd21ea5ff72c58b3a2ed229356c99efbf00dee48085a9ae2b3cecd2",
+    "src/main.rs": "e50bf254c57cb0a293ac5a38b7504095145729bc7042e80ccfa3bfc5233c1809",
+    "src/maintenance.rs": "1c9c46b66892803f6d93a40e10338c4c1fd84a28eb2b0108b4f11308467c27b4",
+    "src/quarantine.rs": "3af731f7f4c9010c32e433e511aa3a0cdf506e15c7817e327b002dee21c7eef2",
+    "src/worker.rs": "a898ccca0fc7c38b34f6a01367d1aadf58b0b3cda9a08aa126384abe279b73a9",
+    "tests/test_public_mutations.py": "7c7567309ce9390852b4fe9baa1bea99079ffb8bb4837cd42644f2e03101e95d",
+    "src/preservation.rs": "d2730ac149c595314e1625cfc1953ef22d455c1d44965aa5e407162eab5a5a90",
+    "src/tree_snapshot.rs": "e62cf211ab81d080dc47eda4fb70ea1911c88616ca773544c86df1f9333b6755",
+    "src/activity/executable_paths.rs": "13b3aa630110ac4ebb9743f2b7b7d2d697fb81cd390f25bc66ef9d2b9a972bba",
+    "docs/specs/executable-activity.md": "d90688d8677ede003a2b7b7c587bec3d2e671549cd75d74ed5633306580aba04",
+    "docs/specs/preservation.md": "fa02a799134e3ad7d660a16356ac68a0dc5b5dfb6779272141353f657769a3c0"
+  },
+  "binary_unit_result": {
+    "passed": 475,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 1399.49,
+    "includes": "five native fault-only cases and one explicit inventory-cost case",
+    "log": "retire-stream-unit-full-v4.log"
+  },
+  "native_selections": {
+    "mini_unit": {
+      "passed": 33,
+      "seconds": 155.26
+    },
+    "root_production_worker": {
+      "passed": 4,
+      "seconds": 41.96
+    },
+    "mini_production_worker_unchanged_repeat": {
+      "passed": 4,
+      "seconds": 21.07
+    },
+    "public_fifo_forms": {
+      "forms_per_host": 4,
+      "root_seconds": 0.541,
+      "mini_seconds": 0.543
+    },
+    "installer_cases": 19
+  },
+  "scale": {
+    "source_entries": 500412,
+    "recovery_entries": 500411,
+    "seconds": 264.44,
+    "test_process_max_rss_bytes": 59441152,
+    "rss_scope": "Darwin /usr/bin/time -l test process; no standalone worker or paired-flatness certification"
+  },
+  "artifacts": {
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/retire-stream-frozen-v4/unit",
+      "sha256": "567a4b1fcfb1ecdeb4afa76343fa64693cd4468383d742ec72b6dc818484497f",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 38171936,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/retire-stream-frozen-v4/app",
+      "sha256": "9e7af0436464e6cd8c912f53488465b144e741e109ed020fa77f10a0460840f9",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 28048048,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    }
+  },
+  "source_manifest_sha256": "74349d2bd1b4cae2006d26c35f13609d13e8d5280e385c47ba742799c0be0096",
+  "raw_evidence": {
+    "retire-stream-build-v4.log": "6fb8a978bb698394f13f5d8b24422ec0840a2f61380f24126302cc56c1bc2ca7",
+    "retire-stream-scale-500k-v4.log": "8abeca54f6bef6f704e491868cd775d42f95bc4a9098927f1a53c395a9ff70ad",
+    "retire-stream-mini-focused-v4.log": "8c08e6d6a062da1eee9fdf37772af118d8557b8616409e738ff5acd989eaaa50",
+    "retire-stream-mini-pre-v4.json": "cf4eb68e1f2043a60e5c9bdc1a62d966a9e191f63e3a5f5b9e2c6748f157da90",
+    "retire-stream-mini-post-v4.json": "cf4eb68e1f2043a60e5c9bdc1a62d966a9e191f63e3a5f5b9e2c6748f157da90",
+    "retire-production-worker-root-v4.log": "85e2be5f3939e5bd0ea9ffdcc28c8781dce077e4d764b359374bbd274d1ef68d",
+    "retire-production-worker-mini-v4.log": "733a4397c918000faf32113b183a9a2ade2d9a72e8a4a3907f602c0ebce6af1e",
+    "retire-production-mini-health-v4.txt": "abb11eb6e24220412be2ffdd1441781679d523bcd303d80a36b0a074e3e56eb2",
+    "retire-production-mini-parent-v4.txt": "fb2eb3a8c74f37371f7d4c85d77d2e412425731948911d08ea9e5e324db300a4",
+    "retire-public-root-v4.log": "c546a1782d0fc737f476b68d4545df13589625be00df18d71deb92a6404927b0",
+    "retire-public-mini-v4.log": "3365cb6c072daf345a11550f82b7499dd3d94a6209f2d999cc49f820ba6a870b",
+    "retire-installer-v4.log": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4",
+    "retire-stream-review-wait-v3.json": "9f6e70bc7700b8465fe1631f8edcd45652c984647c869177b6fad15b9806f6a0",
+    "retire-stream-unit-full-v4.log": "91aaf515bdbae8e834abca4f4b7e664c1c1aa597ef8080c689250ceba1986dcf",
+    "retire-production-worker-mini-repeat-v4.log": "49b89a34bf8941cd86c828d937a4fae7ba023de14a34c78efaef1b91aa052c16",
+    "retire-production-root-post-v4.json": "7e5452845123d9346a38069f1062892869bdf0046f623788db7d5e1eb3934e64",
+    "retire-production-mini-post-v4.json": "cf4eb68e1f2043a60e5c9bdc1a62d966a9e191f63e3a5f5b9e2c6748f157da90",
+    "retire-stream-source-binding-v4.json": "9c5532f2e660b90dd7c3a24a9ab97e4ffe705ca437d5c1baecc816952887ca0b",
+    "retire-stream-review-manifest-v3.json": "74349d2bd1b4cae2006d26c35f13609d13e8d5280e385c47ba742799c0be0096",
+    "retire-health-issue-receipt-v4.json": "7fa467c36ce145e8499380cc44f172bbd0fab756cb4e1f787df65ec256581207",
+    "retire-health-issue-readback-v4.json": "0ec3f41f5d179fdc11ebc028850ea66045a7acbbf52049d2eb7e91e2191c73c4",
+    "retire-stream-review-wait-v4.json": "e909c1876f0f2b4bd69394fd8cadad8384dec13e57867053759ce02a296d4d27",
+    "retire-stream-review-send-v4.json": "4f418037733867bd391ccfc270ed82e97d60ab9592466f8229dd60f3990323b9",
+    "retire-focused-v1.log": "f9b36eb54e92ec1d42c7ae464716b222f5b4e6d04817c570f31632f64c1c2eed",
+    "retire-focused-v2.log": "19af765d0fb53a4d820d7cca5776e91e242537ca9e26891138f5d8096155123d",
+    "retire-focused-v3.log": "c917f06782036a2c17011fbef7079310ec31848f7ae5315b110e0e648f3a65ee",
+    "retire-focused-v4.log": "412de836860992bd0ef7215cc33a3110b7c2c1ae3f93e269aa8d7490e4bd4d70",
+    "retire-focused-v5.log": "05b73225590718c9c11c0ac54d784b151fe4ce53bfda35f8061e2f1af95a5b71",
+    "retire-unit-full-v6.log": "3393fd8a13977790998315c3f606ba3ceee19edcde824132bd5c8a795cfbda64",
+    "retire-stream-focused-v1.log": "654b91a8ec44e61662c74236c38438d47ef4acc51d5b6be54adec84fb8434ab2",
+    "retire-stream-mini-focused-v3.log": "0454e3bea980e419f61de809fcff218db5ca38a89e4aec244d2330cae02336ab",
+    "retire-stream-mini-post-v3.json": "471c20e913387cf03998137c7c2242777550089c5851c8400ceba20a624b4686",
+    "retire-stream-scale-v3.log": "07f96c811a1d1ccbf0423703d35fc1d0be428e9a7ad368e7e664bad6bba9039e",
+    "retire-public-old-v1.log": "7c5433a08fd98bfa3ccc51c682f125d4a0301dab853120fba04cbea57b72cede",
+    "retire-stream-mini-v3-survivors.json": "57a93674daeebe33ff5fae2a2783c337774af277b3c5969f85ac548dc35625eb",
+    "retire-review-peer-final.json": "c79ea504ad1e5118995475356b34ff6a6ac36b5e9465fb600876e4eba4122576",
+    "retire-review-conversation-closed.json": "bbcaa9faea041f1d29aedc901a55b6322d3ce951e5eff008d2cd935b015341f3",
+    "retire-review-peer-closed.json": "24aaba8185ffb675b0e676aa82876d58c94c6b1a98d9477ccea094279da3a0c1"
+  },
+  "review": {
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "execution_profile": "workspace",
+    "native_filesystem_boundary": "unknown",
+    "peer_id": "peer-18e2f26575c652c8-600436",
+    "conversation_id": "conversation-18e2f265771792b8-600440",
+    "accepted_request": "cmsg-18e2f90ba6264c78-602914",
+    "accepted_manifest": "retire-stream-review-manifest-v3.json",
+    "scope": "exact-source unmerged checkpoint only; full delivery gates remain open",
+    "peer_closed": true,
+    "history_retained": true
+  },
+  "limits": [
+    "No full cargo integration-runtime or installed-fleet acceptance claim.",
+    "No live migration, v2 disposal activation or conversation-source pruning.",
+    "Cross-volume staged copy, exact linked-worktree administration cleanup and inspection-receipt authority integration remain open.",
+    "Mini host-wide blocked-lsof refusal is retained under ISS-PRESERVE-HEALTHY-SCOPE-CLEANUP-PROGRESS; no foreign process was managed.",
+    "The Cargo integration test targets compile but their runtime and installed consumer gates remain open.",
+    "No paired CPU/elapsed/visit reduction or worker-wide RSS certification is established."
+  ],
+  "activation": {
+    "installed_binary_changed": false,
+    "operator_guide_changed": false,
+    "live_conversion": false,
+    "v2_disposal_armed": false,
+    "conversation_source_prune": false
+  },
+  "full_goal_complete": false
+}
