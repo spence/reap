@@ -735,7 +735,13 @@ fn native_purge_interrupted_units_keep_the_exact_completed_prefix_and_replay() {
     let (key, result) = submit(&mut journal, &input);
     std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
     std::env::remove_var("REAP_NATIVE_LEASE_STOP_EVIDENCE");
-    assert_eq!(fs::read_to_string(&evidence).unwrap(), point);
+    assert_eq!(
+      fs::read_to_string(&evidence)
+        .as_deref()
+        .map_err(io::Error::kind),
+      Ok(point),
+      "{point}: interruption evidence differs or is absent; terminal: {result:?}"
+    );
     assert_eq!(result.exit_code, 1, "{point}: {}", result.detail);
     let index_point = point.starts_with("index-");
     let changed = !point.ends_with("-intended");
