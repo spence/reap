@@ -22,9 +22,11 @@ use crate::lease::{read_marker, Lease, LEASE_MARKER};
 use crate::manifest::MANIFEST_NAME;
 use crate::plan::Guards;
 use crate::provenance::Provenance;
+#[cfg(test)]
+use crate::util::move_dir;
 use crate::util::{
-  fmt_rel, git_capture, git_capture_bytes, move_dir, move_unit, new_id,
-  tree_stats_ignoring_dir_mtimes, write_json_atomic, GitError, Moved,
+  fmt_rel, git_capture, git_capture_bytes, move_unit, new_id, tree_stats_ignoring_dir_mtimes,
+  write_json_atomic, GitError, Moved,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1319,6 +1321,7 @@ pub fn audit_purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
 }
 
 /// Move a quarantined entry back to its original path (or `to`).
+#[cfg(test)]
 pub fn restore_entry(qdir: &Path, entry: &Entry, to: Option<&Path>) -> Result<PathBuf, String> {
   let src = entries_dir(qdir).join(&entry.id).join(&entry.name);
   if entry.store.is_some() {
@@ -1346,6 +1349,7 @@ pub fn restore_entry(qdir: &Path, entry: &Entry, to: Option<&Path>) -> Result<Pa
   Ok(dest)
 }
 
+#[cfg(test)]
 fn safe_store_restore_dest(qdir: &Path, dest: &Path) -> Result<(), String> {
   if !dest.is_absolute()
     || !matches!(dest.components().next_back(), Some(Component::Normal(_)))
@@ -1376,6 +1380,7 @@ fn safe_store_restore_dest(qdir: &Path, dest: &Path) -> Result<(), String> {
   }
 }
 
+#[cfg(test)]
 pub fn rollback_restore(qdir: &Path, entry: &Entry, dest: &Path) -> Result<(), String> {
   let slot = entries_dir(qdir).join(&entry.id);
   fs::create_dir_all(&slot).map_err(|e| format!("{}: {}", slot.display(), e))?;

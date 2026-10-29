@@ -840,7 +840,7 @@ impl Inspector<'_> {
     content: Option<String>,
     missing: Vec<String>,
   ) -> io::Result<()> {
-    let physical_volumes = crate::volumes::resolve(file)?;
+    let physical_volumes = Self::entry_volumes(path, file)?;
     if self.allowed.is_some_and(|allowed| {
       physical_volumes
         .iter()
@@ -850,7 +850,7 @@ impl Inspector<'_> {
         "read dependency moved outside the granted physical resources",
       ));
     }
-    let identity = ObjectIdentity::read(file)?;
+    let identity = ObjectIdentity::read_entry(file)?;
     if content.is_none() && missing.is_empty() && file.metadata()?.is_dir() {
       if let Some(previous) = self
         .objects
@@ -884,12 +884,29 @@ impl Inspector<'_> {
 
   /// Follow only the exact payload renames already observed by this job's unit journal.
   fn revalidate_renamed(&self, moved: &[(PathBuf, PathBuf)]) -> io::Result<()> {
+    self.revalidate_effects(moved, &[], &[])
+  }
+
+  /// Advance only exact native effects already observed through the unit journal.
+  fn revalidate_effects(
+    &self,
+    moved: &[(PathBuf, PathBuf)],
+    removed: &[PathBuf],
+    published: &[crate::mutation::FileVersion],
+  ) -> io::Result<()> {
     for original in &self.objects {
       let mut current = original.clone();
       for (source, destination) in moved {
         if let Ok(relative) = current.path.strip_prefix(source) {
           current.path = destination.join(relative);
         }
+      }
+      if removed.iter().any(|path| current.path.starts_with(path))
+        || published
+          .iter()
+          .any(|version| version.object.path == original.path)
+      {
+        continue;
       }
       let object = &current;
       let path = if object.missing.is_empty() {
@@ -905,29 +922,44 @@ impl Inspector<'_> {
         }
         path
       };
-      let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(
-          libc::O_NONBLOCK
-            | libc::O_CLOEXEC
-            | if object.content.is_none() {
-              libc::O_DIRECTORY
-            } else {
-              0
-            }
-            | if object.content.is_some() || self.nofollow.contains(&original.path) {
-              libc::O_NOFOLLOW
-            } else {
-              0
-            },
-        )
-        .open(&path)?;
-      if ObjectIdentity::read(&file)? != object.identity
-        || crate::volumes::resolve(&file)? != object.physical_volumes
+      let file = if self.nofollow.contains(&original.path) && object.missing.is_empty() {
+        crate::mutation::open_entry(&path)?
+      } else {
+        OpenOptions::new()
+          .read(true)
+          .custom_flags(
+            libc::O_NONBLOCK
+              | libc::O_CLOEXEC
+              | if object.content.is_none() {
+                libc::O_DIRECTORY
+              } else {
+                0
+              }
+              | if object.content.is_some() || self.nofollow.contains(&original.path) {
+                libc::O_NOFOLLOW
+              } else {
+                0
+              },
+          )
+          .open(&path)?
+      };
+      if ObjectIdentity::read_entry(&file)? != object.identity
+        || Self::entry_volumes(&path, &file)? != object.physical_volumes
       {
         return Err(invalid("check dependency changed during assessment"));
       }
       if let Some(digest) = &object.content {
+        if self.nofollow.contains(&original.path) {
+          let resources = Resources::Bulk {
+            physical_volumes: object.physical_volumes.clone(),
+          };
+          let (version, _) = crate::mutation::read_metadata(&path, &resources)?
+            .ok_or_else(|| invalid("lifecycle metadata disappeared"))?;
+          if version.object.identity != object.identity || &version.sha256 != digest {
+            return Err(invalid("lifecycle metadata changed during assessment"));
+          }
+          continue;
+        }
         let mut confirmation = Inspector {
           allowed: self.allowed,
           objects: Vec::new(),
@@ -954,6 +986,51 @@ impl Inspector<'_> {
       .open(path)?;
     self.record(path, &file, None, vec![])?;
     Ok(file)
+  }
+
+  fn entry(&mut self, path: &Path) -> io::Result<File> {
+    let file = crate::mutation::open_entry(path)?;
+    self.record(path, &file, None, vec![])?;
+    self.nofollow.insert(path.into());
+    Ok(file)
+  }
+
+  /// A held symlink belongs to its real parent volume, not the link target's volume.
+  fn entry_volumes(path: &Path, file: &File) -> io::Result<Vec<String>> {
+    if !file.metadata()?.file_type().is_symlink() {
+      return crate::volumes::resolve(file);
+    }
+    let parent = crate::files::open_physical(
+      path
+        .parent()
+        .ok_or_else(|| invalid("native entry has no parent"))?,
+    )?;
+    if file.metadata()?.dev() != parent.metadata()?.dev()
+      || ObjectIdentity::read_entry(file)?.volume_uuid != ObjectIdentity::read(&parent)?.volume_uuid
+    {
+      return Err(invalid("symlink entry differs from its parent volume"));
+    }
+    crate::volumes::resolve(&parent)
+  }
+
+  fn metadata(&mut self, path: &Path) -> io::Result<Option<Vec<u8>>> {
+    self.parents(path)?;
+    match self.entry(path) {
+      Ok(file) => {
+        let resources = Resources::Bulk {
+          physical_volumes: self.physical.iter().cloned().collect(),
+        };
+        let (version, bytes) = crate::mutation::read_metadata(path, &resources)?
+          .ok_or_else(|| invalid("lifecycle metadata disappeared during inspection"))?;
+        self.record(path, &file, Some(version.sha256), vec![])?;
+        Ok(Some(bytes))
+      }
+      Err(error) if error.kind() == io::ErrorKind::NotFound => {
+        self.absent(path)?;
+        Ok(None)
+      }
+      Err(error) => Err(error),
+    }
   }
 
   fn absent(&mut self, path: &Path) -> io::Result<()> {

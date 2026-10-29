@@ -53,7 +53,7 @@ mod util;
 pub mod volumes;
 pub mod worker;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::exit;
 use std::time::Instant;
 
@@ -67,11 +67,7 @@ use lease::load_leases;
 use manifest::{Policy, MANIFEST_NAME};
 use parents::ParentsCmd;
 use plan::{human, now_secs};
-use quarantine::{
-  diagnose_entry, finalize_restore, load_index, restore_entry, rollback_restore, save_index,
-  EntryDiagnosis,
-};
-use util::{fmt_rel, lock_state, state_dir};
+use util::{fmt_rel, state_dir};
 
 #[derive(Parser)]
 #[command(
@@ -383,7 +379,7 @@ enum QuarantineCmd {
     #[arg(long)]
     owner: Option<String>,
   },
-  /// Move an entry back to its original path; store output requires --to
+  /// Restore an entry into retained storage; store output requires --to
   Restore {
     id: String,
     #[arg(long)]
@@ -588,12 +584,7 @@ fn main() {
         entered,
       ),
       QuarantineCmd::Restore { id, to } => {
-        if wait.is_some() {
-          eprintln!("error: quarantine restore does not support --wait");
-          1
-        } else {
-          cmd_quarantine_restore(id, to)
-        }
+        client::run_restore(invocation::RestoreRequest { id, to }, wait, entered)
       }
     },
     Some(Cmd::Purge {
@@ -732,69 +723,6 @@ fn cmd_config(init: bool) -> i32 {
 // --------------------------------------------------------------------------- //
 // Leases / retire / quarantine / purge / inventory
 // --------------------------------------------------------------------------- //
-
-fn cmd_quarantine_restore(id: String, to: Option<String>) -> i32 {
-  let _lock = match lock_state(&state_dir()) {
-    Ok(lock) => lock,
-    Err(e) => {
-      eprintln!("error: locking state: {}", e);
-      return 1;
-    }
-  };
-  let (cfg, _) = load_config();
-  let qdir = cfg.quarantine_dir();
-  let idx = match load_index(&qdir) {
-    Ok(i) => i,
-    Err(e) => {
-      eprintln!("error: {}", e);
-      return 1;
-    }
-  };
-  let entry = match idx.entries.iter().find(|e| e.id == id) {
-    Some(e) => e.clone(),
-    None => {
-      eprintln!("error: no quarantine entry with id {}", id);
-      return 1;
-    }
-  };
-  if entry.store.is_some()
-    && !matches!(
-      diagnose_entry(&qdir, &id, &idx, &[]),
-      EntryDiagnosis::Indexed
-    )
-  {
-    eprintln!("error: store quarantine entry {id} needs review before restore");
-    return 1;
-  }
-  match restore_entry(&qdir, &entry, to.as_deref().map(Path::new)) {
-    Ok(dest) => {
-      let mut idx = idx;
-      idx.entries.retain(|x| x.id != id);
-      idx.held_ids.remove(&id);
-      if let Err(e) = save_index(&qdir, &idx) {
-        eprintln!("error: {}", e);
-        if let Err(rollback) = rollback_restore(&qdir, &entry, &dest) {
-          eprintln!(
-            "error: restoring quarantine entry after index failure: {}; data remains at {}",
-            rollback,
-            dest.display()
-          );
-        }
-        return 1;
-      }
-      if let Err(e) = finalize_restore(&qdir, &entry) {
-        eprintln!("error: restored data but could not clean quarantine slot: {e}");
-        return 1;
-      }
-      println!("restored {} -> {}", id, dest.display());
-      0
-    }
-    Err(e) => {
-      eprintln!("error: {}", e);
-      1
-    }
-  }
-}
 
 fn cmd_inventory(quick: bool) -> i32 {
   let (cfg, _) = load_config();

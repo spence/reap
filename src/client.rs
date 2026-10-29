@@ -120,6 +120,15 @@ pub(crate) fn run_quarantine_metadata(
   run_argv(request.argv(), request.applying(), wait, entered)
 }
 
+/// Submit restoration without foreground source, destination, or state access.
+pub(crate) fn run_restore(
+  request: invocation::RestoreRequest,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  run_argv(request.argv(), true, wait, entered)
+}
+
 /// Submit purge selection without caller-side configuration, state, or payload reads.
 pub(crate) fn run_purge(
   request: invocation::PurgeRequest,

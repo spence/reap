@@ -77,9 +77,6 @@ impl TestRoot {
       matches!(operation.as_str(), "lease" | "stores" | "purge" | "doctor")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
-          && args
-            .get(1)
-            .is_none_or(|action| matches!(action.as_str(), "list" | "hold" | "unhold"))
     }) {
       self.unconfirmed.fetch_add(1, Ordering::SeqCst);
       command.args(["--wait", "30"]);
@@ -108,9 +105,6 @@ impl TestRoot {
       matches!(operation.as_str(), "lease" | "stores" | "purge" | "doctor")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
-          && args
-            .get(1)
-            .is_none_or(|action| matches!(action.as_str(), "list" | "hold" | "unhold"))
     }) {
       self.confirm_job(&output);
     }

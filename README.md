@@ -327,7 +327,7 @@ reap retire [dir] [--now] [--apply] [--wait [SECONDS]]
 
 # quarantine
 reap quarantine [--owner NAME]
-reap quarantine restore <id> [--to PATH]
+reap quarantine restore <id> [--to PATH] [--wait [SECONDS]]
 reap purge [--apply] [--all | --id ID | --owner NAME] [--wait [SECONDS]]
 
 # read-only survey
@@ -638,7 +638,7 @@ arm and apply it as usual:
 reap stores --init . --wait 30
 reap stores --apply . --wait 30
 reap quarantine                    # shows owner, project, store, series, and original path
-reap quarantine restore <id> --to /safe/absolute/new-path
+reap quarantine restore <id> --to /safe/absolute/new-path --wait 30
 ```
 
 Restore requires an explicit, absent destination under an existing,
@@ -949,7 +949,7 @@ recorded:
 
 ```bash
 reap quarantine --wait 30           # list; quarantine list --owner filters by creator
-reap quarantine restore <id>        # put one back
+reap quarantine restore <id> --wait 30 # await retained restoration
 reap quarantine hold <id> --wait 30  # protect one from automatic purge
 reap quarantine unhold <id> --wait 30 # return it to the age policy
 reap doctor --quarantine            # inspect indexed and unindexed slots
@@ -969,7 +969,26 @@ Large results can return `capacity-incomplete`, not an empty successful list.
 `quarantine list --owner NAME` reduces returned entries but does not bypass index-read or slot-name bounds.
 Hold changes use the stable lock and exact journaled index publication. Payloads remain unchanged.
 `--wait [SECONDS]` observes the same job; an omitted value means 30 seconds.
-Require completed success before a dependent operation. Restore remains a foreground operation and rejects `--wait`.
+Require completed success before a dependent operation.
+
+Restoration uses the same bounded client and journaled lifecycle executor.
+The destination must be absent and effectively retained under its active scope.
+Before movement, an untracked directory receives sealed KEEP without disposal adoption.
+Tracked declarations are not rewritten. An enclosing disposable seal refuses restoration.
+Store files and symlinks require an explicit absolute destination under an existing physical parent.
+Existing Cargo or Store resources require a KEEP boundary honored by their current cleanup reader.
+Payload movement, index release, and recovery-slot removal have separate durable unit records.
+Interrupted prefixes retain recovery data; observe the same key rather than resubmit.
+Cross-volume restoration currently refuses without moving the payload.
+
+KEEP replaces the prior lifetime and child-retention settings. Only owner, purpose and provenance are copied.
+Data restoration rejects lifecycle control basenames, `.git` paths, and the active Reap configuration namespace.
+Restore those bytes to an inert filename for inspection; activation requires its explicit metadata operation.
+New parent directories use mode 0700. New policy and index files use mode 0600.
+Interrupted preparations can retain `.reap-publish-*` or `.reap-directory-*` recovery entries.
+Do not discard them merely to obtain a successful retry.
+A null `payload_moved` or `index_released` means that no conclusive observation is available.
+If movement completes but index release fails, the payload remains at the destination with its old quarantine row.
 
 Automatic purge withholds an otherwise eligible entry when it is held in the
 quarantine index, its lease marker still exists (for lease retirements), or
@@ -1036,9 +1055,9 @@ age-based purging is allowed on this machine:
 
 Machine state (the lease file, external-store bindings, and quarantine index)
 lives in `~/.local/state/reap/`. Lifecycle commands hold a machine-local lock
-from state load through the move and index update. If an index write fails
-during retirement or restore, Reap attempts to move the unit back and exits
-nonzero; any failed rollback is reported with the data's location.
+through their journaled move and index transitions. Retirement and restoration retain
+an interrupted prefix and report nonzero status. Recovery evidence identifies the exact
+payload location; neither command silently repeats an uncertain move or removes a replacement.
 
 Advisory state-lock acquisition waits at most 30 seconds, then reports that
 the state is busy without changing it. Retry after inspecting the holder;

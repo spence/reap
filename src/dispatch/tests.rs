@@ -19,6 +19,10 @@ mod purge;
 #[path = "tests/retire.rs"]
 mod retire;
 
+#[cfg(target_os = "macos")]
+#[path = "tests/restore.rs"]
+mod restore;
+
 struct ResumedOnDrop(crate::launch::ProcessIdentity);
 
 impl Drop for ResumedOnDrop {

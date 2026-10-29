@@ -70,6 +70,7 @@ pub(super) fn assess(
     namespace_prefix: vec![],
     published: vec![],
     moved: vec![],
+    removed: vec![],
     lock: None,
   };
   let mut reports = vec![];

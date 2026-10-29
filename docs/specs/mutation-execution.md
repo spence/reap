@@ -233,6 +233,22 @@
   `invocation::tests::retire_arguments_keep_exact_cargo_selection_and_waits_separate`;
   `tests/test_public_mutations.py::PublicMutations::test_retire_commands_do_not_wait_for_configuration_fifo`.
 
+- **C20 — Restoration retains the recovered unit.** `quarantine restore` uses the bounded job
+  client and shared lifecycle executor, including finite same-key observation with `--wait`.
+  Its destination is absent and effectively retained under fresh enclosing declarations and seals.
+  An untracked directory declaration becomes sealed KEEP before movement, with no disposal adoption.
+  Tracked files are not rewritten; tracking is fresh after durable KEEP-publication intent.
+  An enclosing disposable seal refuses restoration. Data recovery rejects lifecycle control
+  basenames, `.git` destination paths and the current namespace's operational configuration.
+  The exact indexed entry, recovery evidence, source identity, destination and physical resources
+  remain bound through the move. Existing data and unrelated index entries are never overwritten.
+  Payload movement and index publication have separate durable unit intents. Interrupted or
+  uncertain prefixes retain recovery evidence; replay does not repeat an effect.
+  Cross-volume restoration remains refused until verified staged-copy support exists.
+  Bindings: `dispatch::tests::restore`;
+  `invocation::tests::restore_arguments_keep_destination_and_wait_separate`;
+  `tests/test_public_mutations.py::PublicMutations::test_restore_does_not_wait_for_configuration_fifo`.
+
 ## Conformance boundary
 
 The public mutation fixtures contain both refusal controls and actual allowed effects with protected

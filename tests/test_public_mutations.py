@@ -113,6 +113,16 @@ class PublicMutations(unittest.TestCase):
             self.assertIn(result.receipt["state"], ("failed", "unavailable"))
             self.assertFalse((self.quarantine / "index.json").exists())
 
+    def test_restore_does_not_wait_for_configuration_fifo(self):
+        self.config.unlink()
+        os.mkfifo(self.config)
+        for arguments in [("11223344",),
+                          ("11223344", "--to", str(self.project / "restored"))]:
+            result = self.run_cli("quarantine", "restore", *arguments)
+            self.assertIn(result.receipt["state"], ("failed", "unavailable"))
+            self.assertFalse((self.quarantine / "index.json").exists())
+            self.assertFalse((self.project / "restored").exists())
+
     def test_purge_commands_do_not_wait_for_configuration_fifo(self):
         self.config.unlink()
         os.mkfifo(self.config)

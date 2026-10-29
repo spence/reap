@@ -502,6 +502,52 @@ pub(crate) fn doctor_request(input: &Intent) -> Option<DoctorRequest> {
   })
 }
 
+/// Exact quarantine restoration intent, without an observer deadline.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RestoreRequest {
+  pub id: String,
+  pub to: Option<String>,
+}
+
+impl RestoreRequest {
+  pub(crate) fn argv(&self) -> Vec<String> {
+    let mut argv = vec!["quarantine".into(), "restore".into()];
+    if let Some(path) = &self.to {
+      argv.push(format!("--to={path}"));
+    }
+    argv.extend(["--".into(), self.id.clone()]);
+    argv
+  }
+}
+
+/// Parse a literal entry and destination without filesystem access or a wait allowance.
+pub(crate) fn restore_request(input: &Intent) -> Option<RestoreRequest> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "quarantine" {
+    return None;
+  }
+  let crate::Cmd::Quarantine {
+    cmd: Some(crate::QuarantineCmd::Restore { id, to }),
+    wait: None,
+  } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  if id.len() != 8
+    || !id.bytes().all(|byte| byte.is_ascii_hexdigit())
+    || to
+      .as_ref()
+      .is_some_and(|path| path.is_empty() || path.len() > 4096 || path.contains('\0'))
+  {
+    return None;
+  }
+  Some(RestoreRequest { id, to })
+}
+
 /// Quarantine metadata intent, without payload moves or observer deadlines.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum QuarantineMetadata {
@@ -660,6 +706,13 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = restore_request(input) {
+    return Some(Summary {
+      operation: "quarantine".into(),
+      mode: "apply".into(),
+      requested_scope: request.id,
+    });
   }
   if let Some(request) = retire_request(input) {
     return Some(Summary {
@@ -909,6 +962,7 @@ pub(crate) fn fresh_with_state_prefix(
       && !quarantine_metadata_request(&intent).is_some_and(|request| request.applying())
       && !purge_request(&intent).is_some_and(|request| request.apply)
       && !retire_request(&intent).is_some_and(|request| request.apply)
+      && restore_request(&intent).is_none()
     {
       return Err(unavailable("state creation is not part of this operation"));
     }
@@ -1394,12 +1448,39 @@ mod tests {
       assert!(quarantine_metadata_request(&input).is_none());
     }
     for argv in [
-      vec!["quarantine", "restore", "11223344"],
       vec!["quarantine", "hold", ""],
       vec!["quarantine", "unhold", "invalid\nactor"],
     ] {
       assert!(quarantine_metadata_request(&intent(&argv)).is_none());
       assert!(summary(&intent(&argv)).is_none());
+    }
+  }
+
+  #[test]
+  fn restore_arguments_keep_destination_and_wait_separate() {
+    for to in [None, Some("--literal destination".into())] {
+      let request = RestoreRequest {
+        id: "11223344".into(),
+        to,
+      };
+      let mut input = intent(&["quarantine"]);
+      input.argv = request.argv();
+      assert_eq!(restore_request(&input), Some(request));
+      assert!(quarantine_metadata_request(&input).is_none());
+      let metadata = summary(&input).unwrap();
+      assert_eq!(metadata.operation, "quarantine");
+      assert_eq!(metadata.mode, "apply");
+      assert!(metadata.valid());
+      input.argv.insert(1, "--wait=1".into());
+      assert!(restore_request(&input).is_none());
+    }
+    for argv in [
+      vec!["quarantine", "restore", "../escape"],
+      vec!["quarantine", "restore", "11223344", "--to="],
+      vec!["quarantine", "restore", ""],
+    ] {
+      assert!(restore_request(&intent(&argv)).is_none(), "{argv:?}");
+      assert!(summary(&intent(&argv)).is_none(), "{argv:?}");
     }
   }
 

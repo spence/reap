@@ -78,7 +78,7 @@ class WorkspaceLifecycle(unittest.TestCase):
         return self.run_command(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(path), *args])
 
     def reap(self, *args, check=True):
-        coordinated = args and args[0] in ('files', 'lease')
+        coordinated = args and args[0] in ('files', 'lease', 'retire', 'quarantine')
         if coordinated:
             self.unconfirmed_jobs += 1
             args = (*args, '--wait', '30')

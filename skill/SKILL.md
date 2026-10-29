@@ -102,7 +102,6 @@ Use `--wait [SECONDS]` for a finite observation; an omitted value means 30 secon
 Read terminal detail or retained pages for entries, held IDs, unindexed slots, and automatic-purge policy.
 Listing does not create state, wait for the lifecycle lock, or inspect payload contents.
 Hold changes publish the exact index through the shared executor and preserve payloads.
-Restore remains a foreground operation and rejects `--wait`.
 Purge preview and application use the bounded client. Require completed success before a dependent operation.
 Other applying commands retain their foreground routes; full fleet migration remains open.
 Complete zero-effect Files jobs in either mode can publish journal grace credit. Legacy cache credit is not imported.
@@ -305,7 +304,7 @@ Retirement refuses incomplete scans, changed metadata, and more than 64 director
 
 ```bash
 reap quarantine --wait 30        # list; quarantine list --owner <name> filters
-reap quarantine restore <id>
+reap quarantine restore <id> --wait 30
 reap quarantine hold <id> --wait 30 # exclude one entry from automatic purge
 reap quarantine unhold <id> --wait 30 # release an owner-approved hold
 reap doctor --quarantine         # inspect indexed and unindexed slots
@@ -313,6 +312,16 @@ reap purge --wait 30               # await entries past the grace period
 reap purge --apply --wait 30        # delete those (self-refuses if auto_purge=false)
 reap purge --owner <name> --apply --wait 30 # explicit selectors bypass auto_purge
 ```
+
+Require completed restoration before dependent work. Use the original key after an interruption.
+Restore only into an absent, effectively retained destination.
+Cargo and Store resources need an honored KEEP veto from their current cleanup reader.
+Untracked restored directories receive sealed KEEP without disposal adoption; tracked declarations remain unchanged.
+An enclosing disposable seal refuses restoration. Cross-volume restoration remains unavailable.
+Preserve recovery evidence after partial or uncertain effects; do not repeat the move manually.
+Restore control metadata to an inert filename; ordinary recovery cannot activate policy, markers or operational configuration.
+KEEP resets prior lifetime and child-retention settings; only owner, purpose and provenance are copied.
+Treat null effect flags as unknown. Inspect the reported destination when a move completes before index release.
 
 Automatic purge applies the machine's grace period to old and new indexed
 entries alike, but skips held entries, surviving lease markers, and entries
@@ -396,7 +405,7 @@ values fail closed. Apply still requires its marker or external binding. An
 eligible file, directory, or symlink moves into indexed quarantine with owner,
 project, store, series, and original-path provenance. Inspect with
 `reap quarantine`; restore only with
-`reap quarantine restore <id> --to /absolute/unused-path` under an existing
+`reap quarantine restore <id> --to /absolute/unused-path --wait 30` under an existing
 non-symlinked parent. A new run at
 the original path is never overwritten. If quarantine is on the same volume,
 the move does not free disk until purge; an external quarantine must already

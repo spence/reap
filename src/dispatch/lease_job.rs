@@ -2,6 +2,7 @@
 
 mod doctor;
 mod purge;
+mod restore;
 mod retire;
 
 use std::collections::BTreeSet;
@@ -32,6 +33,7 @@ enum Command {
   Purge(crate::invocation::PurgeRequest),
   Doctor(crate::invocation::DoctorRequest),
   Retire(crate::invocation::RetireRequest),
+  Restore(crate::invocation::RestoreRequest),
 }
 
 impl Command {
@@ -40,6 +42,7 @@ impl Command {
       || matches!(self, Self::Quarantine(request) if request.applying())
       || matches!(self, Self::Purge(request) if request.apply)
       || matches!(self, Self::Retire(request) if request.apply)
+      || matches!(self, Self::Restore(_))
   }
 }
 
@@ -60,6 +63,7 @@ struct Context<'a> {
   bootstrap: Vec<PathBuf>,
   namespace_missing: Vec<PathBuf>,
   retire_selected: Vec<crate::lease::Lease>,
+  restore: Option<restore::Plan>,
 }
 
 impl Context<'_> {
@@ -133,6 +137,7 @@ struct Applying<'a, 'b> {
   namespace_prefix: Vec<Object>,
   published: Vec<FileVersion>,
   moved: Vec<(PathBuf, PathBuf)>,
+  removed: Vec<PathBuf>,
   lock: Option<Lock>,
 }
 
@@ -145,7 +150,18 @@ impl Applying<'_, '_> {
         return Err(invalid("retired source reappeared or is unavailable"));
       }
     }
-    self.context.inspector.revalidate_renamed(&self.moved)?;
+    for path in &self.removed {
+      if !matches!(std::fs::symlink_metadata(path), Err(error) if error.kind() == io::ErrorKind::NotFound)
+      {
+        return Err(invalid(
+          "removed lifecycle entry reappeared or is unavailable",
+        ));
+      }
+    }
+    self
+      .context
+      .inspector
+      .revalidate_effects(&self.moved, &self.removed, &self.published)?;
     crate::invocation::fresh_with_state_prefix(self.input, &self.namespace_prefix)?;
     for object in &self.created {
       if ObjectIdentity::read(&crate::files::open_physical(&object.path)?)? != object.identity {
@@ -168,10 +184,23 @@ impl Applying<'_, '_> {
       }
     }
     for version in &self.published {
-      if crate::mutation::read_metadata(&version.object.path, &self.grant.resources)?
+      let mut expected = version.clone();
+      for (source, destination) in &self.moved {
+        if let Ok(relative) = expected.object.path.strip_prefix(source) {
+          expected.object.path = destination.join(relative);
+        }
+      }
+      if self
+        .removed
+        .iter()
+        .any(|path| expected.object.path.starts_with(path))
+      {
+        continue;
+      }
+      if crate::mutation::read_metadata(&expected.object.path, &self.grant.resources)?
         .as_ref()
         .map(|(current, _)| current)
-        != Some(version)
+        != Some(&expected)
       {
         return Err(invalid("published lease metadata changed"));
       }
@@ -377,6 +406,42 @@ impl Applying<'_, '_> {
     self.fresh()
   }
 
+  /// Remove one exact recovery entry after its payload and index transitions are durable.
+  fn unlink(
+    &mut self,
+    label: &str,
+    path: &Path,
+    helpers: &mut Helpers<'_>,
+    guard: impl FnOnce() -> io::Result<()>,
+  ) -> io::Result<()> {
+    self.fresh()?;
+    let fingerprint = self.fingerprint(label, path, &())?;
+    let held = HeldUnlink::prepare(path, &self.grant.resources, fingerprint.clone())?;
+    let staged = self.stage(held.intent().clone().into(), helpers)?;
+    let Staged::New(record) = &staged else {
+      unreachable!()
+    };
+    let nonce = record.nonce.clone();
+    stop_at(&format!("{label}-intended"));
+    unit_fixture(label, path)?;
+    let outcome = held.commit(staged, self.grant, || {
+      self.fresh()?;
+      guard()?;
+      self.fresh()?;
+      Ok(fingerprint)
+    })?;
+    if outcome.phase == Phase::Removed {
+      stop_at(&format!("{label}-removed"));
+    }
+    self.observe(nonce, &outcome, helpers)?;
+    if outcome.phase != Phase::Removed {
+      return Err(invalid(&outcome.detail));
+    }
+    self.removed.push(path.into());
+    stop_at(&format!("{label}-observed"));
+    Ok(())
+  }
+
   fn release_marker(
     &mut self,
     lease: &crate::lease::Lease,
@@ -458,6 +523,9 @@ pub(crate) fn assess(
   if let Command::Retire(request) = &context.command {
     return retire::assess(&context, request, input, expected, grant, helpers);
   }
+  if let Command::Restore(request) = &context.command {
+    return restore::assess(&context, request, input, expected, grant, helpers);
+  }
   if let Command::Doctor(request) = &context.command {
     return doctor::assess(&context, request, input, expected, grant, helpers);
   }
@@ -499,6 +567,7 @@ pub(crate) fn assess(
     namespace_prefix: vec![],
     published: vec![],
     moved: vec![],
+    removed: vec![],
     lock: None,
   };
   let mut selected = None;
@@ -705,6 +774,7 @@ pub(crate) fn assess(
       Command::Purge(_) => "purge",
       Command::Doctor(_) => "doctor",
       Command::Retire(_) => "retire",
+      Command::Restore(_) => "quarantine",
     },
     "action":action,"error":result.as_ref().err().map(|error| error.to_string()),
     "worker_observation":{"completed_units":applying.effects,"unknown_effects":applying.unknown},
@@ -854,6 +924,8 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     Command::Doctor(request)
   } else if let Some(request) = crate::invocation::retire_request(&intent) {
     Command::Retire(request)
+  } else if let Some(request) = crate::invocation::restore_request(&intent) {
+    Command::Restore(request)
   } else {
     return Err(invalid("unsupported lease metadata arguments"));
   };
@@ -885,7 +957,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     ) => Some(PathBuf::from(path)),
     Command::ParentArm(request) => Some(PathBuf::from(&request.path)),
     Command::Retire(request) => request.path.as_ref().map(PathBuf::from),
-    Command::Quarantine(_) | Command::Purge(_) | Command::Doctor(_) => None,
+    Command::Quarantine(_) | Command::Purge(_) | Command::Doctor(_) | Command::Restore(_) => None,
   };
   let target = raw_target
     .map(|path| {
@@ -925,7 +997,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   let mut quarantine_bootstrap = vec![];
   let uses_quarantine = matches!(
     command,
-    Command::Quarantine(_) | Command::Purge(_) | Command::Retire(_)
+    Command::Quarantine(_) | Command::Purge(_) | Command::Retire(_) | Command::Restore(_)
   ) || matches!(&command, Command::Doctor(request) if request.quarantine);
   if command.creates_state() || uses_quarantine {
     let home = intent.namespace.home.to_string_lossy();
@@ -980,6 +1052,18 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   } else {
     vec![]
   };
+  let restore = if let Command::Restore(request) = &command {
+    // data recovery cannot publish this namespace's operational cleanup configuration.
+    forbidden.push(inspector.canonical_path(&intent.namespace.home.join(".config/reap"))?);
+    Some(restore::inspect(
+      &mut inspector,
+      request,
+      quarantine.as_deref(),
+      &caller.base,
+    )?)
+  } else {
+    None
+  };
   Ok(Context {
     inspector,
     intent,
@@ -997,6 +1081,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     bootstrap,
     namespace_missing,
     retire_selected,
+    restore,
   })
 }
 
@@ -1066,6 +1151,35 @@ fn unit_fixture(label: &str, path: &Path) -> io::Result<()> {
       std::fs::write(
         path.join(crate::lifetime::FILE_NAME),
         br#"{"version":2,"keep":{"reason":"unfinished source work"}}"#,
+      )?;
+    }
+    ("restore-late-seal", "restore-payload") => {
+      std::fs::write(
+        path
+          .parent()
+          .ok_or_else(|| invalid("restore parent is absent"))?
+          .join(crate::lifetime::FILE_NAME),
+        br#"{"version":2,"expires":"2099-01-01T00:00:00Z","seal":true}"#,
+      )?;
+    }
+    ("restore-late-tracking", "restore-keep") => {
+      let directory = path
+        .parent()
+        .ok_or_else(|| invalid("restore payload is absent"))?;
+      std::fs::copy(
+        directory.join(".git/restore-tracked-index"),
+        directory.join(".git/index"),
+      )?;
+    }
+    ("restore-destination-replacement", "restore-payload") => {
+      std::fs::create_dir(path)?;
+      std::fs::write(path.join("valuable"), b"replacement destination bytes")?;
+    }
+    ("restore-index-replacement", "restore-index") => {
+      std::fs::rename(path, path.with_extension("retained-original"))?;
+      std::fs::write(
+        path,
+        br#"{"version":1,"entries":[],"future_protection":true}"#,
       )?;
     }
     ("quarantine-directory-replacement", "index") => {

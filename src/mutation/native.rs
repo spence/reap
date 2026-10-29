@@ -14,6 +14,17 @@ use super::{invalid, Intent, Object, Observation, Phase, Record, Rename, Staged,
 use crate::identity::ObjectIdentity;
 use crate::launch::{Grant, ProcessIdentity, Resources};
 
+/// Open one native namespace entry without following its final symlink.
+pub(crate) fn open_entry(path: &Path) -> io::Result<File> {
+  super::path(path)?;
+  let parent = directory(
+    path
+      .parent()
+      .ok_or_else(|| invalid("entry has no parent"))?,
+  )?;
+  open_child(&parent, path)
+}
+
 /// Descriptors retained from preparation through the issued rename. They confer no policy right.
 pub(crate) struct HeldRename {
   intent: Rename,
