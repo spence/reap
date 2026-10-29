@@ -522,7 +522,7 @@ impl Applying<'_, '_> {
       .file_name()
       .and_then(|name| name.to_str())
       .ok_or_else(|| invalid("store unit has no UTF-8 name"))?;
-    if matches!(name, crate::quarantine::ENTRY_EVIDENCE | ".reap-entry.tmp") {
+    if crate::quarantine::recovery_name(name) {
       return Err(invalid("store unit conflicts with quarantine evidence"));
     }
     let entry = crate::quarantine::Entry {

@@ -1,0 +1,214 @@
+{
+  "status": "held source checkpoint; complete frozen unit run passes; Cargo integration and fleet installation remain open",
+  "base": "58abcb4839efdc041d4f0a670b05b5696becac60",
+  "source": {
+    "src/dispatch/lease_job/restore.rs": "14bffc99d399da95e7b493d4e6589a522eaa7b33b6d7564efe23ae32bd192e0f",
+    "src/dispatch/lease_job/restore/copy.rs": "0bc4e4eda723d0a5a69450644b6517865e7e5702c674964a7af58695af81b047",
+    "src/dispatch/lease_job/restore/staged.rs": "f0d6a1ad0aa81c20750167ac9ec2c205dd976426b4923dbe8f84084774eae6c8",
+    "src/dispatch/lease_job.rs": "1f0792e02041d44c097b957365cd3e386ddd371c1ccd73276f36576da30a98c4",
+    "src/dispatch/lease_job/retire.rs": "0c9d33dd33a13519b8b735ec466f1be3c419898668c00d9fa95d66c072587dfc",
+    "src/dispatch/store_job.rs": "1c85b6dd37bccc3dcd6d7413cca6606588ab0ee43468b6e4394545ab460799df",
+    "src/quarantine.rs": "d6b2ca2f8ce694c165d7a14617bc71908eb9f2d5122a041d2898e3a410cf6586",
+    "src/dispatch/tests/restore.rs": "fa5409fbf0a3baedbf31de0dcef3a333075fcfb52e35cae219eb184e63731db6",
+    "src/worker.rs": "0389471174195af9660cd72652d265ade589af321cf55509803eee12f970a9fc",
+    "tools/verify_control_macos.py": "705e9b00e90470475852d630637faf6fc785b87d298b7b61c0f03e83f75a0ac6",
+    "docs/specs/mutation-execution.md": "6d730ab20192d24f63533bc8e511c51fa4f2cfe32f54f5510abc3ade5d96316f",
+    "README.md": "82875919f91c65631e77a8f8c0dcecff653be4bf437a93c98320e220faf85cb0",
+    "skill/SKILL.md": "5a79901ef3367dd3dcffe0b3be45bfdfa11b1ae0064d00f02bed164b8adcd766"
+  },
+  "binaries": {
+    "artifacts": {
+      "unit": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-copy-integrated-v5/unit",
+        "sha256": "514e66ef3eb328f9770edf85b758e9930bd7db9d8ad889d842f99ca12fcff234",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap.native-tests",
+        "bytes": 39445696,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+      },
+      "app": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-copy-integrated-v5/app",
+        "sha256": "06f35491796b2b611cef93d8275d1788bf595f88ea2f9e65a2ee0a22c5345d84",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap",
+        "bytes": 28801344,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+      }
+    }
+  },
+  "evidence": {
+    "restore-copy-expanded-v4.log": {
+      "path": "target/native-profile-t20/restore-copy-expanded-v4.log",
+      "bytes": 2497,
+      "sha256": "e663c3c5bdb2868e9dc686c9b813660227c401c275cfa0503a6515a930d2f295"
+    },
+    "restore-copy-cross-filesystem-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-cross-filesystem-v5.json",
+      "bytes": 580,
+      "sha256": "49427ad39df56f62daa86a4bddc0802778aa2d29987fa953b67b6fc87a6f6461"
+    },
+    "restore-copy-cross-filesystem-v5.log": {
+      "path": "target/native-profile-t20/restore-copy-cross-filesystem-v5.log",
+      "bytes": 972,
+      "sha256": "7235deab49954954b2b259d36471dfcf7d25d2ba1a1ba7764c587ce11d864025"
+    },
+    "restore-copy-cross-filesystem-metadata-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-cross-filesystem-metadata-v5.json",
+      "bytes": 3624,
+      "sha256": "9399dd387f5a8fe79d88f6cfdb37b9373bb1a03a22bfb87d748d96dc419b9e99"
+    },
+    "restore-copy-cross-filesystem-positive-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-cross-filesystem-positive-v5.json",
+      "bytes": 538,
+      "sha256": "7f017c78c7ea14fc2cfe6268ddc9411f9d3b39a8ee1232a7769259279ca67657"
+    },
+    "restore-copy-cross-filesystem-positive-v5.log": {
+      "path": "target/native-profile-t20/restore-copy-cross-filesystem-positive-v5.log",
+      "bytes": 233,
+      "sha256": "85f3af40a0ad1a655795520c7e0175b99a9a16dad94ccede4b0f7542e595b9a0"
+    },
+    "restore-copy-review-messages-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-review-messages-v5.json",
+      "bytes": 8022,
+      "sha256": "37f4d72de6e2aba45ebc32b9e7b87b57e4f0009d258d88b1e0b8ea999eb982e9"
+    },
+    "restore-copy-source-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-source-v5.json",
+      "bytes": 1301,
+      "sha256": "d43624931067cf1e672d38dbf5480a721193d3f585275eebd5a5cabe4d79bfa9"
+    },
+    "restore-copy-mini-v5/actual-app-restore.json": {
+      "path": "target/native-profile-t20/restore-copy-mini-v5/actual-app-restore.json",
+      "bytes": 456,
+      "sha256": "fa7121eba93eced4e367eeff31c75f0b5c06220a9f03abcd6a1cfa0fa1736fb5"
+    },
+    "restore-copy-mini-v5/actual-app-restore.log": {
+      "path": "target/native-profile-t20/restore-copy-mini-v5/actual-app-restore.log",
+      "bytes": 232,
+      "sha256": "44435d30a2497bdc449e36693070f40043567d6f8b47690309876c61eb09549d"
+    },
+    "restore-copy-mini-v5/native-pre.json": {
+      "path": "target/native-profile-t20/restore-copy-mini-v5/native-pre.json",
+      "bytes": 1336,
+      "sha256": "7fa0fe62d0d62f9848a9c754f2a3f72e6c3277af8074970467d34fb0174dedb8"
+    },
+    "restore-copy-mini-v5/native-post.json": {
+      "path": "target/native-profile-t20/restore-copy-mini-v5/native-post.json",
+      "bytes": 1336,
+      "sha256": "7fa0fe62d0d62f9848a9c754f2a3f72e6c3277af8074970467d34fb0174dedb8"
+    },
+    "restore-copy-mini-v5/process-exit.json": {
+      "path": "target/native-profile-t20/restore-copy-mini-v5/process-exit.json",
+      "bytes": 38,
+      "sha256": "5d647eb9447bdb70f8cc07ba8ef7331c97488627fbf559a9659cc7d64ad7b93b"
+    },
+    "restore-copy-full-unit-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-full-unit-v5.json",
+      "bytes": 2071,
+      "sha256": "b13dc85964a0f27427dc8f397d9f3c2412acbbef93d4b5e4aad93982aafeaf51"
+    },
+    "restore-copy-full-unit-v5.log": {
+      "path": "target/native-profile-t20/restore-copy-full-unit-v5.log",
+      "bytes": 53943,
+      "sha256": "99bbf9b20bbfe5cadfa816b475486d86d5fb287dbd4809f8bd16b2e5c22e529a"
+    },
+    "restore-copy-cli-integration-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-cli-integration-v5.json",
+      "bytes": 451,
+      "sha256": "80b7f17ac7cd3814b1903db1a84a763c52676c355f00ac1cac6f8e7e5a7d00a8"
+    },
+    "restore-copy-cli-integration-v5.log": {
+      "path": "target/native-profile-t20/restore-copy-cli-integration-v5.log",
+      "bytes": 1157,
+      "sha256": "8ba029eb44f607091304c9cd95688de8bff85c7b782be7d6816a0158fa3fa461"
+    },
+    "restore-copy-cli-context-read-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-cli-context-read-v5.json",
+      "bytes": 2525,
+      "sha256": "97a4b4e93a74a5f60250101506f2f0dcf5287c64992518b0cccb83c05c639d61"
+    },
+    "restore-copy-help-v5.log": {
+      "path": "target/native-profile-t20/restore-copy-help-v5.log",
+      "bytes": 2874,
+      "sha256": "7511e202af15b0531d5eca2bc1e2d4ec27947f96c8664d3f4403e9aee87af4d2"
+    },
+    "restore-copy-service-plan-v5-root.json": {
+      "path": "target/native-profile-t20/restore-copy-service-plan-v5-root.json",
+      "bytes": 4651,
+      "sha256": "d5d7b31f9756412518b86c8003c2c0c2a6a57adc50990ee613d32162b3dfd5d8"
+    },
+    "restore-copy-service-preflight-mini-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-service-preflight-mini-v5.json",
+      "bytes": 251,
+      "sha256": "0ebe5d4b22767e2fca97aaad022e9bc1fd5f3be01f69a6e9e45a2b3b9e361ce7"
+    }
+  },
+  "full_unit_receipt": "target/native-profile-t20/restore-copy-full-unit-v5.json",
+  "full_unit": {
+    "command": [
+      "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-copy-integrated-v5/unit",
+      "--test-threads=1",
+      "--include-ignored",
+      "--nocapture"
+    ],
+    "cwd": "/private/tmp",
+    "source_manifest": "/Users/spencer/src/reap/target/native-profile-t20/restore-copy-source-v5.json",
+    "source": {
+      "src/dispatch/lease_job/restore.rs": "14bffc99d399da95e7b493d4e6589a522eaa7b33b6d7564efe23ae32bd192e0f",
+      "src/dispatch/lease_job/restore/copy.rs": "0bc4e4eda723d0a5a69450644b6517865e7e5702c674964a7af58695af81b047",
+      "src/dispatch/lease_job/restore/staged.rs": "f0d6a1ad0aa81c20750167ac9ec2c205dd976426b4923dbe8f84084774eae6c8",
+      "src/dispatch/lease_job.rs": "1f0792e02041d44c097b957365cd3e386ddd371c1ccd73276f36576da30a98c4",
+      "src/dispatch/lease_job/retire.rs": "0c9d33dd33a13519b8b735ec466f1be3c419898668c00d9fa95d66c072587dfc",
+      "src/dispatch/store_job.rs": "1c85b6dd37bccc3dcd6d7413cca6606588ab0ee43468b6e4394545ab460799df",
+      "src/quarantine.rs": "d6b2ca2f8ce694c165d7a14617bc71908eb9f2d5122a041d2898e3a410cf6586",
+      "src/dispatch/tests/restore.rs": "fa5409fbf0a3baedbf31de0dcef3a333075fcfb52e35cae219eb184e63731db6",
+      "src/worker.rs": "0389471174195af9660cd72652d265ade589af321cf55509803eee12f970a9fc",
+      "tools/verify_control_macos.py": "705e9b00e90470475852d630637faf6fc785b87d298b7b61c0f03e83f75a0ac6",
+      "docs/specs/mutation-execution.md": "6d730ab20192d24f63533bc8e511c51fa4f2cfe32f54f5510abc3ade5d96316f",
+      "README.md": "82875919f91c65631e77a8f8c0dcecff653be4bf437a93c98320e220faf85cb0",
+      "skill/SKILL.md": "5a79901ef3367dd3dcffe0b3be45bfdfa11b1ae0064d00f02bed164b8adcd766"
+    },
+    "unit_sha256": "514e66ef3eb328f9770edf85b758e9930bd7db9d8ad889d842f99ca12fcff234",
+    "fault_sha256": "56f694f4e5d59ed2185c6896561802dfcb3086211b8aa881c90e616248f1107e",
+    "scope": "complete frozen unit binary including native fault cases; not Cargo integration or installed fleet proof",
+    "start_epoch": 1793310139.075577,
+    "pid": 24972,
+    "exit": 0,
+    "elapsed_seconds": 1635.203,
+    "source_unchanged": true,
+    "terminal_summary": "506 passed; 0 failed; 0 ignored; 0 filtered out; 1635.18 seconds"
+  },
+  "cli_integration": {
+    "command": [
+      "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/lifecycle_state-50c2c5be5e1c8226",
+      "quarantined_store_files_and_dirs_restore_only_to_explicit_safe_paths",
+      "--exact",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "app": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-copy-integrated-v5/app",
+    "cwd": "/private/tmp",
+    "exit": 101,
+    "elapsed_seconds": 0.023
+  },
+  "cli_context_control": {
+    "command": [
+      "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-copy-integrated-v5/app",
+      "check",
+      "/private/tmp/reap-lifecycle-35842-1793311836704115000-0/quarantined-store",
+      "--wait",
+      "5"
+    ],
+    "cwd": "/private/tmp/reap-lifecycle-35842-1793311836704115000-0",
+    "exit": 0,
+    "elapsed_seconds": 0.408,
+    "stdout": "{\"protocol\":2,\"state\":\"completed\",\"key\":{\"generation\":\"facaf800834c0aaf144d16c28900ac07\",\"epoch\":1,\"nonce\":\"19ade4a8496aac8c1a7a57a50613c400\"},\"job_id\":\"facaf800834c0aaf144d16c28900ac07:1:19ade4a8496aac8c1a7a57a50613c400\",\"job\":{\"key\":{\"generation\":\"facaf800834c0aaf144d16c28900ac07\",\"epoch\":1,\"nonce\":\"19ade4a8496aac8c1a7a57a50613c400\"},\"created_at\":1793311911,\"completed_at\":1793311911,\"result\":{\"exit_code\":0,\"effects\":0,\"detail\":\"{\\\"command\\\":\\\"check\\\",\\\"has_manifest\\\":true,\\\"keep\\\":{\\\"binaries\\\":[],\\\"names\\\":[],\\\"paths\\\":[],\\\"profiles\\\":[\\\"release\\\"]},\\\"policy\\\":{\\\"keep_recent\\\":1,\\\"min_age_minutes\\\":10.0,\\\"prune_build_scripts\\\":true,\\\"prune_incremental\\\":true,\\\"stale_profile_days\\\":{}},\\\"project\\\":\\\"/private/tmp/reap-lifecycle-35842-1793311836704115000-0/quarantined-store\\\",\\\"stores\\\":[{\\\"armed\\\":false,\\\"creation_method\\\":null,\\\"directory\\\":\\\"/private/tmp/reap-lifecycle-35842-1793311836704115000-0/quarantined-store/bench/results\\\",\\\"disposition\\\":\\\"quarantine\\\",\\\"keep_last\\\":1,\\\"max_age_days\\\":30.0,\\\"max_bytes\\\":null,\\\"min_age_hours\\\":0.0,\\\"path\\\":\\\"bench/results\\\",\\\"resource\\\":null,\\\"series\\\":[{\\\"name\\\":\\\"run\\\",\\\"pattern\\\":\\\"run.*\\\"},{\\\"name\\\":\\\"report\\\",\\\"pattern\\\":\\\"report.*\\\"}],\\\"unit\\\":\\\"children\\\"}],\\\"target\\\":\\\"/private/tmp/reap-lifecycle-35842-1793311836704115000-0/quarantined-store/target\\\",\\\"target_exists\\\":false}\"},\"invocation\":{\"operation\":\"check\",\"mode\":\"read\",\"requested_scope\":\"/private/tmp/reap-lifecycle-35842-1793311836704115000-0/quarantined-store\"}},\"observed_at\":1793311911,\"reason\":null,\"next_command\":\"reap job show facaf800834c0aaf144d16c28900ac07:1:19ade4a8496aac8c1a7a57a50613c400\",\"invocation\":{\"operation\":\"check\",\"mode\":\"read\",\"requested_scope\":\"/private/tmp/reap-lifecycle-35842-1793311836704115000-0/quarantined-store\"}}\n",
+    "stderr": "",
+    "scope": "read-only Check under the exact integration namespace; diagnose shared preparation failure"
+  },
+  "boundary": "Native image proof covers copy primitives, not production two-volume grants. Mini actual-app worker proof is not installation. The existing installed cohort refused Store preparation; no remaining integration run or installation is claimed."
+}

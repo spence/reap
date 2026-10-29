@@ -2,6 +2,10 @@ use super::*;
 use crate::invocation::RestoreRequest;
 
 fn setup() -> (Fixture, crate::quarantine::Entry) {
+  setup_payload(false)
+}
+
+fn setup_payload(nested: bool) -> (Fixture, crate::quarantine::Entry) {
   let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
     .map(PathBuf::from)
     .unwrap_or_else(std::env::temp_dir);
@@ -24,6 +28,25 @@ fn setup() -> (Fixture, crate::quarantine::Entry) {
     b"restored source bytes",
   )
   .unwrap();
+  if nested {
+    fs::create_dir(fixture.0.join("project/work/nested")).unwrap();
+    fs::write(
+      fixture.0.join("project/work/nested/binary"),
+      [0u8, 1, 2, 255],
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("../valuable", fixture.0.join("project/work/nested/link")).unwrap();
+    fs::hard_link(
+      fixture.0.join("project/work/valuable"),
+      fixture.0.join("project/work/nested/hard"),
+    )
+    .unwrap();
+    fs::write(
+      fixture.0.join("project/work/nested/.reap"),
+      br#"{"version":2,"keep":{"reason":"retained nested fixture"}}"#,
+    )
+    .unwrap();
+  }
   fs::write(
     fixture.0.join("project/work/.reap"),
     br#"{"version":1,"expires":"2020-01-01T00:00:00Z","owner":"restore fixture"}"#,
@@ -96,6 +119,14 @@ fn store_leaf(
 }
 
 fn submit(journal: &mut Journal, input: &Prepared) -> (Key, Terminal) {
+  submit_with_timeout(journal, input, Duration::from_secs(30))
+}
+
+fn submit_with_timeout(
+  journal: &mut Journal,
+  input: &Prepared,
+  timeout: Duration,
+) -> (Key, Terminal) {
   let epoch = journal.epoch();
   let key = Key {
     generation: epoch.generation,
@@ -106,7 +137,7 @@ fn submit(journal: &mut Journal, input: &Prepared) -> (Key, Terminal) {
     .admit_execution(key.clone(), input.clone(), 1)
     .unwrap();
   let mut scheduler = Scheduler::recover(journal).unwrap();
-  let result = terminal_with_timeout(journal, &mut scheduler, &key, Duration::from_secs(30));
+  let result = terminal_with_timeout(journal, &mut scheduler, &key, timeout);
   (key, result)
 }
 
@@ -669,4 +700,479 @@ fn native_restore_rechecks_tracking_after_keep_intent_before_replacing_a_declara
     fs::read(fixture.0.join("project/valuable")).unwrap(),
     b"independent survivor"
   );
+}
+
+#[test]
+fn native_restore_staged_copy_preserves_nested_bytes_links_and_store_leaves() {
+  const ENTRY: &str = "dispatch::tests::restore::native_restore_staged_copy_preserves_nested_bytes_links_and_store_leaves";
+  if std::env::var_os("REAP_RESTORE_COPY_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture"])
+      .env("REAP_RESTORE_COPY_FIXTURE", "1")
+      .env_remove("REAP_NATIVE_RESTORE_FORCE_COPY")
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    return;
+  }
+  assert!(
+    std::env::var_os("REAP_TEST_WORKER_BIN").is_none(),
+    "requires the native test driver"
+  );
+  for kind in ["directory", "file", "symlink"] {
+    let (fixture, mut entry) = setup_payload(kind == "directory");
+    if kind != "directory" {
+      entry = store_leaf(&fixture, entry, kind == "symlink");
+    }
+    let target = fixture.0.join("project/copied");
+    let quarantine = fixture.0.join("state/reap/quarantine");
+    let source = quarantine.join("entries").join(&entry.id).join(&entry.name);
+    if kind == "directory" {
+      fs::rename(source.join(".reap"), source.join(".ReAp")).unwrap();
+    }
+    let names = if kind == "directory" {
+      vec![
+        "",
+        "valuable",
+        "nested",
+        "nested/binary",
+        "nested/link",
+        "nested/hard",
+        "nested/.reap",
+      ]
+    } else {
+      vec![""]
+    };
+    let original: Vec<_> = names
+      .iter()
+      .map(|name| {
+        let path = if name.is_empty() {
+          source.clone()
+        } else {
+          source.join(name)
+        };
+        let metadata = fs::symlink_metadata(path).unwrap();
+        (metadata.dev(), metadata.ino())
+      })
+      .collect();
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    let input = request(&fixture, &entry, Some(target.clone()));
+    std::env::set_var("REAP_NATIVE_RESTORE_FORCE_COPY", "1");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      submit_with_timeout(&mut journal, &input, Duration::from_secs(120))
+    }));
+    std::env::remove_var("REAP_NATIVE_RESTORE_FORCE_COPY");
+    let (key, result) = result.unwrap();
+    assert_eq!(result.exit_code, 0, "{kind}: {}", result.detail);
+    match kind {
+      "directory" => {
+        assert_eq!(
+          fs::read(target.join("valuable")).unwrap(),
+          b"restored source bytes"
+        );
+        assert_eq!(
+          fs::read(target.join("nested/binary")).unwrap(),
+          [0u8, 1, 2, 255]
+        );
+        assert_eq!(
+          fs::read_link(target.join("nested/link")).unwrap(),
+          PathBuf::from("../valuable")
+        );
+        assert_eq!(
+          fs::read(target.join("nested/hard")).unwrap(),
+          b"restored source bytes"
+        );
+        let policy =
+          crate::lifetime::Policy::parse(&fs::read(target.join(".reap")).unwrap()).unwrap();
+        assert!(policy.keep.is_some() && policy.seal && policy.expires.is_none());
+      }
+      "file" => assert_eq!(fs::read(&target).unwrap(), b"store file bytes"),
+      "symlink" => assert_eq!(
+        fs::read_link(&target).unwrap(),
+        fixture.0.join("project/valuable")
+      ),
+      _ => unreachable!(),
+    }
+    for (name, original) in names.iter().zip(original) {
+      let path = if name.is_empty() {
+        target.clone()
+      } else {
+        target.join(name)
+      };
+      let metadata = fs::symlink_metadata(path).unwrap();
+      assert_ne!(
+        original,
+        (metadata.dev(), metadata.ino()),
+        "{kind}: {name} was renamed, not copied"
+      );
+    }
+    assert!(!source.exists());
+    assert!(!quarantine.join("entries").join(&entry.id).exists());
+    let index = crate::quarantine::load_index(&quarantine).unwrap();
+    assert!(index.entries.is_empty() && index.held_ids.is_empty());
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"independent survivor"
+    );
+    assert!(matches!(
+      journal.admit_execution(key, input, 1).unwrap(),
+      Decision::Present { .. }
+    ));
+    assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+    let mut children: Vec<_> = fs::read_dir(fixture.0.join("project"))
+      .unwrap()
+      .map(|entry| entry.unwrap().file_name())
+      .collect();
+    children.sort();
+    assert_eq!(
+      children,
+      [
+        std::ffi::OsString::from("copied"),
+        std::ffi::OsString::from("valuable")
+      ]
+    );
+  }
+}
+
+#[test]
+fn native_restore_copy_recovers_publication_partial_removal_and_index_release() {
+  const ENTRY: &str = "dispatch::tests::restore::native_restore_copy_recovers_publication_partial_removal_and_index_release";
+  if std::env::var_os("REAP_RESTORE_COPY_RECOVERY_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture", "--test-threads=1"])
+      .env("REAP_RESTORE_COPY_RECOVERY_FIXTURE", "1")
+      .env_remove("REAP_NATIVE_RESTORE_FORCE_COPY")
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    return;
+  }
+  assert!(
+    std::env::var_os("REAP_TEST_WORKER_BIN").is_none(),
+    "requires the native test driver"
+  );
+  std::env::set_var("REAP_NATIVE_RESTORE_FORCE_COPY", "1");
+  for point in [
+    "restore-copy-prepared",
+    "restore-copy-verified",
+    "restore-copy-publish-intended",
+    "restore-copy-published",
+    "restore-copy-unlink-intended",
+    "restore-copy-unlink-removed",
+    "restore-copy-unlink-observed",
+    "restore-preparation-keep-removed",
+    "restore-preparation-removed",
+    "restore-index-published",
+    "restore-evidence-removed",
+  ] {
+    let (fixture, entry) = setup_payload(true);
+    let quarantine = fixture.0.join("state/reap/quarantine");
+    let slot = quarantine.join("entries").join(&entry.id);
+    let source = slot.join(&entry.name);
+    let target = fixture.0.join("project/copied");
+    let evidence = fixture.0.join("copy-stop-evidence");
+    let input = request(&fixture, &entry, Some(target.clone()));
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", point);
+    std::env::set_var("REAP_NATIVE_LEASE_STOP_EVIDENCE", &evidence);
+    let (key, stopped) = submit_with_timeout(&mut journal, &input, Duration::from_secs(120));
+    std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+    std::env::remove_var("REAP_NATIVE_LEASE_STOP_EVIDENCE");
+    assert_eq!(fs::read_to_string(&evidence).unwrap(), point);
+    assert_ne!(stopped.exit_code, 0, "{point}: {}", stopped.detail);
+    assert!(journal.launch(&key).unwrap().unwrap().released(), "{point}");
+    let receipt_path = slot.join(crate::quarantine::RESTORE_EVIDENCE);
+    assert!(receipt_path.is_file(), "{point}");
+    let index = crate::quarantine::load_index(&quarantine).unwrap();
+    assert!(matches!(
+      crate::quarantine::diagnose_entry(&quarantine, &entry.id, &index, &[]),
+      crate::quarantine::EntryDiagnosis::Blocked(_)
+    ));
+    assert!(crate::quarantine::audit_purge_entry(&quarantine, &entry.id)
+      .unwrap_err()
+      .contains("restoration"));
+    let bytes = if target.exists() {
+      fs::read(target.join("valuable")).unwrap()
+    } else {
+      fs::read(source.join("valuable")).unwrap()
+    };
+    assert_eq!(bytes, b"restored source bytes", "{point}");
+
+    // a fresh destination cannot redirect the retained copy or consume its remaining source.
+    let receipt_before = fs::read(&receipt_path).unwrap();
+    let (_, refused) = submit(
+      &mut journal,
+      &request(&fixture, &entry, Some(fixture.0.join("project/other"))),
+    );
+    assert_ne!(refused.exit_code, 0, "{point}: {}", refused.detail);
+    assert_eq!(refused.effects, 0);
+    assert_eq!(fs::read(&receipt_path).unwrap(), receipt_before);
+    assert!(!fixture.0.join("project/other").exists());
+
+    // the old key remains terminal; explicit new intent resumes the exact recorded destination.
+    let old = journal.lookup(&key).unwrap();
+    assert_eq!(
+      journal
+        .admit_execution(key.clone(), input.clone(), 5)
+        .unwrap(),
+      old
+    );
+    let (_, complete) = submit_with_timeout(&mut journal, &input, Duration::from_secs(120));
+    assert_eq!(complete.exit_code, 0, "{point}: {}", complete.detail);
+    assert_eq!(
+      fs::read(target.join("valuable")).unwrap(),
+      b"restored source bytes"
+    );
+    assert_eq!(
+      fs::read(target.join("nested/hard")).unwrap(),
+      b"restored source bytes"
+    );
+    assert_eq!(
+      fs::read(target.join("nested/binary")).unwrap(),
+      [0u8, 1, 2, 255]
+    );
+    assert_eq!(
+      fs::read_link(target.join("nested/link")).unwrap(),
+      PathBuf::from("../valuable")
+    );
+    assert!(!slot.exists());
+    let index = crate::quarantine::load_index(&quarantine).unwrap();
+    assert!(index.entries.is_empty() && index.held_ids.is_empty());
+    assert_eq!(journal.lookup(&key).unwrap(), old);
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"independent survivor"
+    );
+    assert!(!Scheduler::recover(&mut journal).unwrap().pending());
+  }
+  std::env::remove_var("REAP_NATIVE_RESTORE_FORCE_COPY");
+}
+
+#[test]
+fn native_restore_copy_retains_changed_destination_pairs_after_publication() {
+  const ENTRY: &str = "dispatch::tests::restore::native_restore_copy_retains_changed_destination_pairs_after_publication";
+  if std::env::var_os("REAP_RESTORE_COPY_CHANGED_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture", "--test-threads=1"])
+      .env("REAP_RESTORE_COPY_CHANGED_FIXTURE", "1")
+      .env_remove("REAP_NATIVE_RESTORE_FORCE_COPY")
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    return;
+  }
+  assert!(
+    std::env::var_os("REAP_TEST_WORKER_BIN").is_none(),
+    "requires the native test driver"
+  );
+  let (fixture, entry) = setup_payload(true);
+  let quarantine = fixture.0.join("state/reap/quarantine");
+  let slot = quarantine.join("entries").join(&entry.id);
+  let source = slot.join(&entry.name);
+  let target = fixture.0.join("project/copied");
+  let evidence = fixture.0.join("copy-stop-evidence");
+  let input = request(&fixture, &entry, Some(target.clone()));
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  std::env::set_var("REAP_NATIVE_RESTORE_FORCE_COPY", "1");
+  std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", "restore-copy-published");
+  std::env::set_var("REAP_NATIVE_LEASE_STOP_EVIDENCE", &evidence);
+  let (key, stopped) = submit_with_timeout(&mut journal, &input, Duration::from_secs(120));
+  std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+  std::env::remove_var("REAP_NATIVE_LEASE_STOP_EVIDENCE");
+  assert_eq!(
+    fs::read_to_string(evidence).unwrap(),
+    "restore-copy-published"
+  );
+  assert_ne!(stopped.exit_code, 0, "{}", stopped.detail);
+  assert!(journal.launch(&key).unwrap().unwrap().released());
+  let modified = filetime::FileTime::from_last_modification_time(
+    &fs::metadata(source.join("valuable")).unwrap(),
+  );
+  fs::write(target.join("valuable"), b"changed! source bytes").unwrap();
+  filetime::set_file_mtime(target.join("valuable"), modified).unwrap();
+  let (_, refused) = submit_with_timeout(&mut journal, &input, Duration::from_secs(120));
+  std::env::remove_var("REAP_NATIVE_RESTORE_FORCE_COPY");
+  assert_ne!(refused.exit_code, 0, "{}", refused.detail);
+  assert!(
+    refused
+      .detail
+      .contains("published counterpart bytes changed"),
+    "{}",
+    refused.detail
+  );
+  assert_eq!(
+    fs::read(source.join("valuable")).unwrap(),
+    b"restored source bytes"
+  );
+  assert_eq!(
+    fs::read(target.join("valuable")).unwrap(),
+    b"changed! source bytes"
+  );
+  assert!(slot.join(crate::quarantine::RESTORE_EVIDENCE).is_file());
+  assert_eq!(
+    crate::quarantine::load_index(&quarantine).unwrap().entries,
+    vec![entry]
+  );
+  assert_eq!(
+    fs::read(fixture.0.join("project/valuable")).unwrap(),
+    b"independent survivor"
+  );
+}
+
+#[test]
+fn native_restore_copy_streams_multiple_batches_and_preserves_hardlinked_bytes() {
+  const ENTRY: &str = "dispatch::tests::restore::native_restore_copy_streams_multiple_batches_and_preserves_hardlinked_bytes";
+  if std::env::var_os("REAP_RESTORE_COPY_WIDE_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture", "--test-threads=1"])
+      .env("REAP_RESTORE_COPY_WIDE_FIXTURE", "1")
+      .env_remove("REAP_NATIVE_RESTORE_FORCE_COPY")
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    return;
+  }
+  assert!(
+    std::env::var_os("REAP_TEST_WORKER_BIN").is_none(),
+    "requires the native test driver"
+  );
+  let (fixture, entry) = setup();
+  let quarantine = fixture.0.join("state/reap/quarantine");
+  let slot = quarantine.join("entries").join(&entry.id);
+  let source = slot.join(&entry.name);
+  for number in 0..130 {
+    fs::write(
+      source.join(format!("value-{number:03}")),
+      [number as u8, 0, 255],
+    )
+    .unwrap();
+  }
+  fs::hard_link(source.join("valuable"), source.join("hardlink")).unwrap();
+  let target = fixture.0.join("project/copied");
+  let input = request(&fixture, &entry, Some(target.clone()));
+  let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+  std::env::set_var("REAP_NATIVE_RESTORE_FORCE_COPY", "1");
+  let start = Instant::now();
+  let (_, result) = submit_with_timeout(&mut journal, &input, Duration::from_secs(240));
+  std::env::remove_var("REAP_NATIVE_RESTORE_FORCE_COPY");
+  eprintln!(
+    "wide restoration elapsed: {:.3} seconds",
+    start.elapsed().as_secs_f64()
+  );
+  assert_eq!(result.exit_code, 0, "{}", result.detail);
+  assert!(result.effects > 134, "{}", result.detail);
+  for number in 0..130 {
+    assert_eq!(
+      fs::read(target.join(format!("value-{number:03}"))).unwrap(),
+      [number as u8, 0, 255]
+    );
+  }
+  assert_eq!(
+    fs::read(target.join("valuable")).unwrap(),
+    b"restored source bytes"
+  );
+  assert_eq!(
+    fs::read(target.join("hardlink")).unwrap(),
+    b"restored source bytes"
+  );
+  assert!(!slot.exists());
+  assert!(crate::quarantine::load_index(&quarantine)
+    .unwrap()
+    .entries
+    .is_empty());
+  assert_eq!(
+    fs::read(fixture.0.join("project/valuable")).unwrap(),
+    b"independent survivor"
+  );
+}
+
+#[test]
+fn native_restore_copy_late_source_and_namespace_replacements_preserve_originals() {
+  const ENTRY: &str = "dispatch::tests::restore::native_restore_copy_late_source_and_namespace_replacements_preserve_originals";
+  if std::env::var_os("REAP_RESTORE_COPY_RACE_FIXTURE").is_none() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", ENTRY, "--nocapture", "--test-threads=1"])
+      .env("REAP_RESTORE_COPY_RACE_FIXTURE", "1")
+      .env_remove("REAP_NATIVE_RESTORE_FORCE_COPY")
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    return;
+  }
+  assert!(
+    std::env::var_os("REAP_TEST_WORKER_BIN").is_none(),
+    "requires the native test driver"
+  );
+  std::env::set_var("REAP_NATIVE_RESTORE_FORCE_COPY", "1");
+  for case in [
+    "restore-copy-late-source",
+    "restore-destination-replacement",
+    "restore-copy-leaf-replacement",
+  ] {
+    let (fixture, entry) = setup_payload(true);
+    let quarantine = fixture.0.join("state/reap/quarantine");
+    let slot = quarantine.join("entries").join(&entry.id);
+    let source = slot.join(&entry.name);
+    let target = fixture.0.join("project/copied");
+    let input = request(&fixture, &entry, Some(target.clone()));
+    let mut journal = Journal::open(&fixture.0.join("journal")).unwrap();
+    std::env::set_var("REAP_NATIVE_LEASE_UNIT_STOP", case);
+    std::env::set_var("REAP_NATIVE_RESTORE_COPY_SOURCE", &source);
+    let (_, refused) = submit_with_timeout(&mut journal, &input, Duration::from_secs(120));
+    std::env::remove_var("REAP_NATIVE_LEASE_UNIT_STOP");
+    std::env::remove_var("REAP_NATIVE_RESTORE_COPY_SOURCE");
+    assert_ne!(refused.exit_code, 0, "{case}: {}", refused.detail);
+    let receipt: serde_json::Value =
+      serde_json::from_slice(&fs::read(slot.join(crate::quarantine::RESTORE_EVIDENCE)).unwrap())
+        .unwrap();
+    let payload: crate::mutation::Object =
+      serde_json::from_value(receipt["payload"].clone()).unwrap();
+    match case {
+      "restore-copy-late-source" => {
+        assert!(!target.exists());
+        assert_eq!(
+          fs::read(source.join("valuable")).unwrap(),
+          b"changed during copy verification"
+        );
+        assert_eq!(
+          fs::read(payload.path.join("valuable")).unwrap(),
+          b"restored source bytes"
+        );
+      }
+      "restore-destination-replacement" => {
+        assert_eq!(
+          fs::read(target.join("valuable")).unwrap(),
+          b"replacement destination bytes"
+        );
+        assert_eq!(
+          fs::read(source.join("valuable")).unwrap(),
+          b"restored source bytes"
+        );
+        assert_eq!(
+          fs::read(payload.path.join("valuable")).unwrap(),
+          b"restored source bytes"
+        );
+      }
+      "restore-copy-leaf-replacement" => {
+        assert_eq!(
+          fs::read(target.join("valuable")).unwrap(),
+          b"restored source bytes"
+        );
+        assert!(fixture
+          .survivors()
+          .values()
+          .any(|value| value.as_slice() == b"replacement source leaf bytes"));
+      }
+      _ => unreachable!(),
+    }
+    assert_eq!(
+      crate::quarantine::load_index(&quarantine).unwrap().entries,
+      vec![entry]
+    );
+    assert_eq!(
+      fs::read(fixture.0.join("project/valuable")).unwrap(),
+      b"independent survivor"
+    );
+  }
+  std::env::remove_var("REAP_NATIVE_RESTORE_FORCE_COPY");
 }

@@ -978,8 +978,22 @@ Tracked declarations are not rewritten. An enclosing disposable seal refuses res
 Store files and symlinks require an explicit absolute destination under an existing physical parent.
 Existing Cargo or Store resources require a KEEP boundary honored by their current cleanup reader.
 Payload movement, index release, and recovery-slot removal have separate durable unit records.
-Interrupted prefixes retain recovery data; observe the same key rather than resubmit.
-Cross-volume restoration currently refuses without moving the payload.
+Interrupted prefixes retain recovery data. Observe the original key until its outcome and worker exit are known.
+Cross-volume restoration uses a sealed KEEP preparation beside the destination on a supported physical layout.
+The worker requires available destination space and retains `.reap-restore.json` in the quarantine slot before filling the preparation.
+An interrupted preparation can already contain its empty root or literal symlink before that receipt exists; its wrapper stays retained.
+It verifies complete bytes, links and native metadata, then publishes without replacement and fully synchronizes the destination volume.
+Source removal follows as exact journaled units. Each remaining source entry must match its published counterpart.
+Readonly source directories and immutable or append-only entries refuse before payload production.
+Changed or unsupported metadata retains both locations; Reap does not infer permission to discard either version.
+
+After a terminal failure, an explicit new restoration for the same ID and recorded `--to` can resume the retained copy.
+The previous native producer must have exited. The original key remains an observation of its original result.
+Do not start a new request while the original outcome or ownership remains unknown.
+An unpublished copy requires its original source signature. A published copy permits edits but retains each changed source/copy pair.
+Reconcile such conflicts before another restoration. Do not delete receipts, preparations or source data to bypass a refusal.
+Purge and Doctor refuse slots with restoration receipts, including explicit purge selectors.
+Terminal `copy.receipt_path` and `copy.preparation_path` identify retained recovery locations; those paths can be absent after successful cleanup.
 
 KEEP replaces the prior lifetime and child-retention settings. Only owner, purpose and provenance are copied.
 Data restoration rejects lifecycle control basenames, `.git` paths, and the active Reap configuration namespace.
@@ -988,6 +1002,9 @@ New parent directories use mode 0700. New policy and index files use mode 0600.
 Interrupted preparations can retain `.reap-publish-*` or `.reap-directory-*` recovery entries.
 Do not discard them merely to obtain a successful retry.
 A null `payload_moved` or `index_released` means that no conclusive observation is available.
+For a copy, `payload_moved` requires complete source removal. `copy.payload_published` separately reports destination publication.
+`copy.source_removed` and `copy.index_released` identify known completed phases, not permission for dependent cleanup.
+With `unknown_effects`, a false copy-phase flag does not prove that its effect never occurred.
 If movement completes but index release fails, the payload remains at the destination with its old quarantine row.
 
 Automatic purge withholds an otherwise eligible entry when it is held in the

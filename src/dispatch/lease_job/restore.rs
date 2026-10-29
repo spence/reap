@@ -1,19 +1,24 @@
 //! Journaled recovery into an absent destination with fresh retained-policy evidence.
 
-use super::*;
+mod copy;
+mod staged;
+
 use std::cell::Cell;
 use std::os::unix::ffi::OsStrExt;
 
+use super::*;
 use crate::invocation::RestoreRequest;
 use crate::launch::Resources;
 use crate::quarantine::{Entry, EntryDiagnosis};
 
 /// Exact recovery selection and destination anchors retained from scope resolution.
+#[derive(Clone)]
 pub(super) struct Plan {
   entry: Entry,
   source: PathBuf,
   destination: PathBuf,
   parents: Vec<PathBuf>,
+  receipt: Option<(FileVersion, staged::Receipt)>,
 }
 
 /// Bind the indexed payload, recovery metadata and real destination anchor before dispatch.
@@ -29,9 +34,32 @@ pub(super) fn inspect(
     .metadata(&crate::quarantine::index_path(quarantine))?
     .ok_or_else(|| invalid("quarantine index is absent"))?;
   let index = crate::quarantine::parse_index(&bytes).map_err(|reason| invalid(&reason))?;
+  if request.id.len() != 8 || !request.id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    return Err(invalid("invalid restoration entry id"));
+  }
+  let slot = crate::quarantine::entries_dir(quarantine).join(&request.id);
+  inspector.directory(&slot)?;
+  let receipt_path = slot.join(crate::quarantine::RESTORE_EVIDENCE);
+  let receipt_bytes = inspector.metadata(&receipt_path)?;
+  let receipt = receipt_bytes
+    .map(|bytes| -> io::Result<_> {
+      let receipt: staged::Receipt = serde_json::from_slice(&bytes)?;
+      receipt.validate(&slot)?;
+      let resources = Resources::Bulk {
+        physical_volumes: inspector.physical.iter().cloned().collect(),
+      };
+      let (version, current) = crate::mutation::read_metadata(&receipt_path, &resources)?
+        .ok_or_else(|| invalid("restoration receipt disappeared"))?;
+      if current != bytes {
+        return Err(invalid("restoration receipt changed during inspection"));
+      }
+      Ok((version, receipt))
+    })
+    .transpose()?;
   let mut selected = index.entries.iter().filter(|entry| entry.id == request.id);
   let entry = selected
     .next()
+    .or_else(|| receipt.as_ref().map(|(_, receipt)| &receipt.entry))
     .ok_or_else(|| invalid("quarantine entry is not indexed"))?
     .clone();
   if selected.next().is_some() || !one_name(&entry.name) {
@@ -39,13 +67,29 @@ pub(super) fn inspect(
       "quarantine entry has a duplicate id or unsafe payload name",
     ));
   }
-  let slot = crate::quarantine::entries_dir(quarantine).join(&entry.id);
-  inspector.directory(&slot)?;
+  if receipt
+    .as_ref()
+    .is_some_and(|(_, receipt)| receipt.entry != entry)
+  {
+    return Err(invalid("restoration receipt and index differ"));
+  }
   inspector.metadata(&slot.join(crate::quarantine::ENTRY_EVIDENCE))?;
   let source = slot.join(&entry.name);
-  let held = inspector.entry(&source)?;
-  if !held.metadata()?.is_dir() && entry.store.is_none() {
-    return Err(invalid("non-store quarantine payload is not a directory"));
+  match inspector.entry(&source) {
+    Ok(held) => {
+      if !held.metadata()?.is_dir() && entry.store.is_none() {
+        return Err(invalid("non-store quarantine payload is not a directory"));
+      }
+      if receipt.as_ref().is_some_and(|(_, receipt)| {
+        ObjectIdentity::read_entry(&held).ok().as_ref() != Some(&receipt.source.identity)
+      }) {
+        return Err(invalid("restoration source changed identity"));
+      }
+    }
+    Err(error) if error.kind() == io::ErrorKind::NotFound && receipt.is_some() => {
+      inspector.absent(&source)?;
+    }
+    Err(error) => return Err(error),
   }
   if entry.store.is_some() && request.to.is_none() {
     return Err(invalid(
@@ -80,6 +124,7 @@ pub(super) fn inspect(
     crate::parents::PARENT_MARKER,
     crate::stores::STORE_MARKER,
     crate::quarantine::ENTRY_EVIDENCE,
+    crate::quarantine::RESTORE_EVIDENCE,
     "CACHEDIR.TAG",
     ".git",
   ]
@@ -115,15 +160,20 @@ pub(super) fn inspect(
       "store restore requires an existing physical parent",
     ));
   }
-  if !matches!(std::fs::symlink_metadata(&destination), Err(error) if error.kind() == io::ErrorKind::NotFound)
-  {
-    return Err(invalid("restoration destination exists or is unavailable"));
+  if let Some((_, receipt)) = &receipt {
+    if receipt.destination != destination {
+      return Err(invalid("restoration is bound to its recorded destination"));
+    }
+    staged::inspect(inspector, receipt)?;
+  } else if !absent(&destination)? {
+    return Err(invalid("restoration destination exists"));
   }
   Ok(Plan {
     entry,
     source,
     destination,
     parents,
+    receipt,
   })
 }
 
@@ -166,7 +216,11 @@ pub(super) fn assess(
   };
   let mut moved = false;
   let mut indexed = false;
+  let mut copied = staged::Progress::default();
   let result = (|| -> io::Result<()> {
+    if plan.receipt.is_some() {
+      return staged::restore(&mut runner, plan, helpers, &mut copied);
+    }
     // require the inspected entry and complete recovery evidence before any target effect.
     let (version, index) = load_quarantine(quarantine, &grant.resources)?;
     current_entry(plan, &index)?;
@@ -192,11 +246,11 @@ pub(super) fn assess(
       .and_then(|path| path.parent())
       .or_else(|| plan.destination.parent())
       .ok_or_else(|| invalid("destination has no anchor"))?;
-    if std::fs::symlink_metadata(&plan.source)?.dev() != std::fs::metadata(anchor)?.dev() {
-      return Err(invalid(
-        "cross-volume restoration requires verified staged-copy support",
-      ));
-    }
+    let copy_required =
+      std::fs::symlink_metadata(&plan.source)?.dev() != std::fs::metadata(anchor)?.dev();
+    #[cfg(test)]
+    let copy_required =
+      copy_required || std::env::var_os("REAP_NATIVE_RESTORE_FORCE_COPY").is_some();
     crate::preservation::check_container(anchor)?;
 
     // prepare retained policy without changing tracked declarations.
@@ -254,6 +308,10 @@ pub(super) fn assess(
           Ok(())
         },
       )?;
+    }
+
+    if copy_required {
+      return staged::restore(&mut runner, plan, helpers, &mut copied);
     }
 
     // bind complete payload evidence before the journal retains its exact move intent.
@@ -348,6 +406,10 @@ pub(super) fn assess(
   let error = result
     .err()
     .map(|error| error.to_string().chars().take(2048).collect::<String>());
+  if copied.started {
+    moved = copied.source_removed;
+    indexed = copied.index_released;
+  }
   let payload_moved = if runner.unknown && !moved {
     None
   } else {
@@ -365,6 +427,7 @@ pub(super) fn assess(
       "command":"quarantine","action":"restore","id":request.id,
       "destination":plan.destination,"payload_moved":payload_moved,"index_released":index_released,
       "unknown_effects":runner.unknown,"error":error,
+      "copy":copied.started.then_some(&copied),
     }))?,
   })
 }
@@ -396,6 +459,16 @@ fn current_index(
 
 /// Require an absent destination outside protected state and overlapping work.
 fn destination_safe(context: &Context<'_>, plan: &Plan, leases: &LeaseFile) -> io::Result<()> {
+  destination_bound(context, plan, leases, None)
+}
+
+/// Accept an occupied destination only when it is the exact published copy.
+fn destination_bound(
+  context: &Context<'_>,
+  plan: &Plan,
+  leases: &LeaseFile,
+  published: Option<&ObjectIdentity>,
+) -> io::Result<()> {
   if context
     .forbidden
     .iter()
@@ -412,9 +485,13 @@ fn destination_safe(context: &Context<'_>, plan: &Plan, leases: &LeaseFile) -> i
       "restoration overlaps protected state, caller, lease or creation",
     ));
   }
-  if !matches!(std::fs::symlink_metadata(&plan.destination), Err(error) if error.kind() == io::ErrorKind::NotFound)
-  {
-    return Err(invalid("restoration destination exists or is unavailable"));
+  if !absent(&plan.destination)? {
+    let current = crate::mutation::open_entry(&plan.destination)?;
+    if Some(&ObjectIdentity::read_entry(&current)?) != published {
+      return Err(invalid(
+        "restoration destination exists or changed identity",
+      ));
+    }
   }
   Ok(())
 }
@@ -658,7 +735,16 @@ fn one_name(name: &str) -> bool {
   let mut components = Path::new(name).components();
   matches!(components.next(), Some(std::path::Component::Normal(_)))
     && components.next().is_none()
-    && !matches!(name, crate::quarantine::ENTRY_EVIDENCE | ".reap-entry.tmp")
+    && !crate::quarantine::recovery_name(name)
+}
+
+/// Prove namespace absence without treating an observation error as absence.
+fn absent(path: &Path) -> io::Result<bool> {
+  match std::fs::symlink_metadata(path) {
+    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
+    Ok(_) => Ok(false),
+    Err(error) => Err(error),
+  }
 }
 
 /// Capture no-follow payload metadata and a symlink's literal target.

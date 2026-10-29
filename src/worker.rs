@@ -1122,6 +1122,14 @@ fn spawn(
     command.env("REAP_NATIVE_LEASE_STOP_EVIDENCE", evidence);
   }
   #[cfg(test)]
+  if let Some(mode) = std::env::var_os("REAP_NATIVE_RESTORE_FORCE_COPY") {
+    command.env("REAP_NATIVE_RESTORE_FORCE_COPY", mode);
+  }
+  #[cfg(test)]
+  if let Some(source) = std::env::var_os("REAP_NATIVE_RESTORE_COPY_SOURCE") {
+    command.env("REAP_NATIVE_RESTORE_COPY_SOURCE", source);
+  }
+  #[cfg(test)]
   if let Some(stop) = std::env::var_os("REAP_NATIVE_STORES_UNIT_STOP") {
     command.env("REAP_NATIVE_STORES_UNIT_STOP", stop);
   }

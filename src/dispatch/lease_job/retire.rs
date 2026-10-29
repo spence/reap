@@ -375,7 +375,7 @@ pub(super) fn assess(
         .and_then(|name| name.to_str())
         .ok_or_else(|| invalid("retirement source has no UTF-8 basename"))?;
       let destination = slot.join(name);
-      if name == crate::quarantine::ENTRY_EVIDENCE || name == ".reap-entry.tmp" {
+      if crate::quarantine::recovery_name(name) {
         return Err(invalid(
           "retirement source conflicts with recovery metadata",
         ));

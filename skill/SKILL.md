@@ -315,15 +315,23 @@ reap purge --apply --wait 30        # delete those (self-refuses if auto_purge=f
 reap purge --owner <name> --apply --wait 30 # explicit selectors bypass auto_purge
 ```
 
-Require completed restoration before dependent work. Use the original key after an interruption.
-Restore only into an absent, effectively retained destination.
+Require completed restoration before dependent work. Observe the original key until its result and worker exit are known.
+Start restoration only into an absent, effectively retained destination; recovery must use the recorded destination.
 Cargo and Store resources need an honored KEEP veto from their current cleanup reader.
 Untracked restored directories receive sealed KEEP without disposal adoption; tracked declarations remain unchanged.
-An enclosing disposable seal refuses restoration. Cross-volume restoration remains unavailable.
+An enclosing disposable seal refuses restoration.
+Cross-volume restoration uses retained staging, complete byte/metadata verification and exact journaled source removal on supported layouts.
+Keep both locations after a metadata or content conflict. Reconcile the conflict before another restoration.
+After known terminal failure, submit new intent with the same ID and recorded `--to` to resume; the old key cannot repeat effects.
+Do not resubmit unknown or pending work. Do not delete source data, receipts or preparations to bypass refusal.
+Read `copy.receipt_path` and `copy.preparation_path` for retained recovery locations.
+Purge and Doctor refuse restoration receipts, including explicit purge selectors.
+Source directories without owner write/search permission and immutable or append-only entries refuse before copy production.
 Preserve recovery evidence after partial or uncertain effects; do not repeat the move manually.
 Restore control metadata to an inert filename; ordinary recovery cannot activate policy, markers or operational configuration.
 KEEP resets prior lifetime and child-retention settings; only owner, purpose and provenance are copied.
 Treat null effect flags as unknown. Inspect the reported destination when a move completes before index release.
+For copies, distinguish `copy.payload_published` from `copy.source_removed`; false flags with `unknown_effects` do not prove no effect.
 
 Automatic purge applies the machine's grace period to old and new indexed
 entries alike, but skips held entries, surviving lease markers, and entries

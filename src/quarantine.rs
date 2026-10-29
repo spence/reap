@@ -56,6 +56,14 @@ pub struct StoreProvenance {
 }
 
 pub const ENTRY_EVIDENCE: &str = ".reap-entry.json";
+pub const RESTORE_EVIDENCE: &str = ".reap-restore.json";
+
+/// Recovery basenames cannot also name payloads, including case-insensitive filesystem aliases.
+pub(crate) fn recovery_name(name: &str) -> bool {
+  [ENTRY_EVIDENCE, RESTORE_EVIDENCE, ".reap-entry.tmp"]
+    .iter()
+    .any(|reserved| name.eq_ignore_ascii_case(reserved))
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1126,7 +1134,7 @@ fn retire_unit(
     .file_name()
     .and_then(|name| name.to_str())
     .ok_or_else(|| format!("{} has no UTF-8 basename", source.display()))?;
-  if name == ENTRY_EVIDENCE || name == ".reap-entry.tmp" {
+  if recovery_name(name) {
     return Err(format!(
       "{} conflicts with quarantine metadata",
       source.display()
@@ -1196,7 +1204,7 @@ fn prepare_retire(
     .file_name()
     .map(|s| s.to_string_lossy().into_owned())
     .unwrap_or_else(|| lease.id.clone());
-  if name == ENTRY_EVIDENCE || name == ".reap-entry.tmp" {
+  if recovery_name(&name) {
     return Err(format!(
       "{} conflicts with quarantine metadata",
       src.display()
@@ -1314,6 +1322,13 @@ pub fn audit_purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
     return Err(format!(
       "{} is not a directory on the quarantine volume",
       slot.display()
+    ));
+  }
+  if !matches!(fs::symlink_metadata(slot.join(RESTORE_EVIDENCE)), Err(error) if error.kind() == io::ErrorKind::NotFound)
+  {
+    return Err(format!(
+      "restoration receipt requires restoration recovery, not purge: {}",
+      slot.join(RESTORE_EVIDENCE).display()
     ));
   }
   crate::preservation::check_legacy(&slot, None)?;
@@ -1444,6 +1459,13 @@ pub fn diagnose_entry(
   }
   let row = index.entries.iter().find(|entry| entry.id == id);
   let slot = entries_dir(qdir).join(id);
+  if !matches!(fs::symlink_metadata(slot.join(RESTORE_EVIDENCE)), Err(error) if error.kind() == io::ErrorKind::NotFound)
+  {
+    return EntryDiagnosis::Blocked(format!(
+      "restoration requires recovery: {}",
+      slot.join(RESTORE_EVIDENCE).display()
+    ));
+  }
   match fs::symlink_metadata(&slot) {
     Ok(meta) if meta.is_dir() => {}
     Ok(_) => return EntryDiagnosis::Blocked("slot is not a directory".to_string()),

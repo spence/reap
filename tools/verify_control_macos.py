@@ -86,6 +86,11 @@ def main():
                 "native_files_apply_deletion_recovers_partial_prefix_without_resuming_recursion",
                 "native_files_apply_deletion_preserves_new_keep_replacements_and_revoked_configuration",
                 "native_files_apply_recovers_index_publication_without_repeating_or_losing_payloads",
+                "restore::native_restore_staged_copy_preserves_nested_bytes_links_and_store_leaves",
+                "restore::native_restore_copy_recovers_publication_partial_removal_and_index_release",
+                "restore::native_restore_copy_retains_changed_destination_pairs_after_publication",
+                "restore::native_restore_copy_streams_multiple_batches_and_preserves_hardlinked_bytes",
+                "restore::native_restore_copy_late_source_and_namespace_replacements_preserve_originals",
             ]
             for name in cases:
                 case = "dispatch::tests::" + name

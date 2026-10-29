@@ -164,6 +164,13 @@ impl Applying<'_, '_> {
       .revalidate_effects(&self.moved, &self.removed, &self.published)?;
     crate::invocation::fresh_with_state_prefix(self.input, &self.namespace_prefix)?;
     for object in &self.created {
+      if self
+        .removed
+        .iter()
+        .any(|removed| object.path.starts_with(removed))
+      {
+        continue;
+      }
       if ObjectIdentity::read(&crate::files::open_physical(&object.path)?)? != object.identity {
         return Err(invalid("created lifecycle directory changed identity"));
       }
@@ -1171,9 +1178,20 @@ fn unit_fixture(label: &str, path: &Path) -> io::Result<()> {
         directory.join(".git/index"),
       )?;
     }
-    ("restore-destination-replacement", "restore-payload") => {
+    ("restore-destination-replacement", "restore-payload" | "restore-copy-publish") => {
       std::fs::create_dir(path)?;
       std::fs::write(path.join("valuable"), b"replacement destination bytes")?;
+    }
+    ("restore-copy-late-source", "restore-copy-publish") => {
+      let source = PathBuf::from(
+        std::env::var_os("REAP_NATIVE_RESTORE_COPY_SOURCE")
+          .ok_or_else(|| invalid("restore copy source fixture is absent"))?,
+      );
+      std::fs::write(source.join("valuable"), b"changed during copy verification")?;
+    }
+    ("restore-copy-leaf-replacement", "restore-copy-unlink") => {
+      std::fs::rename(path, path.with_extension("retained-original"))?;
+      std::fs::write(path, b"replacement source leaf bytes")?;
     }
     ("restore-index-replacement", "restore-index") => {
       std::fs::rename(path, path.with_extension("retained-original"))?;

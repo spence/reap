@@ -244,7 +244,17 @@
   remain bound through the move. Existing data and unrelated index entries are never overwritten.
   Payload movement and index publication have separate durable unit intents. Interrupted or
   uncertain prefixes retain recovery evidence; replay does not repeat an effect.
-  Cross-volume restoration remains refused until verified staged-copy support exists.
+  Cross-volume restoration uses retained destination-side preparation and a slot-local recovery
+  receipt before filling its privately created root. Complete bytes, links and supported native metadata match
+  before no-replace publication. The held destination parent has a full synchronization barrier
+  before source release. Exact postorder unlink units remove only freshly equal counterparts;
+  changed pairs remain. Bounded batches do not repeat whole-source preservation scans per entry.
+  A receipt binds the exact source, preparation, payload, destination parent and native producer.
+  Explicit new intent can resume the recorded destination only after prior producer exit;
+  the original key never repeats effects. Purge and diagnosis retain receipt-bearing slots.
+  Unsupported source-cleanup permissions or metadata refuse before copied payload production.
+  Known publication, source removal and index release remain separately observable; unknown
+  effects cannot be read as proof that an incomplete phase had no effects.
   Bindings: `dispatch::tests::restore`;
   `invocation::tests::restore_arguments_keep_destination_and_wait_separate`;
   `tests/test_public_mutations.py::PublicMutations::test_restore_does_not_wait_for_configuration_fifo`.
