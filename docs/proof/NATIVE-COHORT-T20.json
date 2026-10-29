@@ -1,0 +1,245 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T20",
+  "date": "2026-10-29",
+  "scope": "Held SQLite cohort component, not a complete native provider profile, public archive operation, source-release implementation or installed fleet delivery.",
+  "source_manifest": {
+    "base": "522027bc231a195f217caa2a4901300ab40ae0bb",
+    "files": [
+      {
+        "path": "src/archive/sqlite.rs",
+        "sha256": "41be2e9f46ab08a61e3452df84b5e6b9fd34e59e88dfc6de8f2c174502518370"
+      },
+      {
+        "path": "docs/specs/archive-custody.md",
+        "sha256": "33cafcc08730da871f467cfae1eb1706a2376f7ea510a7ef1c8842f1c241b78b"
+      },
+      {
+        "path": "target/native-profile-t20/read_codex_without_resume.py",
+        "sha256": "39df725aef57c0287e45243d8a3aae0c2d78b0f2a062aa89a34a0654c42f9f14"
+      },
+      {
+        "path": "target/native-profile-t20/probe_codex_capture_epoch.py",
+        "sha256": "98b10c087b47364cf370de7360f045378d88858c16147739e806865cd815e095"
+      },
+      {
+        "path": "target/native-profile-t20/probe_codex_rust_cohort.py",
+        "sha256": "ec00f6ca45dd014966df6ded8929c54a0edcaad37b28db8167e26efb7f94fb49"
+      }
+    ]
+  },
+  "native_binary": {
+    "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/cohort-frozen-v3/unit",
+    "sha256": "15fdab77465dc3b3572e4468ac8a9365c3c1f3cefec0f6eeea1982dbc5cc8538",
+    "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+    "identifier": "dev.micro.reap.native-tests",
+    "bytes": 38703792,
+    "storage_device": 16777232
+  },
+  "platform_versions": {
+    "catalyst": {
+      "host": "catalyst.local",
+      "native_client_version": "codex-cli 0.163.0",
+      "native_client_sha256": "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31",
+      "system_sqlite_version": "3.51.0",
+      "python_sqlite_version": "3.53.3",
+      "python_version": "3.14.6",
+      "scope": "Selected component metadata only; no installed fleet-profile compatibility claim."
+    },
+    "catalyst-mini": {
+      "host": "catalyst-mini.local",
+      "native_client_version": "codex-cli 0.163.0",
+      "native_client_sha256": "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31",
+      "system_sqlite_version": "3.51.0",
+      "python_sqlite_version": "3.51.0",
+      "python_version": "3.9.6",
+      "scope": "Selected component metadata only; no installed fleet-profile compatibility claim."
+    }
+  },
+  "current_focused": {
+    "catalyst": {
+      "passed": 18,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 0.43
+    },
+    "catalyst-mini": {
+      "passed": 18,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 0.56
+    },
+    "ignored_entry": "cohort_fixture_process requires an owned native fixture; ordinary selection does not count it as native-provider proof."
+  },
+  "actual_native_driver": {
+    "catalyst": {
+      "thread_id": "01a16bec-9474-7552-87e2-ec4f9e532a16",
+      "turn_ids": [
+        "01a16bec-9ab4-7f71-aacd-d6658e463a53"
+      ],
+      "turn_count": 1,
+      "item_count": 10,
+      "turn_digest": "eb375023ff7bd4d51ccdaff197a6a45b2a04780d20c02f316a40ef701409c497",
+      "item_digest": "591b35d0b913572473faa33c665cafe97de96f175fa31475a449c6296754653c",
+      "databases": 5,
+      "snapshot_before": true,
+      "live_after": true,
+      "fresh_after": true,
+      "rust_pid": 44538,
+      "rust_exit": 0,
+      "original_capture_unchanged": true,
+      "scope": "Actual Rust database-cohort capability; full native file/dependency closure remains open"
+    },
+    "catalyst-mini": {
+      "thread_id": "01a16bec-9474-7552-87e2-ec4f9e532a16",
+      "turn_ids": [
+        "01a16bec-9ab4-7f71-aacd-d6658e463a53"
+      ],
+      "turn_count": 1,
+      "item_count": 10,
+      "turn_digest": "eb375023ff7bd4d51ccdaff197a6a45b2a04780d20c02f316a40ef701409c497",
+      "item_digest": "591b35d0b913572473faa33c665cafe97de96f175fa31475a449c6296754653c",
+      "databases": 5,
+      "snapshot_before": true,
+      "live_after": true,
+      "fresh_after": true,
+      "rust_pid": 78022,
+      "rust_exit": 0,
+      "original_capture_unchanged": true,
+      "scope": "Actual Rust database-cohort capability; full native file/dependency closure remains open"
+    },
+    "scope": "Five native snapshots reach DONE. Only state_5 name is the native temporal witness; other four databases are unchanged native components. Two-database concurrent changes are covered separately by the native SQLite unit case.",
+    "requests": "initialize, readonly native history/goal/queue methods, and explicit private-copy thread/name/set; no resume or model/tool turn request.",
+    "both_hosts_exit_zero": true,
+    "identity_pre_post_match": true
+  },
+  "preceding_v2_custody_regressions": {
+    "catalyst": {
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 13.75
+    },
+    "catalyst-mini": {
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 14.84
+    },
+    "scope": "Previous V2 binary. Runtime Rust did not change in the later oracle/fixture/ignored-driver corrections; this is not a fresh V3 custody run."
+  },
+  "preceding_v2_full_binary_units": {
+    "passed": 489,
+    "failed": 2,
+    "ignored": 0,
+    "seconds": 1584.38
+  },
+  "full_run_failures": [
+    "dispatch::tests::purge::native_purge_automatic_policy_and_explicit_selectors_keep_their_legacy_boundaries",
+    "dispatch::tests::purge::native_purge_interrupted_units_keep_the_exact_completed_prefix_and_replay"
+  ],
+  "failure_issue": "ISS-RESOLVE-NATIVE-PURGE-TERMINAL-AND-INTERR",
+  "full_scope_limits": [
+    "No full V3 unit or full cargo pass is claimed.",
+    "The earlier 485-case restore pass excludes this component.",
+    "Purge failure cause is not established; source edits, native activity and SQLite are not inferred causes."
+  ],
+  "retained_failures": [
+    "Initial Rust native probe could not open dormant copied WAL stores without sidecars. System SQLite is 3.51.0. Native readonly hydration in a fresh private copy supplied the actual probe stores; no writable-source fallback, immutable shortcut, guard removal or library upgrade was used.",
+    "Initial Mini ordinary SQLite run resolved the compile-time source checkout before the existing internal-device guard. All real cases refused before execution. The corrected default uses the existing runtime temporary directory and validates its canonical device before fixture creation. Fresh Mini proof omits the override and passes.",
+    "The old Python epoch diagnostic fails on dormant native WAL stores on the Mini. It is separate from the actual Rust native producer proof."
+  ],
+  "source_review": {
+    "peer": "peer-18e306dc66e11c30-606314",
+    "conversation": "conversation-18e306dc692cf860-606318",
+    "request": "cmsg-18e30cda74a4a748-608229",
+    "status": "Accepted as the exact held component source checkpoint, not full T20 or goal acceptance.",
+    "terminal_state": "completed",
+    "ruling_sha256": "03da7c2f0ab0ac9cbc30cffc664dd3a1c43d975314a8eb35c191d56430260c38"
+  },
+  "unproved": [
+    "Cold real-source WAL handling",
+    "Complete provider files, descendants, required ancestors, aliases, uploads, attachments and file checkpoints",
+    "Production NativeVerifier and final selected-group source validation",
+    "Production archive jobs, receiver identity/capacity/recovery and public independent retrieval",
+    "All-writer source-release protocol and real origin-aware final-boundary consumer acknowledgement",
+    "Complete current integration suite and installed same-Micro fleet delivery"
+  ],
+  "retained_evidence": [
+    {
+      "path": "target/native-profile-t20/cohort-build-v3.log",
+      "sha256": "446c758e18a91e69bc00e6ac03b1275669735429895caf09055d535d7f7a0a24"
+    },
+    {
+      "path": "target/native-profile-t20/cohort-native-v3.log",
+      "sha256": "b76e609c072a6d1cc48e1928f12b21a263f2615dfe2361549f2cf414a5ea1fae"
+    },
+    {
+      "path": "target/native-profile-t20/mini-v4--sqlite-native-default-v4.log",
+      "sha256": "f7f074a21a97641cb4fda6adb075235b57493fe6ae2392a0d3e26787773dbac4"
+    },
+    {
+      "path": "target/native-profile-t20/codex-rust-cohort-v4/result.json",
+      "sha256": "97cf2ab6537762c9ec5f9d71c30fe8c836012f9a76d313e8132012c0878d5e8f"
+    },
+    {
+      "path": "target/native-profile-t20/codex-rust-cohort-v4/protocol.json",
+      "sha256": "4b5173f1b0706d421c8b5712e8867dd454f566cb62c1a051347611f824524d36"
+    },
+    {
+      "path": "target/native-profile-t20/codex-rust-cohort-v4/rust-driver.log",
+      "sha256": "bbfa69cf123e85cc69e15e7d1800c3c3474a5b979767b07d9df3d5f8b78729dd"
+    },
+    {
+      "path": "target/native-profile-t20/mini-v4--native-profile-t20--codex-rust-cohort-v4--result.json",
+      "sha256": "bfd25ab988655d9d6a2ee85d6bba511908fbbf4271325627772c857ab624afec"
+    },
+    {
+      "path": "target/native-profile-t20/mini-v4--native-profile-t20--codex-rust-cohort-v4--protocol.json",
+      "sha256": "6f224a03a1da67654020aca5540c223ba7c247e9b1dffb26e1ead01796674076"
+    },
+    {
+      "path": "target/native-profile-t20/mini-v4--native-profile-t20--codex-rust-cohort-v4--rust-driver.log",
+      "sha256": "a59a7e36b9770e4ae514c66df1047144d4b1fa9bdfadb32d16c53118c4bd637d"
+    },
+    {
+      "path": "target/native-profile-t20/cohort-native-pre-v3.json",
+      "sha256": "2a22aeb00d02fd1f82b90acb40eb895f743e6887424935af19bc1d30f61e79e1"
+    },
+    {
+      "path": "target/native-profile-t20/cohort-native-post-v3.json",
+      "sha256": "2a22aeb00d02fd1f82b90acb40eb895f743e6887424935af19bc1d30f61e79e1"
+    },
+    {
+      "path": "target/native-profile-t20/mini-v4--native-pre-v4.json",
+      "sha256": "dda85e4925944179624a760edc8ed8044a2937c8db737d03a5a1278c945eb9a5"
+    },
+    {
+      "path": "target/native-profile-t20/mini-v4--native-post-v4.json",
+      "sha256": "dda85e4925944179624a760edc8ed8044a2937c8db737d03a5a1278c945eb9a5"
+    },
+    {
+      "path": "target/native-profile-t20/cohort-full-isolated-v2.log",
+      "sha256": "12d68384510f1239dc2a0642a8d7e56777cbaac08b44c2d12308b49fa8a40512"
+    },
+    {
+      "path": "target/native-profile-t20/purge-full-v2-survivor-readback.json",
+      "sha256": "edad12812f97248919bfd514f0ce53c37290ffea1b3c88d53fbd5aee321b99be"
+    },
+    {
+      "path": "target/native-profile-t20/purge-auto-focused-v3.log",
+      "sha256": "e1b386690d7c25ae6ebd8cc3bae2a38d414e70795dd4231b188ceb835341f8a0"
+    },
+    {
+      "path": "target/native-profile-t20/cohort-review-wait-v5.json",
+      "sha256": "03da7c2f0ab0ac9cbc30cffc664dd3a1c43d975314a8eb35c191d56430260c38"
+    }
+  ],
+  "subsequent_purge_automatic_case": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 118.59,
+    "scope": "Focused repeat only. It does not establish the original failure cause or clear the full-suite gate."
+  }
+}

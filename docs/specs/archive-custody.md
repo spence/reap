@@ -1,10 +1,11 @@
 # SPEC-ARCHIVE-CUSTODY — permanent native capture storage
 
 - Status: accepted within the authorized core implementation lane.
-- Surface: `src/archive.rs` and its archive-local format, version 1.
+- Surface: `src/archive.rs`, `src/archive/sqlite.rs`, and the archive-local format, version 1.
 - Consumers: native adapters, the coordinator, operators, and independent archive readers.
 - Grounds: owner implementation direction; [DEC-LIFETIME-AUTHORITY](../decisions/DEC-LIFETIME-AUTHORITY.md), section 6A.
-- Fixtures: none. Tier 2 same-change binding: `src/archive.rs`, `src/archive/tests.rs`, and this contract.
+- Fixtures: none. Tier 2 same-change binding: `src/archive.rs`, `src/archive/tests.rs`,
+  `src/archive/sqlite.rs`, and this contract.
   No automatic same-change checker enforces this map.
 - Conformance: core bindings below; native and fleet acceptance remain separate gates.
 
@@ -38,6 +39,10 @@ A same-user writer can change permissions or forge unsigned evidence; this forma
 - **C8** — Permanent roles and completion evidence remain beside archive payload without job-window expiry.
   SQLite evidence requires `SQLITE_DONE`, successful finalization, integrity, and a matching component boundary.
   The real native adapter must attest the actual backup operation; raw live copying does not qualify.
+- **C9** — A SQLite snapshot cohort acquires at most eight WAL database views during one verified commit-free interval.
+  Backups use those pinned connections while later WAL commits can continue.
+  Source identity changes refuse copying. Any copy failure closes every remaining view and retains created output.
+  A view is copied once. The cohort is not serialized disposal authority or complete file/dependency closure.
 
 ## Archive-local format
 
@@ -188,7 +193,8 @@ CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=target/control-t13/archive-build \
   cargo test --bin reap archive::tests -- --test-threads=1
 ```
 
-All names below belong to `src/archive/tests.rs`. Bindings are same-change, not spec-fixture consumers.
+The C1–C8 names below belong to `src/archive/tests.rs`; C9 names belong to `src/archive/sqlite.rs`.
+Bindings are same-change, not spec-fixture consumers.
 
 | Clause | Decisive checks | Core state |
 | --- | --- | --- |
@@ -200,6 +206,7 @@ All names below belong to `src/archive/tests.rs`. Bindings are same-change, not 
 | C6 | `capacity_and_lost_reservations_preserve_sources_and_previous_captures`; `incomplete_staging_remains_protected_and_never_counts_as_a_capture` | Core met; real reservation/volume authority remains external |
 | C7 | `large_payload_streams_and_archive_inventory_rejects_unlisted_files`; `unsorted_duplicate_and_oversized_inventory_refuses_without_omission`; `ordered_inventory_lookup_has_no_missing_ids_at_variable_record_boundaries`; `growing_inventory_is_bounded_and_refused_instead_of_chased_or_truncated` | Bounded core met; no worker-level RSS certification claimed |
 | C8 | `sqlite_requires_done_finalize_integrity_and_explicit_native_evidence`; `real_sqlite_snapshot_evidence_survives_custody_and_private_retrieval`; native SQLite checks below | Native operation and custody boundary implemented; provider closure remains external |
+| C9 | `cohort_keeps_all_views_while_wal_writers_continue`; `cohort_refuses_committed_value_restoration_during_acquisition`; `cohort_refuses_a_source_symlink_before_output_creation`; `cohort_failed_copy_releases_every_read_view_and_refuses_reuse`; `cohort_refuses_unsupported_counts_and_non_wal_sources`; `cohort_failed_acquisition_releases_previously_pinned_views`; `cohort_expired_copy_releases_all_views_without_output` | Native cohort demonstrated; full provider closure remains external |
 
 Synchronization fault injection covers each synchronization point until the first complete execution.
 It includes the post-rename parent-flush failure and subsequent independent reconciliation.
@@ -219,6 +226,20 @@ alone does not establish cross-file conversation closure or permission to releas
 The caller must exclude same-user namespace changes throughout the operation.
 Deadlines bound SQLite work between native calls and through its VM progress callback.
 They cannot interrupt stalled kernel I/O; the operation belongs in an owned filesystem worker, outside response loops.
+
+`archive::sqlite::SnapshotCohort` observes every source before it acquires any read view.
+Separate read-only connections pin the views; each observer remains outside a transaction.
+The final acquisition check compares each observer's `data_version` on that same connection and revalidates source identity.
+An intervening commit, including changed-then-restored values, refuses the cohort before any destination exists.
+Separate connections cannot supply comparable values.
+
+After acquisition, observers close. Copying uses the pinned views, not fresh connections at their pathnames.
+WAL writers can continue during that work. Non-WAL sources are refused without a mode change or destination creation.
+A successful copy closes its view. Any failure closes all remaining views and leaves output retained.
+Expired, closed or already copied views cannot supply another snapshot.
+The adapter must still validate selected-group changes, files, aliases, lineage and dependency closure before publication.
+The cohort supplies a database snapshot point, not all-writer exclusion or source-release permission.
+Grounds: SQLite's [same-connection data-version contract](https://sqlite.org/pragma.html#pragma_data_version).
 
 Run the native checks in `src/archive/sqlite.rs` with:
 

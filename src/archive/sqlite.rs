@@ -29,6 +29,7 @@ const MAX_PATH: usize = 4096;
 const MAX_BOUNDARY: usize = 4096;
 const STEP_PAGES: c_int = 16;
 const PROGRESS_CALLS: u32 = 100_000;
+const MAX_COHORT_DATABASES: usize = 8;
 
 /// Create a private, exclusive destination from one pinned source read transaction.
 ///
@@ -60,9 +61,204 @@ pub fn backup(
   source_path.verify_native(&input)?;
   input.configure()?;
   input.command("PRAGMA query_only=ON")?;
+  let result = backup_opened(
+    &source_path,
+    &input,
+    destination_path,
+    boundary,
+    deadline,
+    max_bytes,
+  )?;
+  input.close()?;
+  source_path.verify()?;
+  Ok(result)
+}
+
+/// Pin up to eight database views within one verified, commit-free acquisition interval.
+/// WAL writers can continue during copying; the views retain their acquired database state.
+/// The profile still validates files, aliases, selected-group changes and dependencies.
+pub struct SnapshotCohort<'a> {
+  /// Acquired views; each connection is consumed after its copy or closed on failure.
+  sources: Vec<PinnedSource<'a>>,
+  /// One caller budget covers acquisition and every copy, without a per-database reset.
+  deadline: Instant,
+}
+
+impl<'a> SnapshotCohort<'a> {
+  /// Acquire all views before copying, with no write lock, busy wait or source mutation.
+  /// A failed acquisition closes every connection and creates no destination.
+  pub fn pin(sources: &[&'a Path], deadline: Instant) -> io::Result<Self> {
+    if sources.is_empty() || sources.len() > MAX_COHORT_DATABASES {
+      return Err(invalid("unsupported SQLite cohort source count"));
+    }
+
+    // observe every source before any read transaction selects a snapshot.
+    let epochs = sources
+      .iter()
+      .map(|path| ReadEpoch::observe(path, deadline))
+      .collect::<io::Result<Vec<_>>>()?;
+
+    // retain a separate pinned connection while observers remain outside transactions.
+    let mut pending = Vec::with_capacity(epochs.len());
+    for epoch in epochs {
+      let input = Connection::open(epoch.source.path, READONLY, deadline)?;
+      epoch.source.verify_native(&input)?;
+      input.configure()?;
+      input.command("PRAGMA query_only=ON")?;
+      pin_read(&input)?;
+      input.text("PRAGMA journal_mode", "wal")?;
+      epoch.source.verify_native(&input)?;
+      test_event(Event::CohortPinned)?;
+      pending.push((epoch, input));
+    }
+
+    // unchanged observers prove a shared interval containing all snapshot acquisitions.
+    for (epoch, _) in &pending {
+      epoch.unchanged()?;
+    }
+    Ok(Self {
+      sources: pending
+        .into_iter()
+        .map(|(epoch, input)| PinnedSource {
+          source: epoch.source,
+          input: Some(input),
+        })
+        .collect(),
+      deadline,
+    })
+  }
+
+  /// Copy one acquired view once, then close its connection.
+  /// Any error closes the entire cohort and retains all created output.
+  pub fn backup(
+    &mut self,
+    index: usize,
+    destination: &Path,
+    boundary: &str,
+    max_bytes: u64,
+  ) -> io::Result<SqliteSnapshot> {
+    let result = (|| {
+      time_left(self.deadline)?;
+      let source = self
+        .sources
+        .get_mut(index)
+        .ok_or_else(|| invalid("SQLite cohort source is absent"))?;
+      let input = source
+        .input
+        .as_ref()
+        .ok_or_else(|| invalid("SQLite cohort source is closed"))?;
+      source.source.verify_native(input)?;
+      if boundary.len() > MAX_BOUNDARY || boundary.trim().is_empty() || boundary.contains('\0') {
+        return Err(invalid("invalid SQLite boundary evidence"));
+      }
+
+      // copy only the retained view, not a new connection at its current pathname.
+      let destination = GuardedPath::destination(destination)?;
+      let result = backup_pinned(
+        &source.source,
+        input,
+        destination,
+        boundary,
+        self.deadline,
+        max_bytes,
+      )?;
+      source.input.take().unwrap().close()?;
+      source.source.verify()?;
+      Ok(result)
+    })();
+    if result.is_err() {
+      self.sources.clear();
+    }
+    result
+  }
+}
+
+/// A pathname and its acquired read transaction, retained until copied or refused.
+struct PinnedSource<'a> {
+  /// Native source identity and its no-follow parent binding.
+  source: GuardedPath<'a>,
+  /// None after a successful copy; a live connection retains the acquired view.
+  input: Option<Connection>,
+}
+
+/// Connection-local change evidence, held outside transactions only during acquisition.
+struct ReadEpoch<'a> {
+  /// The same source binding later transferred to the acquired view.
+  source: GuardedPath<'a>,
+  /// This observer stays outside transactions so external commits remain visible.
+  input: Connection,
+  /// Meaningful only on this retained connection during acquisition.
+  version: i64,
+  deadline: Instant,
+}
+
+impl<'a> ReadEpoch<'a> {
+  /// Observe a source without a write transaction, busy wait or persistent policy change.
+  fn observe(source: &'a Path, deadline: Instant) -> io::Result<Self> {
+    time_left(deadline)?;
+    let source = GuardedPath::source(source)?;
+    let input = Connection::open(source.path, READONLY, deadline)?;
+    source.verify_native(&input)?;
+    input.configure()?;
+    input.command("PRAGMA query_only=ON")?;
+    let version = input.integer("PRAGMA data_version")?;
+    source.verify_native(&input)?;
+    Ok(Self {
+      source,
+      input,
+      version,
+      deadline,
+    })
+  }
+
+  /// Refuse an expired, replaced or externally committed source acquisition interval.
+  fn unchanged(&self) -> io::Result<()> {
+    time_left(self.deadline)?;
+    self.source.verify_native(&self.input)?;
+    if self.input.integer("PRAGMA data_version")? != self.version {
+      return Err(invalid("SQLite source changed during capture epoch"));
+    }
+    self.source.verify_native(&self.input)
+  }
+}
+
+/// Select a read view without a write lock or an unbounded busy wait.
+fn pin_read(input: &Connection) -> io::Result<()> {
+  // BEGIN is deferred; a schema read selects the actual database view.
   input.command("BEGIN")?;
-  // the schema read pins the transaction before page-count evidence or any backup step.
-  input.command("SELECT rootpage FROM sqlite_schema LIMIT 1")?;
+  input.command("SELECT rootpage FROM sqlite_schema LIMIT 1")
+}
+
+/// Copy one held source transaction. Callers close the input on every error.
+fn backup_opened(
+  source_path: &GuardedPath<'_>,
+  input: &Connection,
+  destination_path: GuardedPath<'_>,
+  boundary: &str,
+  deadline: Instant,
+  max_bytes: u64,
+) -> io::Result<SqliteSnapshot> {
+  pin_read(input)?;
+  backup_pinned(
+    source_path,
+    input,
+    destination_path,
+    boundary,
+    deadline,
+    max_bytes,
+  )
+}
+
+/// Copy an acquired view. The input remains owned by its caller through every failure.
+fn backup_pinned(
+  source_path: &GuardedPath<'_>,
+  input: &Connection,
+  destination_path: GuardedPath<'_>,
+  boundary: &str,
+  deadline: Instant,
+  max_bytes: u64,
+) -> io::Result<SqliteSnapshot> {
+  // retain one acquired view for size evidence and every native backup step.
   let page_size = input.integer("PRAGMA page_size")?;
   let pages = input.integer("PRAGMA page_count")?;
   if !(512..=65536).contains(&page_size) || !(page_size as u64).is_power_of_two() || pages < 1 {
@@ -73,10 +269,11 @@ pub fn backup(
     .filter(|bytes| *bytes <= max_bytes)
     .ok_or_else(|| invalid("SQLite snapshot exceeds byte allowance"))?;
   test_event(Event::Pinned)?;
-  source_path.verify_native(&input)?;
+  source_path.verify_native(input)?;
   destination_path.verify()?;
 
-  let output = Connection::open(destination, READWRITE, deadline)?;
+  // configure an exclusive destination with bounded pages and no disk journal.
+  let output = Connection::open(destination_path.path, READWRITE, deadline)?;
   destination_path.verify_native(&output)?;
   output.configure()?;
   output.text("PRAGMA locking_mode=EXCLUSIVE", "exclusive")?;
@@ -89,12 +286,13 @@ pub fn backup(
     return Err(invalid("SQLite destination page bound was not applied"));
   }
 
-  let operation = NativeBackup::new(&input, &output)?;
+  // copy only the pinned page set, with finite work between native calls.
+  let operation = NativeBackup::new(input, &output)?;
   let mut calls = 0u64;
   let step_result = loop {
     input.budget.check()?;
     output.budget.check()?;
-    source_path.verify_native(&input)?;
+    source_path.verify_native(input)?;
     destination_path.verify_native(&output)?;
     // SAFETY: operation owns a live backup; both connections outlive this call.
     let result = unsafe { sqlite3_backup_step(operation.raw, STEP_PAGES) };
@@ -110,20 +308,21 @@ pub fn backup(
       return Err(native_error("SQLite backup step", result));
     }
   };
+  // require complete native finalization and integrity before releasing the transaction.
   let finish_result = operation.finish();
   completed(step_result, finish_result)?;
   input.budget.check()?;
   output.budget.check()?;
-  source_path.verify_native(&input)?;
+  source_path.verify_native(input)?;
   destination_path.verify_native(&output)?;
   // backup can copy the WAL header flag. normalize it before integrity reads; exclusive locking
   // keeps WAL shared-memory work in the bounded connection cache instead of a disk sidecar.
   output.text("PRAGMA journal_mode=MEMORY", "memory")?;
   output.text("PRAGMA integrity_check(1)", "ok")?;
   input.command("ROLLBACK")?;
-  input.close()?;
   output.close()?;
 
+  // retain exact path bindings through destination synchronization and the final deadline.
   source_path.verify()?;
   destination_path.verify()?;
   if destination_path.file.metadata()?.len() != bytes {
@@ -574,6 +773,7 @@ fn native_error(operation: &str, result: c_int) -> io::Error {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Event {
+  CohortPinned,
   Pinned,
   Stepped,
 }
@@ -666,12 +866,7 @@ mod tests {
     fn new() -> Self {
       let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target/archive-native-t7"));
-      DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&base)
-        .unwrap();
+        .unwrap_or_else(std::env::temp_dir);
       let base = fs::canonicalize(base).unwrap();
       #[cfg(target_os = "macos")]
       let internal = Path::new("/System/Volumes/Data");
@@ -743,6 +938,329 @@ mod tests {
     let count = connection.integer("SELECT count(*) FROM evidence").unwrap();
     connection.close().unwrap();
     count
+  }
+
+  #[test]
+  #[ignore = "requires an owned native provider fixture"]
+  fn cohort_fixture_process() {
+    let Some(root) = std::env::var_os("REAP_NATIVE_SQLITE_COHORT_FIXTURE") else {
+      return;
+    };
+    let root = fs::canonicalize(root).unwrap();
+    assert_eq!(
+      fs::metadata(&root).unwrap().dev(),
+      fs::metadata("/System/Volumes/Data").unwrap().dev()
+    );
+    let names = [
+      "state_5.sqlite",
+      "thread_history_1.sqlite",
+      "goals_1.sqlite",
+      "queue_1.sqlite",
+      "memories_1.sqlite",
+    ];
+    let paths: Vec<_> = names
+      .iter()
+      .map(|name| root.join("home").join(name))
+      .collect();
+    let sources: Vec<_> = paths.iter().map(PathBuf::as_path).collect();
+    let mut cohort = SnapshotCohort::pin(&sources, deadline()).unwrap();
+    let output = root.join("cohort-staged");
+    DirBuilder::new().mode(0o700).create(&output).unwrap();
+
+    // the external native writer must acknowledge its change before copying can proceed.
+    OpenOptions::new()
+      .write(true)
+      .create_new(true)
+      .open(root.join("cohort.ready"))
+      .unwrap()
+      .write_all(b"pinned\n")
+      .unwrap();
+    let until = deadline();
+    while !root.join("cohort.release").exists() {
+      assert!(
+        Instant::now() < until,
+        "native cohort writer did not release the fixture"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    for (index, name) in names.into_iter().enumerate() {
+      let result = cohort
+        .backup(
+          index,
+          &output.join(name),
+          "native-cohort-fixture",
+          100_000_000,
+        )
+        .unwrap();
+      assert_eq!(result.step_result, DONE);
+    }
+
+    // a new connection sees the native update; every acquired view retains the earlier point.
+    let snapshot = Connection::open(&output.join("state_5.sqlite"), READONLY, deadline()).unwrap();
+    snapshot
+      .text("SELECT name FROM threads", "REAP_COHORT_BEFORE")
+      .unwrap();
+    let live = Connection::open(&paths[0], READONLY, deadline()).unwrap();
+    live
+      .text("SELECT name FROM threads", "REAP_COHORT_AFTER")
+      .unwrap();
+    backup(
+      &paths[0],
+      &output.join("fresh.sqlite"),
+      "fresh-control",
+      deadline(),
+      100_000_000,
+    )
+    .unwrap();
+    let fresh = Connection::open(&output.join("fresh.sqlite"), READONLY, deadline()).unwrap();
+    fresh
+      .text("SELECT name FROM threads", "REAP_COHORT_AFTER")
+      .unwrap();
+    fs::write(
+      root.join("cohort.result.json"),
+      b"{\"databases\":5,\"snapshot_before\":true,\"live_after\":true,\"fresh_after\":true}\n",
+    )
+    .unwrap();
+  }
+
+  #[test]
+  fn cohort_keeps_all_views_while_wal_writers_continue() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let first_writer = first.database(true, false);
+    let second_writer = second.database(true, false);
+    let a = first.source();
+    let b = second.source();
+    let mut cohort = SnapshotCohort::pin(&[a.as_path(), b.as_path()], deadline()).unwrap();
+
+    // later commits must not replace either acquired view or block the native writers.
+    for writer in [&first_writer, &second_writer] {
+      writer
+        .command("INSERT INTO evidence(data) VALUES ('later native commit')")
+        .unwrap();
+    }
+    for (index, fixture) in [&first, &second].into_iter().enumerate() {
+      let result = cohort
+        .backup(index, &fixture.destination(), "cohort-view", 1_000_000)
+        .unwrap();
+      assert_eq!(result.step_result, DONE);
+      assert_eq!(count(&fixture.destination()), 1);
+      assert_eq!(count(&fixture.source()), 2);
+    }
+    let repeated = first.root.join("repeated.sqlite");
+    assert!(cohort
+      .backup(0, &repeated, "repeated-view", 1_000_000)
+      .is_err());
+    assert!(!repeated.exists());
+  }
+
+  #[test]
+  fn cohort_refuses_committed_value_restoration_during_acquisition() {
+    let fixture = Fixture::new();
+    let writer = fixture.database(true, false);
+    let source = fixture.source();
+    HOOK.with(|hook| {
+      *hook.borrow_mut() = Some(Box::new(move |event| {
+        if event == Event::CohortPinned {
+          writer.command("UPDATE evidence SET data='temporary change'")?;
+          writer.command("UPDATE evidence SET data='committed WAL evidence'")?;
+        }
+        Ok(())
+      }))
+    });
+    let error = SnapshotCohort::pin(&[source.as_path()], deadline())
+      .err()
+      .unwrap();
+    assert!(error
+      .to_string()
+      .contains("source changed during capture epoch"));
+    let source = Connection::open(&source, READONLY, deadline()).unwrap();
+    source
+      .text("SELECT data FROM evidence", "committed WAL evidence")
+      .unwrap();
+    assert!(!fixture.destination().exists());
+  }
+
+  #[test]
+  fn cohort_refuses_a_source_symlink_before_output_creation() {
+    let fixture = Fixture::new();
+    let writer = fixture.database(true, false);
+    let source = fixture.source();
+    let mut cohort = SnapshotCohort::pin(&[source.as_path()], deadline()).unwrap();
+    let retained = fixture.root.join("retained.sqlite");
+    fs::rename(&source, &retained).unwrap();
+    symlink(&retained, &source).unwrap();
+    assert!(cohort
+      .backup(0, &fixture.destination(), "changed-name", 1_000_000)
+      .is_err());
+    assert!(!fixture.destination().exists());
+    fs::remove_file(&source).unwrap();
+    fs::rename(&retained, &source).unwrap();
+    assert_eq!(count(&source), 1);
+    writer.close().unwrap();
+  }
+
+  #[test]
+  fn cohort_failed_copy_releases_every_read_view_and_refuses_reuse() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let first_writer = first.database(true, true);
+    let second_writer = second.database(true, false);
+    let a = first.source();
+    let b = second.source();
+    let mut cohort = SnapshotCohort::pin(&[a.as_path(), b.as_path()], deadline()).unwrap();
+    for writer in [&first_writer, &second_writer] {
+      writer
+        .command("INSERT INTO evidence(data) VALUES ('later native commit')")
+        .unwrap();
+      assert_eq!(
+        writer.integer("PRAGMA wal_checkpoint(TRUNCATE)").unwrap(),
+        1
+      );
+    }
+    HOOK.with(|hook| {
+      *hook.borrow_mut() = Some(Box::new(|_| {
+        Err(io::Error::new(
+          io::ErrorKind::Interrupted,
+          "owned cohort stop",
+        ))
+      }))
+    });
+    assert_eq!(
+      cohort
+        .backup(0, &first.destination(), "interrupted-view", 2_000_000)
+        .unwrap_err()
+        .kind(),
+      io::ErrorKind::Interrupted
+    );
+
+    // both checkpoint controls were busy before failure and must now complete without a reader.
+    for writer in [&first_writer, &second_writer] {
+      assert_eq!(
+        writer.integer("PRAGMA wal_checkpoint(TRUNCATE)").unwrap(),
+        0
+      );
+    }
+    assert_eq!(count(&a), 129);
+    assert_eq!(count(&b), 2);
+    assert_eq!(fs::metadata(first.destination()).unwrap().len(), 0);
+    let retry = second.root.join("retry.sqlite");
+    assert!(cohort.backup(1, &retry, "retry-view", 1_000_000).is_err());
+    assert!(!retry.exists());
+  }
+
+  #[test]
+  fn cohort_refuses_unsupported_counts_and_non_wal_sources() {
+    let fixture = Fixture::new();
+    let writer = fixture.database(true, false);
+    let source = fixture.source();
+    assert_eq!(
+      SnapshotCohort::pin(&[], deadline())
+        .err()
+        .unwrap()
+        .to_string(),
+      "unsupported SQLite cohort source count"
+    );
+    assert_eq!(
+      SnapshotCohort::pin(&[source.as_path(); MAX_COHORT_DATABASES + 1], deadline())
+        .err()
+        .unwrap()
+        .to_string(),
+      "unsupported SQLite cohort source count"
+    );
+    drop(SnapshotCohort::pin(&[source.as_path(); MAX_COHORT_DATABASES], deadline()).unwrap());
+    writer.close().unwrap();
+
+    // the mode refusal must be distinct from the count refusal, with no source change.
+    let fixture = Fixture::new();
+    let writer = fixture.database(false, false);
+    let source = fixture.source();
+    let before = fs::read(&source).unwrap();
+    let error = SnapshotCohort::pin(&[source.as_path()], deadline())
+      .err()
+      .unwrap();
+    assert!(error.to_string().contains("PRAGMA journal_mode"));
+    assert_eq!(fs::read(&source).unwrap(), before);
+    assert!(!fixture.destination().exists());
+    writer.close().unwrap();
+  }
+
+  #[test]
+  fn cohort_failed_acquisition_releases_previously_pinned_views() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let writer = first.database(true, false);
+    let second_writer = second.database(false, false);
+    let a = first.source();
+    let b = second.source();
+    let pinned = std::rc::Rc::new(Cell::new(false));
+    let observed = pinned.clone();
+    HOOK.with(|hook| {
+      *hook.borrow_mut() = Some(Box::new(move |event| {
+        if event == Event::CohortPinned {
+          writer.command("INSERT INTO evidence(data) VALUES ('later native commit')")?;
+          assert_eq!(writer.integer("PRAGMA wal_checkpoint(TRUNCATE)")?, 1);
+          observed.set(true);
+        }
+        Ok(())
+      }))
+    });
+    let error = SnapshotCohort::pin(&[a.as_path(), b.as_path()], deadline())
+      .err()
+      .unwrap();
+    assert!(error.to_string().contains("PRAGMA journal_mode"));
+    assert!(pinned.get());
+    HOOK.with(|hook| *hook.borrow_mut() = None);
+
+    // the first read view existed before the second source failed and must now be released.
+    let writer = Connection::open(&a, READWRITE, deadline()).unwrap();
+    assert_eq!(
+      writer.integer("PRAGMA wal_checkpoint(TRUNCATE)").unwrap(),
+      0
+    );
+    assert_eq!(count(&a), 2);
+    assert_eq!(count(&b), 1);
+    assert!(!first.destination().exists());
+    assert!(!second.destination().exists());
+    second_writer.close().unwrap();
+  }
+
+  #[test]
+  fn cohort_expired_copy_releases_all_views_without_output() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let first_writer = first.database(true, false);
+    let second_writer = second.database(true, false);
+    let a = first.source();
+    let b = second.source();
+    let mut cohort = SnapshotCohort::pin(&[a.as_path(), b.as_path()], deadline()).unwrap();
+    for writer in [&first_writer, &second_writer] {
+      writer
+        .command("INSERT INTO evidence(data) VALUES ('later native commit')")
+        .unwrap();
+      assert_eq!(
+        writer.integer("PRAGMA wal_checkpoint(TRUNCATE)").unwrap(),
+        1
+      );
+    }
+    cohort.deadline = Instant::now();
+    assert_eq!(
+      cohort
+        .backup(0, &first.destination(), "expired-view", 1_000_000)
+        .unwrap_err()
+        .kind(),
+      io::ErrorKind::TimedOut
+    );
+    for writer in [&first_writer, &second_writer] {
+      assert_eq!(
+        writer.integer("PRAGMA wal_checkpoint(TRUNCATE)").unwrap(),
+        0
+      );
+    }
+    assert!(!first.destination().exists());
+    assert!(!second.destination().exists());
+    assert_eq!(count(&a), 2);
+    assert_eq!(count(&b), 2);
   }
 
   #[test]
