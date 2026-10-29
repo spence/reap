@@ -12,22 +12,53 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 
+use crate::launch::Resources;
 use crate::lifetime::{Policy, Role, VetoKind, FILE_NAME, MAX_POLICY_BYTES};
 use crate::reapfile::Decl;
 
 /// Refuse roles, uncertain evidence, nested mounts, and changes during inspection.
 /// Parent aliases are resolved separately from child traversal; final links remain leaves.
 pub fn check(path: &Path) -> Result<(), String> {
-  inspect(path, true)
+  inspect(path, true, None)
+}
+
+/// Refuse legacy disposal across an honored version-2 lifetime before cohort conversion.
+/// Unknown configuration or Git tracking preserves the candidate; roles remain unconditional.
+pub(crate) fn check_legacy(path: &Path, resources: Option<&Resources>) -> Result<(), String> {
+  inspect(
+    path,
+    true,
+    Some(Legacy {
+      cargo: None,
+      resources,
+    }),
+  )
+}
+
+/// Compact only inside this Cargo target. Workspace KEEP does not veto regenerable cache removal.
+/// Version-2 boundaries at or below the target and all preservation roles still protect data.
+pub(crate) fn check_cargo(
+  path: &Path,
+  target: &Path,
+  resources: Option<&Resources>,
+) -> Result<(), String> {
+  inspect(
+    path,
+    true,
+    Some(Legacy {
+      cargo: Some(target),
+      resources,
+    }),
+  )
 }
 
 /// Refuse metadata creation inside an enclosing role without scanning unrelated descendants.
 /// The directory must exist; a final directory alias also requires its physical ancestors.
 pub fn check_container(directory: &Path) -> io::Result<()> {
-  inspect(directory, false).map_err(refusal)?;
+  inspect(directory, false, None).map_err(refusal)?;
   let canonical = fs::canonicalize(directory)?;
   if canonical != directory {
-    inspect(&canonical, false).map_err(refusal)?;
+    inspect(&canonical, false, None).map_err(refusal)?;
   }
   Ok(())
 }
@@ -58,7 +89,95 @@ struct Directory {
   path: PathBuf,
   before: Metadata,
   closure: bool,
-  declaration: Option<(File, Metadata)>,
+  declaration: Option<Declaration>,
+}
+
+struct Declaration {
+  file: File,
+  before: Metadata,
+  version_two: bool,
+}
+
+struct Legacy<'a> {
+  cargo: Option<&'a Path>,
+  resources: Option<&'a Resources>,
+}
+
+impl Legacy<'_> {
+  fn inspect(&self, directories: &[Directory], candidate: &Path) -> Result<(), String> {
+    let cargo = self
+      .cargo
+      .map(fs::canonicalize)
+      .transpose()
+      .map_err(|e| at(candidate, e))?;
+    if cargo
+      .as_ref()
+      .is_some_and(|target| !candidate.starts_with(target))
+    {
+      return Err(at(candidate, "candidate leaves its Cargo target"));
+    }
+    let relevant: Vec<_> = directories
+      .iter()
+      .filter(|directory| {
+        directory
+          .declaration
+          .as_ref()
+          .is_some_and(|decl| decl.version_two)
+          && cargo
+            .as_ref()
+            .is_none_or(|target| directory.path.starts_with(target))
+      })
+      .collect();
+    if relevant.is_empty() {
+      return Ok(());
+    }
+
+    let (config, evidence) =
+      crate::invocation::current_configuration().map_err(|e| at(candidate, e))?;
+    let roots: Vec<_> = config
+      .expanded_governed_roots()
+      .into_iter()
+      .map(|path| resolved_root(&path).map(|resolved| (path, resolved)))
+      .collect::<Result<_, _>>()?;
+    let mut tracking = crate::git_index::Tracking::new(self.resources.cloned());
+    let budget = std::cell::Cell::new(32 * 1024 * 1024);
+    for directory in relevant {
+      if !roots.iter().any(|(_, root)| {
+        root
+          .as_ref()
+          .is_some_and(|root| directory.path.starts_with(root))
+      }) {
+        continue;
+      }
+      if !tracking
+        .tracked(&directory.path.join(FILE_NAME), &budget)
+        .map_err(|e| at(&directory.path, e))?
+      {
+        return Err(at(
+          &directory.path,
+          "co-located version-2 lifetime refuses legacy disposal before conversion",
+        ));
+      }
+    }
+
+    tracking.revalidate().map_err(|e| at(candidate, e))?;
+    for (path, before) in roots {
+      if resolved_root(&path)? != before {
+        return Err(at(
+          &path,
+          "governed root changed during lifetime inspection",
+        ));
+      }
+    }
+    let (_, current) = crate::invocation::current_configuration().map_err(|e| at(candidate, e))?;
+    if current != evidence {
+      return Err(at(
+        candidate,
+        "configuration changed during lifetime inspection",
+      ));
+    }
+    Ok(())
+  }
 }
 
 impl Directory {
@@ -90,10 +209,10 @@ impl Directory {
       open_at(&self.file, Path::new(FILE_NAME), false),
     ) {
       (None, Err(e)) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-      (Some((held, before)), Ok(live)) => {
+      (Some(declaration), Ok(live)) => {
         let current = live.metadata().map_err(|e| at(&self.path, e))?;
-        let held = held.metadata().map_err(|e| at(&self.path, e))?;
-        if same_stamp(before, &current) && same_stamp(before, &held) {
+        let held = declaration.file.metadata().map_err(|e| at(&self.path, e))?;
+        if same_stamp(&declaration.before, &current) && same_stamp(&declaration.before, &held) {
           Ok(())
         } else {
           Err(at(
@@ -110,7 +229,7 @@ impl Directory {
   }
 }
 
-fn inspect(path: &Path, closure: bool) -> Result<(), String> {
+fn inspect(path: &Path, closure: bool, legacy: Option<Legacy<'_>>) -> Result<(), String> {
   let absolute = if path.is_absolute() {
     path.to_path_buf()
   } else {
@@ -191,6 +310,9 @@ fn inspect(path: &Path, closure: bool) -> Result<(), String> {
     }
     directories.push(observed);
   }
+  if let Some(legacy) = legacy {
+    legacy.inspect(&directories, &candidate)?;
+  }
   for directory in &directories {
     directory.revalidate()?;
   }
@@ -254,7 +376,7 @@ fn ancestors(path: &Path, lexical: bool) -> Result<Vec<Directory>, String> {
   Ok(result)
 }
 
-fn declaration(directory: &File, path: &Path) -> Result<Option<(File, Metadata)>, String> {
+fn declaration(directory: &File, path: &Path) -> Result<Option<Declaration>, String> {
   let observed = match stat_at(directory, Path::new(FILE_NAME)) {
     Ok(observed) => observed,
     Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -268,7 +390,7 @@ fn read_declaration(
   directory: &File,
   path: &Path,
   observed: &libc::stat,
-) -> Result<Option<(File, Metadata)>, String> {
+) -> Result<Option<Declaration>, String> {
   if observed.st_mode & libc::S_IFMT != libc::S_IFREG
     || observed.st_nlink != 1
     || observed.st_size < 0
@@ -299,8 +421,8 @@ fn read_declaration(
     .take(MAX_POLICY_BYTES as u64 + 1)
     .read_to_end(&mut bytes)
     .map_err(|e| at(path, e))?;
-  let role = match Policy::parse(&bytes) {
-    Ok(policy) => policy.role,
+  let (role, version_two) = match Policy::parse(&bytes) {
+    Ok(policy) => (policy.role, true),
     Err(v2) => {
       let ordinary = std::str::from_utf8(&bytes)
         .ok()
@@ -308,7 +430,7 @@ fn read_declaration(
       if ordinary.is_none() {
         return Err(at(path, format!("invalid preservation declaration: {v2}")));
       }
-      Role::Ordinary
+      (Role::Ordinary, false)
     }
   };
   let kind = match role {
@@ -322,7 +444,19 @@ fn read_declaration(
       format!("preservation role {kind:?} refuses ordinary mutation"),
     ));
   }
-  Ok(Some((file, before)))
+  Ok(Some(Declaration {
+    file,
+    before,
+    version_two,
+  }))
+}
+
+fn resolved_root(path: &Path) -> Result<Option<PathBuf>, String> {
+  match fs::canonicalize(path) {
+    Ok(path) => Ok(Some(path)),
+    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+    Err(error) => Err(at(path, error)),
+  }
 }
 
 fn open_directory_path(path: &Path) -> Result<File, String> {
@@ -472,13 +606,14 @@ mod tests {
 
   impl Fixture {
     fn new() -> Self {
-      let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/control-t13")
-        .join(format!(
-          "preservation-unit-{}-{}",
-          std::process::id(),
-          NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
+      let base = std::env::var_os("REAP_NATIVE_CONTROL_FIXTURE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target/control-t13"));
+      let root = base.join(format!(
+        "preservation-unit-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+      ));
       fs::create_dir_all(&root).unwrap();
       Self(fs::canonicalize(root).unwrap())
     }
@@ -502,7 +637,225 @@ mod tests {
 
   impl Drop for Fixture {
     fn drop(&mut self) {
-      fs::remove_dir_all(&self.0).unwrap();
+      if !std::thread::panicking() {
+        fs::remove_dir_all(&self.0).unwrap();
+      }
+    }
+  }
+
+  fn legacy_case(case: &str) {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let fixture = Fixture::new();
+    let home = fixture.0.join("home");
+    fs::create_dir_all(home.join(".config/reap")).unwrap();
+    fs::create_dir_all(fixture.0.join("projects")).unwrap();
+    fs::write(
+      home.join(".config/reap/config.json"),
+      serde_json::to_vec(&serde_json::json!({
+        "governed_roots": [fixture.0.join("projects")],
+      }))
+      .unwrap(),
+    )
+    .unwrap();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+      .args([
+        "--exact",
+        "preservation::tests::legacy_lifetime_child_entry",
+        "--nocapture",
+      ])
+      .env("HOME", &home)
+      .env("XDG_STATE_HOME", home.join("state"))
+      .env_remove("REAP_INTERNAL_CONFIG_SNAPSHOT")
+      .env("REAP_LEGACY_LIFETIME_CASE", case)
+      .env("REAP_LEGACY_LIFETIME_ROOT", &fixture.0)
+      .stdin(Stdio::null())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped())
+      .spawn()
+      .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+      if child.try_wait().unwrap().is_some() {
+        break;
+      }
+      if Instant::now() >= deadline {
+        child.kill().unwrap();
+        let output = child.wait_with_output().unwrap();
+        panic!("owned legacy guard child exceeded its deadline: {output:?}");
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{case}: {output:?}");
+  }
+
+  #[test]
+  fn legacy_lifetime_guard_preserves_keep_descendants_and_independent_siblings() {
+    legacy_case("boundaries");
+  }
+
+  #[test]
+  fn legacy_lifetime_guard_allows_cargo_below_workspace_keep_but_not_target_keep() {
+    legacy_case("cargo");
+  }
+
+  #[test]
+  fn legacy_lifetime_guard_ignores_out_of_scope_and_tracked_policy() {
+    legacy_case("inert");
+  }
+
+  #[test]
+  fn legacy_lifetime_guard_refuses_unknown_configuration_and_git() {
+    legacy_case("unknown");
+  }
+
+  #[test]
+  fn legacy_lifetime_child_entry() {
+    let Ok(case) = std::env::var("REAP_LEGACY_LIFETIME_CASE") else {
+      return;
+    };
+    let root = PathBuf::from(std::env::var_os("REAP_LEGACY_LIFETIME_ROOT").unwrap());
+    let projects = root.join("projects");
+    let kept = projects.join("kept");
+    fs::create_dir_all(&kept).unwrap();
+    let resources = Resources::Bulk {
+      physical_volumes: crate::volumes::resolve(&File::open(&root).unwrap()).unwrap(),
+    };
+    let policy = br#"{"version":2,"keep":{"reason":"synthetic active work"}}"#;
+    let payload = |directory: &Path| {
+      fs::create_dir_all(directory).unwrap();
+      let path = directory.join("payload");
+      fs::write(&path, BYTES).unwrap();
+      path
+    };
+    let remove = |path: &Path| {
+      check_legacy(path, Some(&resources))
+        .and_then(|()| fs::remove_dir_all(path).map_err(|e| e.to_string()))
+    };
+    let git = |args: &[&str]| {
+      let output = std::process::Command::new("/usr/bin/git")
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("LC_ALL", "C")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .current_dir(&kept)
+        .args(args)
+        .output()
+        .unwrap();
+      assert!(output.status.success(), "{output:?}");
+    };
+    match case.as_str() {
+      "boundaries" => {
+        let source = payload(&kept.join("work"));
+        fs::write(kept.join(FILE_NAME), policy).unwrap();
+        assert!(
+          check(&kept).is_ok(),
+          "role protection alone is not lifetime permission"
+        );
+        assert!(remove(&kept).is_err());
+        assert!(remove(source.parent().unwrap()).is_err());
+        assert_eq!(fs::read(&source).unwrap(), BYTES);
+        fs::remove_file(kept.join(FILE_NAME)).unwrap();
+        fs::write(source.parent().unwrap().join(FILE_NAME), policy).unwrap();
+        fs::write(
+          projects.join(FILE_NAME),
+          br#"{"version":1,"expires":"2000-01-01T00:00:00Z","scratch":true,"seal":true}"#,
+        )
+        .unwrap();
+        assert!(
+          remove(&kept).is_err(),
+          "legacy seal cannot cross a v2 boundary"
+        );
+        assert_eq!(fs::read(&source).unwrap(), BYTES);
+        let sibling = projects.join("disposable");
+        payload(&sibling);
+        remove(&sibling).unwrap();
+        assert!(!sibling.exists());
+        assert_eq!(fs::read(&source).unwrap(), BYTES);
+        fs::write(
+          source.parent().unwrap().join(FILE_NAME),
+          br#"{"version":2,"expires":"2000-01-01T00:00:00Z","scratch":true}"#,
+        )
+        .unwrap();
+        assert!(
+          remove(&kept).is_err(),
+          "v2 expiry is not legacy disposal permission"
+        );
+      }
+      "cargo" => {
+        let target = kept.join("target");
+        let old = payload(&target.join("debug/incremental/old"));
+        let retained = payload(&target.join("debug/incremental/new"));
+        fs::write(kept.join(FILE_NAME), policy).unwrap();
+        assert!(check_legacy(old.parent().unwrap(), Some(&resources)).is_err());
+        check_cargo(old.parent().unwrap(), &target, Some(&resources)).unwrap();
+        fs::remove_dir_all(old.parent().unwrap()).unwrap();
+        assert!(!old.exists());
+        assert_eq!(fs::read(&retained).unwrap(), BYTES);
+        fs::write(target.join(FILE_NAME), policy).unwrap();
+        assert!(check_cargo(retained.parent().unwrap(), &target, Some(&resources)).is_err());
+        fs::remove_file(target.join(FILE_NAME)).unwrap();
+        fs::write(retained.parent().unwrap().join(FILE_NAME), policy).unwrap();
+        assert!(check_cargo(&target.join("debug"), &target, Some(&resources)).is_err());
+        assert!(check_cargo(&kept, &target, Some(&resources)).is_err());
+        assert_eq!(fs::read(&retained).unwrap(), BYTES);
+      }
+      "inert" => {
+        let outside = root.join("outside");
+        payload(&outside);
+        fs::write(outside.join(FILE_NAME), policy).unwrap();
+        remove(&outside).unwrap();
+        assert!(!outside.exists());
+        let source = payload(&kept.join("work"));
+        fs::write(kept.join(FILE_NAME), policy).unwrap();
+        git(&["init", "--template=", "."]);
+        git(&["add", "--", FILE_NAME]);
+        check_legacy(source.parent().unwrap(), Some(&resources)).unwrap();
+        assert!(check_legacy(source.parent().unwrap(), None).is_err());
+        fs::write(
+          kept.join(FILE_NAME),
+          br#"{"version":2,"role":"conversation_source"}"#,
+        )
+        .unwrap();
+        assert!(
+          remove(&kept).is_err(),
+          "tracked roles still protect history"
+        );
+        assert_eq!(fs::read(&source).unwrap(), BYTES);
+      }
+      "unknown" => {
+        let source = payload(&kept.join("work"));
+        fs::write(kept.join(FILE_NAME), policy).unwrap();
+        let alias = root.join("governed-alias");
+        symlink(&projects, &alias).unwrap();
+        let config = crate::config::config_path();
+        fs::write(
+          &config,
+          serde_json::to_vec(&serde_json::json!({"governed_roots":[alias]})).unwrap(),
+        )
+        .unwrap();
+        assert!(
+          remove(&kept).is_err(),
+          "physical aliases retain policy scope"
+        );
+        git(&["init", "--template=", "."]);
+        git(&["add", "--", FILE_NAME]);
+        fs::write(kept.join(".git/index"), b"invalid index").unwrap();
+        assert!(check_legacy(&kept, Some(&resources)).is_err());
+        fs::write(&config, b"{").unwrap();
+        assert!(remove(&kept).is_err());
+        fs::remove_file(&config).unwrap();
+        let name = CString::new(config.as_os_str().as_bytes()).unwrap();
+        // SAFETY: the terminated path names this fixture's absent configuration file.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(remove(&kept).is_err());
+        assert_eq!(fs::read(&source).unwrap(), BYTES);
+      }
+      _ => panic!("unknown owned lifetime fixture"),
     }
   }
 

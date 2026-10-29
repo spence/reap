@@ -96,10 +96,11 @@ impl<'a, 'b> Applying<'a, 'b> {
     }
     let plan = if fs::metadata(&target).is_ok_and(|metadata| metadata.is_dir()) {
       let mut inventory = Inventory::capture(&target)?;
-      let plan = crate::plan::plan_project(
+      let plan = crate::plan::plan_project_with_resources(
         manifest,
         crate::plan::now_secs(),
         self.context.request.quick,
+        Some(&self.grant.resources),
       )?;
       inventory.fresh()?;
       if profiles
@@ -138,10 +139,11 @@ impl<'a, 'b> Applying<'a, 'b> {
         self.context.request.verbose,
       ));
     } else {
-      crate::plan::plan_project(
+      crate::plan::plan_project_with_resources(
         manifest,
         crate::plan::now_secs(),
         self.context.request.quick,
+        Some(&self.grant.resources),
       )?
     };
     Ok(report(&plan, 0, 0, self.context.request.verbose))
@@ -288,7 +290,8 @@ impl<'a, 'b> Applying<'a, 'b> {
     for lock in locks {
       lock.fresh()?;
     }
-    crate::preservation::check(logical).map_err(io::Error::other)?;
+    crate::preservation::check_cargo(logical, &manifest.target_dir(), Some(&self.grant.resources))
+      .map_err(io::Error::other)?;
     let metadata = fs::symlink_metadata(physical)?;
     if metadata.is_dir() {
       for ancestor in self.context.base.ancestors() {
@@ -315,7 +318,8 @@ impl<'a, 'b> Applying<'a, 'b> {
         logical.display()
       )));
     }
-    crate::preservation::check(logical).map_err(io::Error::other)?;
+    crate::preservation::check_cargo(logical, &manifest.target_dir(), Some(&self.grant.resources))
+      .map_err(io::Error::other)?;
     inventory.fresh()?;
     self.fresh()?;
     for lock in locks {

@@ -69,6 +69,10 @@ struct Settings {
 }
 
 impl Tracking {
+  pub(crate) fn resources(&self) -> Option<&Resources> {
+    self.resources.as_ref()
+  }
+
   /// Checkpoint only discovery bindings. Recovery verdicts must be fresh in the final worker.
   pub(crate) fn checkpoint_roots(&self) -> io::Result<Vec<(PathBuf, Option<String>)>> {
     if !self.recovery.is_empty() {

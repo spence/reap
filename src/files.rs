@@ -407,6 +407,13 @@ fn blocked(
   }) {
     return Some(format!("overlaps lease {} at {}", l.id, l.path));
   }
+  let resources = view
+    .preview
+    .as_ref()
+    .and_then(|preview| preview.tracking.resources());
+  if let Err(reason) = crate::preservation::check_legacy(p, resources) {
+    return Some(reason);
+  }
   let stats = if view.preview.is_some() {
     Some((view.unit(p).0, view.unit(p).1, None))
   } else {

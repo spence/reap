@@ -437,6 +437,8 @@ impl<'a> Applying<'a> {
       }
     }
     validate_preview(scan, boundary).map_err(io::Error::other)?;
+    crate::preservation::check_legacy(&removal.path, Some(&self.grant.resources))
+      .map_err(io::Error::other)?;
     (self.fresh)()?;
     crate::invocation::fresh(self.input)?;
     Ok(fingerprint.into())

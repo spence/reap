@@ -25,6 +25,13 @@
 - **C5** — Ordinary KEEP is not an all-executor preservation role. It does not prohibit authorized
   Cargo compaction. Existing valid version 1 declarations remain readable by their lifetime executor.
   This guard grants no new removal permission and does not activate version 2 lifetime disposal.
+  Within governed roots, honored version 2 lifetime boundaries veto legacy disposal before conversion.
+  Tracked ordinary declarations remain inert; unknown tracking or configuration preserves the candidate.
+  Cargo excludes ordinary workspace policy above its target, not boundaries at or below that target.
+  Binding: `preservation::tests::legacy_lifetime_guard_preserves_keep_descendants_and_independent_siblings`;
+  `preservation::tests::legacy_lifetime_guard_allows_cargo_below_workspace_keep_but_not_target_keep`;
+  `preservation::tests::legacy_lifetime_guard_ignores_out_of_scope_and_tracked_policy`;
+  `preservation::tests::legacy_lifetime_guard_refuses_unknown_configuration_and_git`.
 - **C6** — Role inspection does not add filesystem work to control response loops. Its filesystem
   work remains on the executing path. No fixed I/O deadline or atomic snapshot against arbitrary
   external writers is claimed by this guard.

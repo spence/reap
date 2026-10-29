@@ -204,6 +204,10 @@ Uncertain declaration evidence refuses the affected mutation. Ordinary KEEP stil
 authorized Cargo compaction. This protection does not activate archives, source pruning,
 or version 2 lifetime disposal. See the [preservation contract](docs/specs/preservation.md).
 
+Within governed roots, an honored version 2 lifetime blocks legacy disposal before conversion.
+Unknown configuration or Git tracking preserves the affected candidate.
+Cargo compaction excludes workspace lifetime policy above its target, but respects boundaries inside the target.
+
 ## installation
 
 ### CLI only

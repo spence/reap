@@ -109,7 +109,16 @@ impl StorePlan {
 /// Plan every declared store of a project. Path-safety violations are errors
 /// (fail closed); a missing store dir is just reported.
 pub fn plan_stores(manifest: &Manifest, now: f64) -> Result<Vec<StorePlan>, String> {
-  plan_stores_projected(manifest, now, None)
+  plan_stores_with_resources(manifest, now, None)
+}
+
+/// Native planning retains its Git resource grant for co-located lifetime decisions.
+pub(crate) fn plan_stores_with_resources(
+  manifest: &Manifest,
+  now: f64,
+  resources: Option<&crate::launch::Resources>,
+) -> Result<Vec<StorePlan>, String> {
+  plan_stores_projected(manifest, now, None, resources)
 }
 
 /// The caller must prove the selected unit's exact owned-removal prefix before this projection.
@@ -117,6 +126,7 @@ fn plan_stores_projected(
   manifest: &Manifest,
   now: f64,
   projection: Option<&StoreCandidate>,
+  resources: Option<&crate::launch::Resources>,
 ) -> Result<Vec<StorePlan>, String> {
   let target_canon = fs::canonicalize(manifest.target_dir()).ok();
   let mut plans = Vec::new();
@@ -180,7 +190,7 @@ fn plan_stores_projected(
             ));
           }
         }
-        plans.push(plan_one(s, rel, dir, now, armed, projection)?);
+        plans.push(plan_one(s, rel, dir, now, armed, projection, resources)?);
       }
     }
   }
@@ -243,7 +253,7 @@ fn recheck_candidate(
   project_dir: &Path,
   candidate: &StoreCandidate,
 ) -> Result<(), String> {
-  let current = current_store_plan(plan, project_dir, now_secs(), None)?;
+  let current = current_store_plan(plan, project_dir, now_secs(), None, None)?;
   if !matches!(current.state, StoreState::Armed)
     || current.dir != plan.dir
     || current.authority != plan.authority
@@ -274,11 +284,12 @@ pub(crate) fn recheck_projected_candidate(
   project: &Path,
   candidate: &StoreCandidate,
   now: f64,
+  resources: Option<&crate::launch::Resources>,
 ) -> Result<(), String> {
   if candidate.path.parent() != Some(plan.dir.as_path()) {
     return Err("projected store unit is not a direct child".into());
   }
-  let current = current_store_plan(plan, project, now, Some(candidate))?;
+  let current = current_store_plan(plan, project, now, Some(candidate), resources)?;
   if !matches!(current.state, StoreState::Armed)
     || current.dir != plan.dir
     || current.authority != plan.authority
@@ -303,6 +314,7 @@ fn current_store_plan(
   project: &Path,
   now: f64,
   projection: Option<&StoreCandidate>,
+  resources: Option<&crate::launch::Resources>,
 ) -> Result<StorePlan, String> {
   let mut manifest = load_manifest(project).map_err(|error| error.0)?;
   manifest.stores.retain(|store| {
@@ -314,7 +326,7 @@ fn current_store_plan(
         .unwrap_or_else(|| store.path.trim_matches('/').to_string())
         == plan.rel
   });
-  plan_stores_projected(&manifest, now, projection)?
+  plan_stores_projected(&manifest, now, projection, resources)?
     .pop()
     .ok_or_else(|| "store declaration removed".into())
 }
@@ -338,6 +350,7 @@ fn plan_one(
   now: f64,
   armed: bool,
   projection: Option<&StoreCandidate>,
+  resources: Option<&crate::launch::Resources>,
 ) -> Result<StorePlan, String> {
   let state = if armed {
     StoreState::Armed
@@ -506,7 +519,7 @@ fn plan_one(
 
   for (index, child) in children.iter().enumerate() {
     if chosen[index].is_some() {
-      if let Err(error) = crate::preservation::check(&child.path) {
+      if let Err(error) = crate::preservation::check_legacy(&child.path, resources) {
         notes.push(format!("preserved {}: {error}", child.path.display()));
         chosen[index] = None;
       }
@@ -1181,7 +1194,9 @@ mod tests {
       &LeaseFile::default()
     )
     .is_ok());
-    assert!(recheck_projected_candidate(&selected, &root, &selected.candidates[0], now).is_ok());
+    assert!(
+      recheck_projected_candidate(&selected, &root, &selected.candidates[0], now, None).is_ok()
+    );
     assert!(store.join("old/out.log").is_file());
     let _ = fs::remove_dir_all(root);
   }

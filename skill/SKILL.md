@@ -55,6 +55,10 @@ purge selectors do not waive this guard. Uncertain role evidence refuses the aff
 Ordinary KEEP still permits authorized Cargo compaction. This guard does not activate conversation
 archives, source pruning, or version 2 lifetime disposal.
 
+Do not use legacy disposal across an honored version 2 lifetime before conversion.
+Ordinary lifetime policy applies only within governed roots; unknown configuration or Git evidence refuses disposal.
+Cargo compaction can proceed below workspace KEEP, but cannot cross a lifetime boundary inside its target.
+
 ## Bounded commands and job observations
 
 `reap check [PATH]` submits read-only manifest validation with a one-second response budget.

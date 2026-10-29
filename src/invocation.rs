@@ -934,6 +934,33 @@ pub(crate) fn namespace_evidence(
   namespace: &Namespace,
   uid: u32,
 ) -> io::Result<(serde_json::Value, serde_json::Value)> {
+  namespace_evidence_with_config(namespace, uid).map(|(evidence, _)| evidence)
+}
+
+/// Read current authoritative configuration without a permissive fallback or maintenance snapshot.
+/// The evidence permits a later comparison after filesystem and Git inspection.
+pub(crate) fn current_configuration() -> io::Result<(crate::config::Config, serde_json::Value)> {
+  let namespace = Namespace {
+    home: crate::config::home(),
+    xdg_state_home: std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
+    config_snapshot: None,
+  };
+  // SAFETY: geteuid has no pointer arguments or caller preconditions.
+  let uid = unsafe { libc::geteuid() };
+  let ((namespace, configuration), config) = namespace_evidence_with_config(&namespace, uid)?;
+  Ok((
+    config,
+    serde_json::json!({"namespace": namespace, "configuration": configuration}),
+  ))
+}
+
+fn namespace_evidence_with_config(
+  namespace: &Namespace,
+  uid: u32,
+) -> io::Result<(
+  (serde_json::Value, serde_json::Value),
+  crate::config::Config,
+)> {
   use sha2::{Digest, Sha256};
   use std::fs::OpenOptions;
   use std::io::Read;
@@ -977,11 +1004,14 @@ pub(crate) fn namespace_evidence(
       }
       let defaults = serde_json::to_vec(&crate::config::Config::default())?;
       return Ok((
-        namespace,
-        serde_json::json!({
-          "source": "absent", "parent": ObjectIdentity::read(&parent)?,
-          "missing_component": name, "sha256": format!("{:x}", Sha256::digest(defaults)),
-        }),
+        (
+          namespace,
+          serde_json::json!({
+            "source": "absent", "parent": ObjectIdentity::read(&parent)?,
+            "missing_component": name, "sha256": format!("{:x}", Sha256::digest(defaults)),
+          }),
+        ),
+        crate::config::Config::default(),
       ));
     }
     // SAFETY: openat returned a fresh owned descriptor.
@@ -1052,10 +1082,13 @@ pub(crate) fn namespace_evidence(
       return Err(unavailable("configuration changed during capture"));
     }
     return Ok((
-      namespace,
-      serde_json::json!({
-        "source": "file", "identity": identity, "sha256": format!("{:x}", Sha256::digest(bytes)),
-      }),
+      (
+        namespace,
+        serde_json::json!({
+          "source": "file", "identity": identity, "sha256": format!("{:x}", Sha256::digest(bytes)),
+        }),
+      ),
+      config,
     ));
   }
   unreachable!("config component sequence has a final file")

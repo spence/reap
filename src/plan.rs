@@ -448,6 +448,16 @@ pub(crate) fn check_profile_path(target: &Path, profile: &Path) -> Result<(), St
 // --------------------------------------------------------------------------- //
 
 pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> io::Result<Plan> {
+  plan_project_with_resources(manifest, now, quick, None)
+}
+
+/// Native planning retains its Git resource grant for co-located lifetime decisions.
+pub(crate) fn plan_project_with_resources(
+  manifest: &Manifest,
+  now: f64,
+  quick: bool,
+  resources: Option<&crate::launch::Resources>,
+) -> io::Result<Plan> {
   let target = manifest.target_dir();
   let guards = Guards::new(&manifest.keep);
   let age_floor = now - manifest.policy.min_age_minutes * 60.0;
@@ -491,6 +501,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> io::Result<Pl
           &guards,
           age_floor,
           &mut measurer,
+          resources,
           &mut categories,
         )?;
       }
@@ -516,6 +527,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> io::Result<Pl
       &guards,
       age_floor,
       &mut measurer,
+      resources,
       &mut categories,
     )?;
     add_category(
@@ -525,6 +537,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> io::Result<Pl
       &guards,
       age_floor,
       &mut measurer,
+      resources,
       &mut categories,
     )?;
 
@@ -536,6 +549,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> io::Result<Pl
         &guards,
         age_floor,
         &mut measurer,
+        resources,
         &mut categories,
       )?;
     }
@@ -547,6 +561,7 @@ pub fn plan_project(manifest: &Manifest, now: f64, quick: bool) -> io::Result<Pl
         &guards,
         age_floor,
         &mut measurer,
+        resources,
         &mut categories,
       )?;
     }
@@ -569,6 +584,7 @@ fn add_category(
   guards: &Guards,
   age_floor: f64,
   measurer: &mut Measurer,
+  resources: Option<&crate::launch::Resources>,
   categories: &mut Vec<Category>,
 ) -> io::Result<()> {
   let mut safe = Vec::new();
@@ -584,7 +600,7 @@ fn add_category(
     if entry_mtime(&p)? > age_floor {
       continue; // in-flight / just touched -> leave it
     }
-    if let Err(error) = crate::preservation::check(&p) {
+    if let Err(error) = crate::preservation::check_cargo(&p, target, resources) {
       eprintln!("preserved {}: {error}", p.display());
       continue;
     }

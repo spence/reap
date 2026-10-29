@@ -1,0 +1,130 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "source checkpoint; full goal and fleet cutover remain open",
+  "source": {
+    "base_revision": "43626cb5abbf189e485bf4603e9b18900ac367c2",
+    "files": {
+      "README.md": "f592d071c59623a77274355c37c323e124a1579a181662ed97999d81cbd4e62b",
+      "docs/specs/mutation-execution.md": "339a847b4b058b1f611402f8d8d365e2ad57c12a020d4acc62b3f49d8178fdb4",
+      "docs/specs/preservation.md": "342fcd34ac1613869981d799dcff49312f8d0ad34bb1417fd823aa93becced0c",
+      "skill/SKILL.md": "92e05b6ccb3f67d36d19ae3458a086859f0bf77138a8b1df1374c8b590e0ba55",
+      "src/dispatch/cargo_job.rs": "a0812539b204afe28130469062d8b43acc533ba45960e4abe8d4135a22aaf0f2",
+      "src/dispatch/cargo_job/applying.rs": "3487c63921205dea0fd4c7e6f77c103b57c36805ea7a0995622c26b7b848f2ea",
+      "src/dispatch/lease_job/purge.rs": "beec0e4c7b0a47b0fe3eac4580712410436f6f5c11be5c4c6ca5f2bd37e8c2d6",
+      "src/dispatch/store_job.rs": "ccfd692a34f9d53aa332fe092d4817172e94d2e02f27be0241a9709766d520a6",
+      "src/files.rs": "cff60a93547c0b0fbdc802f00cd6a84e3820b623a7f9df4de4c5d03a2b21e42e",
+      "src/files/applying.rs": "faf3a09f3e65d86e1f98dafbc2b6208a746cc7508aad8fc75b3431972da90aa8",
+      "src/git_index.rs": "a42d2567a1e04bb3d816137c010f97b3a8c5d14401dccaf7570b0224eede9c0e",
+      "src/invocation.rs": "4202fa3fd61b5d3e42fa0d6b33bdeed413cb50cc5b117174b381e7afc08cd314",
+      "src/plan.rs": "bcf983b600bbedb27904858fb4db13d47b4268b06d422549a23341485797121a",
+      "src/preservation.rs": "29a559031cd94d39228fe7c1ba39bab5c8e8ae6853da56ef13b161596a66ee26",
+      "src/quarantine.rs": "a0dad19ef0500ed0f50af02794d312d0166e713a567c4749ad4657f79c4e2d48",
+      "src/stores.rs": "7f7f49eb4488b659470062b29169f3e491c9d487d1cfcbf8868fec5671baba70"
+    }
+  },
+  "artifact_manifest": "target/control-t13/mutation-bridge/keep-boundary-frozen-v1/manifest.json",
+  "root_full_run": {
+    "passed": 454,
+    "failed": 0,
+    "ignored": 6,
+    "elapsed_seconds": 1119.22,
+    "log": "target/control-t13/mutation-bridge/keep-boundary-full-units-v2.log",
+    "fixture_root_override": null,
+    "tmpdir": "/private/tmp"
+  },
+  "root_focused": {
+    "passed": 15,
+    "failed": 0,
+    "elapsed_seconds": 0.32
+  },
+  "mini": {
+    "directory": "/private/tmp/reap-cores-transport-8yjfimnx/keep-boundary-t19-v1",
+    "preservation_passed": 15,
+    "preservation_seconds": 0.14,
+    "cargo_positive_passed": 1,
+    "cargo_positive_seconds": 10.52,
+    "applying_components_passed": 3,
+    "applying_components_seconds": 15.49
+  },
+  "review": {
+    "accepted_manifest": "keep-boundary-review-source-v1.json",
+    "peer": "peer-18e2e9a6ceb79b48-596046",
+    "conversation": "conversation-18e2e9a6d00fa198-596050",
+    "request": "cmsg-18e2e9a6d079a250-596053",
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "runtime": "2.1.311",
+    "execution_profile": "workspace",
+    "filesystem_boundary": "unknown",
+    "blocking_findings": 0,
+    "closed": true
+  },
+  "retained_failures": {
+    "checkout_fixture_root_full": {
+      "passed": 448,
+      "failed": 6,
+      "ignored": 6,
+      "elapsed_seconds": 967.33
+    },
+    "previous_binary_same_context": {
+      "passed": 0,
+      "failed": 3,
+      "elapsed_seconds": 3.13
+    },
+    "unchanged_new_binary_default_context": {
+      "passed": 3,
+      "failed": 0,
+      "elapsed_seconds": 9.82
+    }
+  },
+  "limits": [
+    "Full Cargo integration runtime remains open.",
+    "Installed preservation/workspace, native fault, guide and fleet gates remain open.",
+    "No product installation, operator-guide deployment, live conversion or conversation-source prune occurred.",
+    "Default-KEEP creation, retained restoration, remaining legacy adapters/fences, fair efficient discovery and production conversation archives remain required.",
+    "Per-entry tree walks and whole-cleanup efficiency remain unproved."
+  ],
+  "artifacts": {
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/keep-boundary-frozen-v1/unit",
+      "sha256": "045a5c80bfa6e8ec4827c586b13b6cfce5e76963df41f4edfb86f6cc90ad177b",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 37769584,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/keep-boundary-frozen-v1/app",
+      "sha256": "1eeaefbf5343c5005b5102d76b4194a5764a45ee7c4007d1d089c8390e9723d9",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27963456,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    }
+  },
+  "retained_evidence": {
+    "target/control-t13/mutation-bridge/keep-boundary-build-v1.log": "b47eb6cc2eda53ac7b25b598012a0919f9bca84e3b5cc979fe6a6f3a46df1d1f",
+    "target/control-t13/mutation-bridge/keep-boundary-focused-v1.log": "f7ac6dffb7a204b6bf069553156a484c9f5ec6898fb1afd0f8cf51c4c2f82150",
+    "target/control-t13/mutation-bridge/keep-boundary-full-units-v1.log": "e56a115fb02ad08b28ebf7e32ace313b794d0863e4da4dbd6c4cbd637841ec07",
+    "target/control-t13/mutation-bridge/keep-boundary-full-units-v2.log": "101af41dc2d63cee894effd0ef3c4be6451a70d910a672814a06fc9884f32af6",
+    "target/control-t13/mutation-bridge/keep-boundary-context-controls-v1.log": "debad5a5bda910dde52b4ec30b1ff5b3e84ca657f4ca7ec7fc4e916e0fb4b488",
+    "target/control-t13/mutation-bridge/keep-boundary-baseline-context-v1.log": "56a426a424c71401a13edb67ab731e16a6c5fc1a36b00b512c7adc66586fd728",
+    "target/control-t13/mutation-bridge/keep-boundary-review-source-v1.json": "3b6103897eda9b481d1ce5c74dfa0720876d5c484ae8a43ee6b108d72177f424",
+    "target/control-t13/mutation-bridge/keep-boundary-review-launch-v1.json": "84398815fe5cdafe01297882c1685407a4079e8c31a688e351f3c0fefd8dd54b",
+    "target/control-t13/mutation-bridge/keep-boundary-review-wait-v2.json": "950126c94596d4b52e0c1d10342ad179360f56177d955558e12c1d9026a4d2de",
+    "target/control-t13/mutation-bridge/keep-boundary-review-conversation-close.json": "4ba6b66a712df54bbf4da111e19b953894bc1f02b4d403ea5927fa12252a2fdc",
+    "target/control-t13/mutation-bridge/keep-boundary-review-peer-close.json": "80093a514a40108549a0826b3f265ec7299ab15e49898e291daee99edd8527ea",
+    "target/control-t13/mutation-bridge/keep-boundary-identity-post.json": "f39e5d6121f4a43132b6eeae976d0ed77540e6a58899c75f595551b859b0632a",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/applying-identity-post.json": "055ce76361def0d3ce441a19604d41fb40f18a0d2ac1e169941a74b2eb699100",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/applying-components.log": "f25bc1fb71348dffcd04f5e89becdd6557e49656b5367e63fa5d26a9186b7d2d",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/identity-post.json": "055ce76361def0d3ce441a19604d41fb40f18a0d2ac1e169941a74b2eb699100",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/identity-pre.json": "055ce76361def0d3ce441a19604d41fb40f18a0d2ac1e169941a74b2eb699100",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/focused.log": "5eaacaa74618fda7791d28334ace1888a21656b2c4eb4bfca1d2ad1a28f34930",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/cargo-positive.log": "6b42ecc087bf16188b2e35f81852d658ad2b5f510f3bb403ac5683c178717d4b"
+  }
+}

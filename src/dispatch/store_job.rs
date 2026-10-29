@@ -380,7 +380,8 @@ impl Applying<'_, '_> {
         }
       }
     }
-    crate::preservation::check(&candidate.path).map_err(io::Error::other)?;
+    crate::preservation::check_legacy(&candidate.path, Some(&self.grant.resources))
+      .map_err(io::Error::other)?;
     let relative = candidate
       .path
       .strip_prefix(&plan.dir)
@@ -407,12 +408,14 @@ impl Applying<'_, '_> {
         &manifest.project_dir,
         candidate,
         crate::plan::now_secs(),
+        Some(&self.grant.resources),
       )
       .map_err(|error| invalid(&error))?;
       self.fresh()?;
     }
     inventory.fresh()?;
-    crate::preservation::check(&candidate.path).map_err(io::Error::other)
+    crate::preservation::check_legacy(&candidate.path, Some(&self.grant.resources))
+      .map_err(io::Error::other)
   }
 
   fn delete(
@@ -745,7 +748,8 @@ pub(crate) fn assess(
       }
       let selected_at = crate::plan::now_secs();
       let plans =
-        crate::stores::plan_stores(manifest, selected_at).map_err(|error| invalid(&error))?;
+        crate::stores::plan_stores_with_resources(manifest, selected_at, Some(&grant.resources))
+          .map_err(|error| invalid(&error))?;
       for plan in plans {
         let mut removed = 0;
         let mut quarantined = vec![];

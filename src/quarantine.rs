@@ -425,7 +425,7 @@ pub fn assess_retire_ignoring_dir_mtimes(
     }
   };
 
-  if let Err(error) = crate::preservation::check(&dir) {
+  if let Err(error) = crate::preservation::check_legacy(&dir, None) {
     a.checks.push(RetireCheck {
       label: "preservation",
       ok: false,
@@ -1235,7 +1235,7 @@ pub fn audit_purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
       slot.display()
     ));
   }
-  crate::preservation::check(&slot)?;
+  crate::preservation::check_legacy(&slot, None)?;
   Ok(true)
 }
 

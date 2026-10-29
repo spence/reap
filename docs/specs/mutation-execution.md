@@ -24,6 +24,8 @@
   policy, configuration, recovery, quiet, activity, mount, and executor-generation evidence.
   Converted KEEP, unknown regions, protected descendants, and permanent roles remain vetoes against
   legacy authority. Lengthy copies and waits require revalidation before the next effect.
+  Binding: `preservation::tests::legacy_lifetime_guard_preserves_keep_descendants_and_independent_siblings`;
+  `preservation::tests::legacy_lifetime_guard_allows_cargo_below_workspace_keep_but_not_target_keep`.
 - **C5 — Uncertainty retains exclusion.** Native child absence alone does not resolve an uncertain
   unit's effects. Its physical reservation remains until fresh recovery proves a safe terminal
   boundary. Recovery does not repeat an uncertain deletion, rename, copy, or policy publication.

@@ -99,8 +99,13 @@ pub(crate) fn assess(
     let result = if let Some(runner) = &mut runner {
       runner.run(manifest, helpers)
     } else {
-      crate::plan::plan_project(manifest, crate::plan::now_secs(), context.request.quick)
-        .map(|plan| report(&plan, 0, 0, context.request.verbose))
+      crate::plan::plan_project_with_resources(
+        manifest,
+        crate::plan::now_secs(),
+        context.request.quick,
+        Some(&grant.resources),
+      )
+      .map(|plan| report(&plan, 0, 0, context.request.verbose))
     };
     match result {
       Ok(report) => reports.push(report),

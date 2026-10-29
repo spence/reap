@@ -378,7 +378,8 @@ fn guard_slot(
       ));
     }
   }
-  crate::preservation::check(slot).map_err(io::Error::other)?;
+  crate::preservation::check_legacy(slot, Some(&runner.grant.resources))
+    .map_err(io::Error::other)?;
   let entries = crate::quarantine::entries_dir(directory);
   if helpers
     .executables(&entries)?
@@ -394,7 +395,7 @@ fn guard_slot(
   runner.fresh()?;
   current_index(runner, directory, version)?;
   inventory.fresh()?;
-  crate::preservation::check(slot).map_err(io::Error::other)
+  crate::preservation::check_legacy(slot, Some(&runner.grant.resources)).map_err(io::Error::other)
 }
 
 fn fixture(
