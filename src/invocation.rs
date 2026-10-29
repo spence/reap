@@ -426,6 +426,82 @@ pub(crate) fn quarantine_metadata_request(input: &Intent) -> Option<QuarantineMe
   Some(request)
 }
 
+/// Exact legacy purge selectors. Explicit selectors retain their existing precedence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PurgeRequest {
+  pub apply: bool,
+  pub all: bool,
+  pub id: Option<String>,
+  pub owner: Option<String>,
+}
+
+impl PurgeRequest {
+  /// Preserve selectors and mode without an observer deadline.
+  pub(crate) fn argv(&self) -> Vec<String> {
+    let mut argv = vec!["purge".into()];
+    if self.apply {
+      argv.push("--apply".into());
+    }
+    if self.all {
+      argv.push("--all".into());
+    }
+    if let Some(id) = &self.id {
+      argv.push(format!("--id={id}"));
+    }
+    if let Some(owner) = &self.owner {
+      argv.push(format!("--owner={owner}"));
+    }
+    argv
+  }
+
+  pub(crate) fn selection(&self) -> crate::quarantine::PurgeSelect {
+    if self.all {
+      crate::quarantine::PurgeSelect::All
+    } else if let Some(id) = &self.id {
+      crate::quarantine::PurgeSelect::Id(id.clone())
+    } else if let Some(owner) = &self.owner {
+      crate::quarantine::PurgeSelect::Owner(owner.clone())
+    } else {
+      crate::quarantine::PurgeSelect::Auto
+    }
+  }
+}
+
+/// Parse purge input without filesystem work. Waits are observations, not worker arguments.
+pub(crate) fn purge_request(input: &Intent) -> Option<PurgeRequest> {
+  use clap::Parser;
+  if input.argv.first()?.as_str() != "purge" {
+    return None;
+  }
+  let crate::Cmd::Purge {
+    apply,
+    all,
+    id,
+    owner,
+    wait: None,
+  } = crate::Cli::try_parse_from(
+    std::iter::once("reap").chain(input.argv.iter().map(String::as_str)),
+  )
+  .ok()?
+  .cmd?
+  else {
+    return None;
+  };
+  if id
+    .iter()
+    .chain(owner.iter())
+    .any(|value| value.len() > 1024 || crate::provenance::clean(value).is_none())
+  {
+    return None;
+  }
+  Some(PurgeRequest {
+    apply,
+    all,
+    id,
+    owner,
+  })
+}
+
 impl Summary {
   /// Validate supported presentation metadata without treating it as execution permission.
   pub fn valid(&self) -> bool {
@@ -434,8 +510,10 @@ impl Summary {
         && matches!(self.mode.as_str(), "read" | "apply")
       || self.operation == "clean" && self.mode == "apply"
       || self.operation == "parents" && self.mode == "apply"
-      || matches!(self.operation.as_str(), "lease" | "stores" | "quarantine")
-        && matches!(self.mode.as_str(), "read" | "apply"))
+      || matches!(
+        self.operation.as_str(),
+        "lease" | "stores" | "quarantine" | "purge"
+      ) && matches!(self.mode.as_str(), "read" | "apply"))
       && self.requested_scope.len() <= 8192
       && !self.requested_scope.contains('\0')
   }
@@ -445,6 +523,17 @@ impl Summary {
 pub fn summary(input: &Intent) -> Option<Summary> {
   if !valid_intent(input) {
     return None;
+  }
+  if let Some(request) = purge_request(input) {
+    return Some(Summary {
+      operation: "purge".into(),
+      mode: if request.apply { "apply" } else { "read" }.into(),
+      requested_scope: match request.selection() {
+        crate::quarantine::PurgeSelect::Id(id) => id,
+        crate::quarantine::PurgeSelect::Owner(owner) => format!("owner:{owner}"),
+        _ => "configured".into(),
+      },
+    });
   }
   if let Some(request) = quarantine_metadata_request(input) {
     return Some(Summary {
@@ -660,6 +749,7 @@ pub(crate) fn fresh_with_state_prefix(
       && !store_request(&intent).is_some_and(|request| request.applying())
       && parent_arm_request(&intent).is_none()
       && !quarantine_metadata_request(&intent).is_some_and(|request| request.applying())
+      && !purge_request(&intent).is_some_and(|request| request.apply)
     {
       return Err(unavailable("state creation is not part of this operation"));
     }
@@ -1034,6 +1124,52 @@ mod native {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn purge_arguments_keep_selectors_modes_and_waits_separate() {
+    for request in [
+      PurgeRequest {
+        apply: false,
+        all: false,
+        id: None,
+        owner: None,
+      },
+      PurgeRequest {
+        apply: true,
+        all: false,
+        id: None,
+        owner: Some("--literal-owner".into()),
+      },
+      PurgeRequest {
+        apply: true,
+        all: false,
+        id: Some("--literal-id".into()),
+        owner: None,
+      },
+      PurgeRequest {
+        apply: false,
+        all: true,
+        id: Some("11223344".into()),
+        owner: Some("selected owner".into()),
+      },
+    ] {
+      let mut input = intent(&["purge"]);
+      input.argv = request.argv();
+      assert_eq!(purge_request(&input), Some(request.clone()));
+      let metadata = summary(&input).unwrap();
+      assert_eq!(metadata.operation, "purge");
+      assert_eq!(metadata.mode, if request.apply { "apply" } else { "read" });
+      assert!(metadata.valid());
+      if request.all {
+        assert!(matches!(
+          request.selection(),
+          crate::quarantine::PurgeSelect::All
+        ));
+      }
+      input.argv.push("--wait=1".into());
+      assert!(purge_request(&input).is_none());
+    }
+  }
 
   #[test]
   fn quarantine_metadata_keeps_selection_and_wait_separate() {

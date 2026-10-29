@@ -228,7 +228,7 @@ impl Scheduler {
         .is_some_and(|operation| matches!(operation, "plan" | "clean" | "sweep")),
       lease: matches!(
         operation.as_deref(),
-        Some("lease" | "parents" | "quarantine")
+        Some("lease" | "parents" | "quarantine" | "purge")
       ),
       stores: operation.as_deref() == Some("stores"),
       key,

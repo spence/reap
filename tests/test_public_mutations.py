@@ -113,6 +113,15 @@ class PublicMutations(unittest.TestCase):
             self.assertIn(result.receipt["state"], ("failed", "unavailable"))
             self.assertFalse((self.quarantine / "index.json").exists())
 
+    def test_purge_commands_do_not_wait_for_configuration_fifo(self):
+        self.config.unlink()
+        os.mkfifo(self.config)
+        for arguments in [(), ("--apply",), ("--all",),
+                          ("--id", "11223344", "--apply"), ("--owner", "owned fixture")]:
+            result = self.run_cli("purge", *arguments)
+            self.assertIn(result.receipt["state"], ("failed", "unavailable"))
+            self.assertFalse((self.quarantine / "index.json").exists())
+
     def test_parent_listing_does_not_create_state_or_wait_for_a_busy_lock(self):
         absent = self.root / "absent-state"
         environment = dict(self.environment, XDG_STATE_HOME=str(absent))

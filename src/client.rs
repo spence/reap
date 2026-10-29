@@ -120,6 +120,15 @@ pub(crate) fn run_quarantine_metadata(
   run_argv(request.argv(), request.applying(), wait, entered)
 }
 
+/// Submit purge selection without caller-side configuration, state, or payload reads.
+pub(crate) fn run_purge(
+  request: invocation::PurgeRequest,
+  wait: Option<Duration>,
+  entered: Instant,
+) -> i32 {
+  run_argv(request.argv(), request.apply, wait, entered)
+}
+
 fn run_prepared(
   operation: &str,
   path: Option<String>,

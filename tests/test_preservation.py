@@ -53,7 +53,7 @@ class Fixture:
 
     def run(self, *arguments):
         files = arguments and arguments[0] == "files"
-        coordinated = arguments and (arguments[0] in ("files", "plan", "clean", "sweep", "lease", "stores")
+        coordinated = arguments and (arguments[0] in ("files", "plan", "clean", "sweep", "lease", "stores", "purge")
                                      or arguments[:2] == ("parents", "arm")
                                      or arguments[0] == "quarantine" and
                                      (len(arguments) == 1 or arguments[1] in ("list", "hold", "unhold")))

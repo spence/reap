@@ -9,9 +9,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::{process::Command, sync::OnceLock, time::Duration};
@@ -82,7 +82,7 @@ impl EntryDiagnosis {
   }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IndexFile {
   pub version: u32,
@@ -1208,17 +1208,6 @@ pub fn audit_purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
   Ok(true)
 }
 
-/// Return whether a slot was removed. An already-absent slot can be dropped
-/// from the index by an explicitly selected purge, but never by auto purge.
-pub fn purge_entry(qdir: &Path, id: &str) -> Result<bool, String> {
-  if !audit_purge_entry(qdir, id)? {
-    return Ok(false);
-  }
-  let slot = entries_dir(qdir).join(id);
-  fs::remove_dir_all(&slot).map_err(|e| format!("{}: {e}", slot.display()))?;
-  Ok(true)
-}
-
 /// Move a quarantined entry back to its original path (or `to`).
 pub fn restore_entry(qdir: &Path, entry: &Entry, to: Option<&Path>) -> Result<PathBuf, String> {
   let src = entries_dir(qdir).join(&entry.id).join(&entry.name);
@@ -1348,7 +1337,25 @@ pub fn diagnose_entry(
   let evidence_file = evidence_path(&slot);
   let evidence = match fs::symlink_metadata(&evidence_file) {
     Ok(meta) if meta.is_file() => {
-      let text = match fs::read_to_string(&evidence_file) {
+      let text = match (|| -> io::Result<String> {
+        let file = fs::OpenOptions::new()
+          .read(true)
+          .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+          .open(&evidence_file)?;
+        if !file.metadata()?.is_file() {
+          return Err(io::Error::other("entry evidence is not a regular file"));
+        }
+        let mut text = String::new();
+        file
+          .take(crate::mutation::MAX_METADATA_BYTES as u64 + 1)
+          .read_to_string(&mut text)?;
+        if text.len() > crate::mutation::MAX_METADATA_BYTES {
+          return Err(io::Error::other(
+            "entry evidence exceeds its metadata bound",
+          ));
+        }
+        Ok(text)
+      })() {
         Ok(text) => text,
         Err(e) => return EntryDiagnosis::Blocked(format!("reading metadata: {e}")),
       };
@@ -2410,7 +2417,7 @@ mod tests {
   }
 
   #[test]
-  fn purge_deletes_entry_dir() {
+  fn purge_audit_preserves_the_slot_and_its_linked_target() {
     let root = tmp();
     let qdir = root.join("q");
     let slot = entries_dir(&qdir).join("abc12345");
@@ -2420,9 +2427,8 @@ mod tests {
     fs::create_dir(&outside).unwrap();
     fs::write(outside.join("keep"), b"kept").unwrap();
     std::os::unix::fs::symlink(&outside, slot.join("link")).unwrap();
-    assert!(purge_entry(&qdir, "abc12345").unwrap());
-    assert!(!purge_entry(&qdir, "abc12345").unwrap());
-    assert!(!slot.exists());
+    assert!(audit_purge_entry(&qdir, "abc12345").unwrap());
+    assert!(slot.join("thing/f").is_file());
     assert!(outside.join("keep").is_file());
     let _ = fs::remove_dir_all(&root);
   }
@@ -2436,9 +2442,8 @@ mod tests {
     fs::create_dir(&outside).unwrap();
     fs::write(outside.join("keep"), b"kept").unwrap();
     std::os::unix::fs::symlink(&outside, entries_dir(&qdir)).unwrap();
-    assert!(purge_entry(&qdir, "../outside").is_err());
+    assert!(audit_purge_entry(&qdir, "../outside").is_err());
     assert!(audit_purge_entry(&qdir, "abc12345").is_err());
-    assert!(purge_entry(&qdir, "abc12345").is_err());
     assert!(outside.join("keep").is_file());
     let _ = fs::remove_dir_all(&root);
   }

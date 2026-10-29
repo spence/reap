@@ -11,6 +11,10 @@ use crate::journal::{random_token, Decision};
 #[path = "tests/lease.rs"]
 mod lease;
 
+#[cfg(target_os = "macos")]
+#[path = "tests/purge.rs"]
+mod purge;
+
 struct ResumedOnDrop(crate::launch::ProcessIdentity);
 
 impl Drop for ResumedOnDrop {

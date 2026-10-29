@@ -166,6 +166,24 @@
   `invocation::tests::quarantine_metadata_keeps_selection_and_wait_separate`;
   `tests/test_public_mutations.py::PublicMutations::test_quarantine_metadata_does_not_wait_for_configuration_fifo`.
 
+- **C17 — Purge retains exact legacy scope.** Purge preview and application use the bounded client
+  and shared lifecycle executor. Automatic selection requires enabled machine policy, elapsed grace,
+  no indexed hold, a missing lease marker, and recognized indexed payload metadata before its first effect.
+  Explicit selectors retain their legacy precedence and automatic-policy exceptions; only `--all`
+  includes unindexed slots. They do not bypass native identity, caller containment, activity, mount,
+  preservation-role, or complete-inventory guards. Unknown index fields prevent replacement.
+  Each unlink has its own intent and outcome. Current index bytes, marker absence, and automatic holds remain guards
+  throughout a selected slot's exact owned-removal prefix. Successful indexed removal requires its
+  separate index publication. Explicit stale-row removal requires proved slot absence under a real
+  entries directory on the quarantine volume. Partial or uncertain effects are not completed success.
+  Exact replay does not resume deletion. Preview has no effects; bounded result capacity cannot hide
+  an already completed prefix or authorize another unreported candidate.
+  `--all` requires a complete bounded UTF-8 direct slot-name list before any effect.
+  Index and entry-evidence reads each have a 1 MiB bound. Entry evidence is a regular no-follow input.
+  Automatic payload diagnosis remains valid after inventory capture and before the first removal.
+  Bindings: `dispatch::tests::purge`; `invocation::tests::purge_arguments_keep_selectors_modes_and_waits_separate`;
+  `tests/test_public_mutations.py::PublicMutations::test_purge_commands_do_not_wait_for_configuration_fifo`.
+
 ## Conformance boundary
 
 The public mutation fixtures contain both refusal controls and actual allowed effects with protected

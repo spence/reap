@@ -74,7 +74,7 @@ impl TestRoot {
       .env_remove("REAP_SESSION")
       .current_dir(&self.root);
     if args.first().is_some_and(|operation| {
-      matches!(operation.as_str(), "lease" | "stores")
+      matches!(operation.as_str(), "lease" | "stores" | "purge")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
           && args
@@ -105,7 +105,7 @@ impl TestRoot {
   fn run(&self, args: Vec<String>) -> Output {
     let output = self.command(&args).output().unwrap();
     if args.first().is_some_and(|operation| {
-      matches!(operation.as_str(), "lease" | "stores")
+      matches!(operation.as_str(), "lease" | "stores" | "purge")
         || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
           && args
@@ -3187,14 +3187,30 @@ fn index_write_failures_roll_back_moves_without_losing_data() {
     id.to_string(),
     "--apply".to_string(),
   ];
-  fs::create_dir(root.quarantine().join("index.tmp")).unwrap();
+  let index_path = root.quarantine().join("index.json");
+  let original = fs::read(&index_path).unwrap();
+  let mut unknown: Value = serde_json::from_slice(&original).unwrap();
+  unknown["future_protection"] = true.into();
+  let unknown = serde_json::to_vec_pretty(&unknown).unwrap();
+  fs::write(&index_path, &unknown).unwrap();
   failure(root.run(purge.clone()));
+  assert_eq!(fs::read(&index_path).unwrap(), unknown);
   assert_eq!(
     array(&root.quarantine().join("index.json"), "entries").len(),
     1
   );
-  assert!(!root.quarantine().join("entries").join(id).exists());
-  fs::remove_dir(root.quarantine().join("index.tmp")).unwrap();
+  assert_eq!(
+    fs::read(
+      root
+        .quarantine()
+        .join("entries")
+        .join(id)
+        .join("scratch/payload")
+    )
+    .unwrap(),
+    b"scratch"
+  );
+  fs::write(&index_path, original).unwrap();
   success(root.run(purge));
   assert!(array(&root.quarantine().join("index.json"), "entries").is_empty());
 }
@@ -3590,10 +3606,17 @@ fn automatic_maintenance_preserves_held_and_marker_protected_quarantine_entries(
 
   let dry = root.run(vec!["purge".into()]);
   success(dry.clone());
-  let plan = String::from_utf8_lossy(&dry.stdout);
-  assert!(plan.contains(&format!("would purge {eligible}")));
-  assert!(!plan.contains(&format!("would purge {held}")));
-  assert!(!plan.contains(&format!("would purge {protected}")));
+  let detail = root.job_detail(&dry);
+  let planned: Vec<_> = detail["reports"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .filter(|report| report["state"] == "would_purge")
+    .map(|report| report["id"].as_str().unwrap())
+    .collect();
+  assert!(planned.contains(&eligible.as_str()));
+  assert!(!planned.contains(&held.as_str()));
+  assert!(!planned.contains(&protected.as_str()));
 
   failure(root.run(vec![
     "maintain".into(),

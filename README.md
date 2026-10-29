@@ -323,7 +323,7 @@ reap retire [dir] [--now] [--apply]
 # quarantine
 reap quarantine [--owner NAME]
 reap quarantine restore <id> [--to PATH]
-reap purge [--apply] [--all | --id ID | --owner NAME]
+reap purge [--apply] [--all | --id ID | --owner NAME] [--wait [SECONDS]]
 
 # read-only survey
 reap status
@@ -931,8 +931,8 @@ reap quarantine restore <id>        # put one back
 reap quarantine hold <id> --wait 30  # protect one from automatic purge
 reap quarantine unhold <id> --wait 30 # return it to the age policy
 reap doctor --quarantine            # inspect indexed and unindexed slots
-reap purge                          # dry-run entries past the grace period
-reap purge --apply
+reap purge --wait 30                 # await entries past the grace period
+reap purge --apply --wait 30
 ```
 
 The owner attribution answers "who parked this here?". When one machine copies
@@ -959,8 +959,8 @@ counts them separately from policy-eligible bytes. Rebuilt entries from
 stay withheld while their lease marker remains. Purge refuses a symlinked
 quarantine entry root, unreadable contents, or a nested mount before removing
 a slot; symlinks within a real slot are not followed. Explicit `purge --id`,
-`--owner`, or `--all` bypasses holds and the marker/metadata checks, but not
-the path/mount guard. These selectors can permanently delete held entries,
+`--owner`, or `--all` bypasses automatic grace, holds, and payload-diagnosis checks, but not
+recognized-index, identity, caller, activity, mount, or permanent-role guards. These selectors can permanently delete held entries,
 so inspect the owner and contents first. Release an owner-held entry only with
 that owner's approval.
 
@@ -969,9 +969,15 @@ Before a broad live purge, compare owner-protected paths with indexed
 Record whether each protected path exists before and after the run; an absent
 index match alone does not prove that a path survived.
 
-The `purge` dry-run traverses selected slots for the same path/mount preflight
-and may take time on large trees. `reap status` stays metadata-only; its
-policy-eligible byte count is not an executable deletion plan.
+Purge uses the bounded job client for preview and application. Use `--wait 30` before a dependent step.
+Its worker inventories selected slots and does not follow symlink targets.
+For `--all`, non-UTF-8 slot names or an excessive slot-name list prevent execution.
+Index and entry-evidence reads each have a 1 MiB bound.
+Each removal and subsequent index publication has separate durable intent and outcome.
+Cancellation or failure retains the completed prefix; exact replay does not resume deletion.
+Bounded result capacity can stop before another candidate, with an explicit incomplete result.
+Purge does not infer ownership permission or Git recoverability. Its logical indexed bytes are not measured space reclaimed.
+`reap status` stays metadata-only; its policy-eligible byte count is not an executable deletion plan.
 
 ### quarantine location and per-machine purge policy
 
@@ -1034,8 +1040,8 @@ Those volume deltas can include concurrent activity; they are not attributed
 bytes reclaimed. A failed stage leaves a nonzero overall result but does not
 silently authorize later work: each subsequent command independently rechecks
 its own authority and state. `reap status` shows the last result. A changed
-config or installed binary stops later stages. Cargo and Files stages use `--wait 30`.
-An applying Cargo or Files stage with outcome
+config or installed binary stops later stages. Cargo, Files, Stores, and Purge stages use `--wait 30`.
+An applying coordinated stage with outcome
 `pending` or `unconfirmed` also stops later stages. Use `reap job show ID` or
 `reap job wait ID` to resolve that same job; do not resubmit unconfirmed work.
 A concurrent maintenance run
@@ -1184,7 +1190,7 @@ An already successful job retains exit 0. This does not mean that cancellation t
 The commands require the native broker. An unavailable broker never selects a synchronous fallback.
 macOS installation registers that broker. Files application records exact payload and index units
 through the shared executor. Cargo application records lock publication and exact removal units through that executor.
-Lease, Store, and quarantine metadata commands also use that client and executor, including explicit metadata publications.
+Lease, Store, quarantine metadata, and Purge commands also use that client and executor, including explicit metadata publications.
 Other applying filesystem commands still retain their foreground routes.
 The full applying-command migration remains open. No new lifetime authority is activated by this route.
 

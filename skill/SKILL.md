@@ -93,6 +93,7 @@ Read terminal detail or retained pages for entries, held IDs, unindexed slots, a
 Listing does not create state, wait for the lifecycle lock, or inspect payload contents.
 Hold changes publish the exact index through the shared executor and preserve payloads.
 Restore remains a foreground operation and rejects `--wait`.
+Purge preview and application use the bounded client. Require completed success before a dependent operation.
 Other applying commands retain their foreground routes; full fleet migration remains open.
 Complete zero-effect Files jobs in either mode can publish journal grace credit. Legacy cache credit is not imported.
 
@@ -299,9 +300,9 @@ reap quarantine restore <id>
 reap quarantine hold <id> --wait 30 # exclude one entry from automatic purge
 reap quarantine unhold <id> --wait 30 # release an owner-approved hold
 reap doctor --quarantine         # inspect indexed and unindexed slots
-reap purge                       # dry-run: entries past the grace period
-reap purge --apply               # delete those (self-refuses if auto_purge=false)
-reap purge --owner <name> --apply  # explicit selectors bypass auto_purge
+reap purge --wait 30               # await entries past the grace period
+reap purge --apply --wait 30        # delete those (self-refuses if auto_purge=false)
+reap purge --owner <name> --apply --wait 30 # explicit selectors bypass auto_purge
 ```
 
 Automatic purge applies the machine's grace period to old and new indexed
@@ -309,12 +310,16 @@ entries alike, but skips held entries, surviving lease markers, and entries
 whose quarantine metadata fails validation. It rechecks each entry before
 deleting it and refuses nested mounts or unreadable slots. Holds live in the
 quarantine index and appear in `quarantine list` and `status`. Explicit
-`purge --id`, `--owner`, or `--all` bypasses holds and marker/metadata checks,
-but not path, mount, or preservation-role guards; obtain owner authorization before using them.
-Purge does not verify ownership, inspect open handles, or rerun Git recoverability checks;
-settle current use and required preservation separately before permanent deletion.
+`purge --id`, `--owner`, or `--all` bypasses automatic grace, holds, and payload-diagnosis checks.
+Obtain owner authorization before using these selectors.
 Do not unhold an owner-held entry without that owner's approval.
-`purge` dry-run traverses selected slots for mount safety; `status` remains
+Every selector retains recognized-index, identity, caller, activity, mount, and permanent-role guards.
+Purge does not infer ownership permission or Git recoverability. Require exact cleanup authority before submission.
+Read terminal detail or retained pages for per-slot results and completed effects.
+Cancellation or failure retains completed effects; exact replay does not resume deletion.
+An incomplete result is not completed success. Logical indexed bytes are not measured space reclaimed.
+For `--all`, non-UTF-8 slot names or an excessive slot-name list prevent execution.
+Purge workers inventory selected slots without following symlink targets; `status` remains
 metadata-only and its policy-eligible bytes are not an executable purge plan.
 Before a broad live purge, compare each owner-protected path with indexed
 `original_path` values, including ancestors, and hold any matching entry.

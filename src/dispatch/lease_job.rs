@@ -1,5 +1,7 @@
 //! Legacy lifecycle metadata under shared reservations and native unit guards.
 
+mod purge;
+
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -25,12 +27,14 @@ enum Command {
   Lease(LeaseCmd),
   ParentArm(crate::invocation::ParentArm),
   Quarantine(QuarantineMetadata),
+  Purge(crate::invocation::PurgeRequest),
 }
 
 impl Command {
   fn creates_state(&self) -> bool {
     matches!(self, Self::Lease(LeaseCmd::Add { .. }) | Self::ParentArm(_))
       || matches!(self, Self::Quarantine(request) if request.applying())
+      || matches!(self, Self::Purge(request) if request.apply)
   }
 }
 
@@ -412,6 +416,9 @@ pub(crate) fn assess(
     return Err(invalid("lease scope or grant changed after resolution"));
   }
   context.enter()?;
+  if let Command::Purge(request) = &context.command {
+    return purge::assess(&context, request, input, expected, grant, helpers);
+  }
   if matches!(context.command, Command::Lease(LeaseCmd::List)) {
     context.inspector.revalidate()?;
     let file = if context.bootstrap.is_empty() {
@@ -649,6 +656,7 @@ pub(crate) fn assess(
       Command::ParentArm(_) => "parents",
       Command::Quarantine(_) => "quarantine",
       Command::Lease(_) => "lease",
+      Command::Purge(_) => "purge",
     },
     "action":action,"error":result.as_ref().err().map(|error| error.to_string()),
     "worker_observation":{"completed_units":applying.effects,"unknown_effects":applying.unknown},
@@ -706,6 +714,34 @@ fn load_quarantine(
   }
 }
 
+/// Read bounded direct slot names. Read errors and opaque names cannot become empty coverage.
+fn slot_ids(directory: &Path) -> io::Result<Vec<String>> {
+  let entries = match std::fs::read_dir(crate::quarantine::entries_dir(directory)) {
+    Ok(entries) => entries,
+    Err(reason) if reason.kind() == io::ErrorKind::NotFound => return Ok(vec![]),
+    Err(reason) => return Err(reason),
+  };
+  let mut names = vec![];
+  let mut bytes = 0usize;
+  for entry in entries {
+    let name = entry?
+      .file_name()
+      .into_string()
+      .map_err(|_| invalid("quarantine slot name is not UTF-8"))?;
+    bytes = bytes
+      .checked_add(name.len() + std::mem::size_of::<String>())
+      .ok_or_else(|| invalid("quarantine slot names overflow"))?;
+    if bytes > crate::mutation::MAX_METADATA_BYTES {
+      return Err(invalid(
+        "quarantine slot listing exceeds its metadata bound",
+      ));
+    }
+    names.push(name);
+  }
+  names.sort();
+  Ok(names)
+}
+
 /// List recognized index records and direct slot names without a lifecycle lock or payload walk.
 fn list_quarantine(
   context: &Context<'_>,
@@ -722,36 +758,16 @@ fn list_quarantine(
     load_quarantine(directory, &grant.resources)?
   };
   let mut orphans = vec![];
-  let mut bytes = 0usize;
   if !context.quarantine_missing {
-    match std::fs::read_dir(crate::quarantine::entries_dir(directory)) {
-      Ok(entries) => {
-        let indexed: BTreeSet<_> = index
-          .entries
-          .iter()
-          .map(|entry| entry.id.as_str())
-          .collect();
-        for entry in entries {
-          let name = entry?
-            .file_name()
-            .into_string()
-            .map_err(|_| invalid("quarantine slot name is not UTF-8"))?;
-          bytes = bytes
-            .checked_add(name.len() + std::mem::size_of::<String>())
-            .ok_or_else(|| invalid("quarantine slot names overflow"))?;
-          if bytes > crate::mutation::MAX_METADATA_BYTES {
-            return Err(invalid(
-              "quarantine slot listing exceeds its metadata bound",
-            ));
-          }
-          if !indexed.contains(name.as_str()) {
-            orphans.push(name);
-          }
-        }
-      }
-      Err(reason) if reason.kind() == io::ErrorKind::NotFound => {}
-      Err(reason) => return Err(reason),
-    }
+    let indexed: BTreeSet<_> = index
+      .entries
+      .iter()
+      .map(|entry| entry.id.as_str())
+      .collect();
+    orphans = slot_ids(directory)?
+      .into_iter()
+      .filter(|id| !indexed.contains(id.as_str()))
+      .collect();
     if load_quarantine(directory, &grant.resources)?.0 != version {
       return Err(invalid("quarantine index changed during listing"));
     }
@@ -784,6 +800,8 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
     Command::ParentArm(request)
   } else if let Some(request) = crate::invocation::quarantine_metadata_request(&intent) {
     Command::Quarantine(request)
+  } else if let Some(request) = crate::invocation::purge_request(&intent) {
+    Command::Purge(request)
   } else {
     return Err(invalid("unsupported lease metadata arguments"));
   };
@@ -814,7 +832,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
       LeaseCmd::Add { path, .. } | LeaseCmd::Renew { path, .. } | LeaseCmd::Release { path },
     ) => Some(PathBuf::from(path)),
     Command::ParentArm(request) => Some(PathBuf::from(&request.path)),
-    Command::Quarantine(_) => None,
+    Command::Quarantine(_) | Command::Purge(_) => None,
   };
   let target = raw_target
     .map(|path| {
@@ -851,7 +869,7 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
   let mut forbidden = vec![state.clone()];
   let mut quarantine = None;
   let mut quarantine_missing = false;
-  if command.creates_state() || matches!(command, Command::Quarantine(_)) {
+  if command.creates_state() || matches!(command, Command::Quarantine(_) | Command::Purge(_)) {
     let home = intent.namespace.home.to_string_lossy();
     let raw_quarantine = configuration
       .quarantine
@@ -869,12 +887,19 @@ fn inspect<'a>(input: &Prepared, allowed: Option<&'a [String]>) -> io::Result<Co
         }
       })
       .unwrap_or_else(|| raw_state.join("reap/quarantine"));
-    let path = inspector.canonical_path(&if raw_quarantine.is_absolute() {
+    let absolute = if raw_quarantine.is_absolute() {
       raw_quarantine
     } else {
       caller.base.join(raw_quarantine)
-    })?;
-    if matches!(command, Command::Quarantine(_)) {
+    };
+    if matches!(command, Command::Purge(_))
+      && std::fs::symlink_metadata(&absolute)
+        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    {
+      return Err(invalid("purge quarantine root is not a real directory"));
+    }
+    let path = inspector.canonical_path(&absolute)?;
+    if matches!(command, Command::Quarantine(_) | Command::Purge(_)) {
       let (path, missing) = destination(&mut inspector, &path)?;
       quarantine_missing = !missing.is_empty();
       if matches!(&command, Command::Quarantine(request) if request.applying()) {
