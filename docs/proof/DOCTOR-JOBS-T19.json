@@ -1,0 +1,113 @@
+{
+  "citation": "REF-DOCTOR-JOBS-T19",
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "source_revision": "3b65321dabd355a6906bcc13b7fe32c4654bbc48",
+  "source_base_revision": "ce4cc23c1e9b9f466c1cc9f244a409a29011c244",
+  "source_files": {
+    "README.md": "aa3e2ee18b877a77f52ce326d0db81839e411454265362a30072e605cae095ea",
+    "docs/specs/job-client.md": "5649236525eed8d8507fbfb5c48e9988e760bc58d16d8dfcbd912724c241813a",
+    "docs/specs/mutation-execution.md": "be5976c38f8df065ed5574a2d8d2561e68b65ea8b5fe97307589c32aeeca7b99",
+    "skill/SKILL.md": "51c3e63d5bbb6ea2eac062befc96840c24c02ab3b6028e5bab43784004ed9b9c",
+    "src/client.rs": "c097b0578e07c96842a647ff26cb5a0d7c6f6c2f8cbdcddd4d313acc0ca3232a",
+    "src/dispatch.rs": "baeb6fab3432097f841a0213b055a418ad3a9f8d709b2a4f65b8546eb2bff6e8",
+    "src/dispatch/lease_job.rs": "6b4815049d1e2844b88b5634261492ee8dc32f6c6a4269a6f1fd62665fa8903d",
+    "src/dispatch/lease_job/doctor.rs": "e60b9fa88cdce3d28b435cf8407bc46589326ec7e53c3a182a30b5daed377ca5",
+    "src/dispatch/tests/lease.rs": "51a472774bfa8d34fc7f64dea791b7fd00e2404c1c4f62f0e0e6c5ba381e5a0a",
+    "src/invocation.rs": "93396076dfa029007fee9602c03e7903375c4bc2928cfafeb624e19c1f21f01e",
+    "src/journal.rs": "71727eb14608bfed65cf7c80e0429536e7de812d1fbf04310828d56c6d20c53e",
+    "src/main.rs": "a5cdc0287b4cef50d8419ca108e7865c2df3f563c70726e3ebcf3b926787f140",
+    "src/maintenance.rs": "b7e85c0fb763e2b26965200fcd1fc94aca84b0a96a9b41cb838241c4e88d568f",
+    "src/service/tests.rs": "4848991808176722366c3870eaa101b659b32d0ada3c07418c3bdc105d42f84f",
+    "src/worker.rs": "5846a8f0045729184a46c9c59b15ce4ce6bd7824cbdd2f22a11b20d198808f1d",
+    "tests/lifecycle_state.rs": "5d6e3cdd664317e271d27d9876d7998493fa8bdafd103bcf9175a78bc9389dfb",
+    "tests/test_public_mutations.py": "b185a2f32679463cb46f83ecf56e7d4006258c264b6f91bdaee785777b525966"
+  },
+  "binary_unit_result": {
+    "passed": 449,
+    "failed": 0,
+    "ignored": 6,
+    "elapsed_seconds": 986.35
+  },
+  "native_selections": {
+    "catalyst": {
+      "doctor_passed": 13,
+      "doctor_elapsed_seconds": 11.91,
+      "maintenance_passed_in_full_binary_run": true
+    },
+    "catalyst-mini": {
+      "doctor_passed": 13,
+      "doctor_elapsed_seconds": 8.23,
+      "maintenance_passed": 1,
+      "maintenance_elapsed_seconds": 3.73
+    }
+  },
+  "artifacts": {
+    "unit": {
+      "sha256": "ded5999a9c39bb9e5926d9c8b0315e80c7eccfe79f6ffa143b3c821eb99b0a4a",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 37666576
+    },
+    "app": {
+      "sha256": "bf54a7d285b2819b23f1b8d2ae9f94e69c5d27e8966b11a3eb0fa0cc0d468f41",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 27916368
+    }
+  },
+  "native_identity_receipts": {
+    "doctor-root-pre-v4.json": "f33732ca02d0324e86afcfe392039623e274e886ef2e662a7ec9090e2239c730",
+    "doctor-root-post-v4.json": "f33732ca02d0324e86afcfe392039623e274e886ef2e662a7ec9090e2239c730",
+    "doctor-mini-pre-v4.json": "42764b0dc0194e74cc2ba52b0aa93b0f9a9da04fb3757c971d77c7789839e726",
+    "doctor-mini-post-v4.json": "42764b0dc0194e74cc2ba52b0aa93b0f9a9da04fb3757c971d77c7789839e726"
+  },
+  "raw_evidence": {
+    "target/control-t13/mutation-bridge/doctor-build-v1.log": "caf95bf97ebbea76959a76631cf0fa963f8713c66ea1080001d9c4939dcfe71c",
+    "target/control-t13/mutation-bridge/doctor-build-v2.log": "3b592d31c81c8a34a5155c9f0e12702f45ca79e5ca958cdf13c41f7e6f190ea7",
+    "target/control-t13/mutation-bridge/doctor-build-v3.log": "3b592d31c81c8a34a5155c9f0e12702f45ca79e5ca958cdf13c41f7e6f190ea7",
+    "target/control-t13/mutation-bridge/doctor-build-v4.log": "ece877272e6271bd58a4c43f36f60d3d4d1d4a966480e6c0f8925e8907e64473",
+    "target/control-t13/mutation-bridge/doctor-build-v5.log": "53ece29ce6697ceda1fcb1c208b463dda1933fa5f37d67e82efefe0e612622b3",
+    "target/control-t13/mutation-bridge/doctor-build-v6.log": "fc60f51030f4cbfd12e8cc31eb2db558b6fa38a0cde8afa2e9e7813c5eb29f56",
+    "target/control-t13/mutation-bridge/doctor-build-v7.log": "1282522e7cd2b7114f0be60a99acf935fbf8b4004020fca42ba8cd821ddb3ae4",
+    "target/control-t13/mutation-bridge/doctor-build-v8.log": "4e8647382c8bcaf4da3a61f4f03c78d1188a160085a142b113c343dbdc8ee0ab",
+    "target/control-t13/mutation-bridge/doctor-focused-v1.log": "d28770396e15ead891d93d4256bb814a9935906d5c2ca2ee5b8fc46b8cc1d484",
+    "target/control-t13/mutation-bridge/doctor-focused-v2.log": "9e4b0917fae57d6b4d72336ad8f970791a75e3654490affe6a00db0269c1963a",
+    "target/control-t13/mutation-bridge/doctor-focused-v3.log": "22e2d759965d1434ca3f2e74d7ef0e4787d10da7b85c59d2eb642b29fa800b73",
+    "target/control-t13/mutation-bridge/doctor-focused-v4.log": "b70102631cc65886fe1699a02431eb781ee69d4c0c242fbc9979b2c86d305a29",
+    "target/control-t13/mutation-bridge/doctor-maintenance-v2.log": "7f450af481378ec1ef4bd0ecf4acf6435cbcdffd60e4db2ec573299ee1a0ec2c",
+    "target/control-t13/mutation-bridge/doctor-maintenance-v3.log": "dab41281f45980d2db062b74427725a425a287cd4d2c4780b98b02b93f1f6e88",
+    "target/control-t13/mutation-bridge/doctor-full-units-v4.log": "a28496dd327a29cebcec8761f0c521aa5f41851f10cc91c8d65db403ef2c99ff",
+    "target/control-t13/mutation-bridge/doctor-mini-focused-v4.log": "31c04b65325b8a3467194c463869b7629c46be1441c74532c35a264b3cddb446",
+    "target/control-t13/mutation-bridge/doctor-mini-maintenance-v4.log": "f36c38c66b08035558ccbcdb52f24860f71bdc0b5c570d3884db4772c0e2f3a3",
+    "target/control-t13/mutation-bridge/doctor-review-launch-v1.json": "7a0605aedd8abdc88acdf44091113e77eff33546306240661302cd22c055249b",
+    "target/control-t13/mutation-bridge/doctor-review-wait-v1.json": "0e4d8a363f18966163cf6b48c27f0254c7953724e9680f328b5d4a93976afb2d",
+    "target/control-t13/mutation-bridge/doctor-review-send-v2.json": "ffacead622e5ddebb1a1ae617b708872ce3285f8cb93472aac34416336c5255c",
+    "target/control-t13/mutation-bridge/doctor-review-wait-v2.json": "1f95051191da0555f361978b71856236527a5f809c5661c14f5566d5ee3c44c2",
+    "target/control-t13/mutation-bridge/doctor-review-peer-final.json": "d1860e2f035ee6ea3d6c150251e9dae43c4320c3cab34732240c73514730f056",
+    "target/control-t13/mutation-bridge/doctor-review-conversation-close.json": "65705b7a4d6dff6c687760c3f80578aa941fe73588827aff8488730752bb9c0b",
+    "target/control-t13/mutation-bridge/doctor-review-peer-close.json": "a6656d921f441c8aeb6a4a5581fb9f7445a0562808cbd24926626d338c2f5eba",
+    "target/control-t13/mutation-bridge/doctor-help-v4.txt": "a8db9296f6df8c1e3b07cabbd601e46536a888eca0925c4d7840126e1e890b2f",
+    "target/control-t13/mutation-bridge/doctor-global-help-v4.txt": "6570c9748ac9c4893a17be3c4e052191d84199e55557a1ad8caed1241f64b34f"
+  },
+  "review": {
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "execution_profile": "workspace",
+    "native_filesystem_boundary": "unknown",
+    "accepted_manifest": "doctor-source-review-v2.json",
+    "peer_closed": true,
+    "history_retained": true
+  },
+  "limits": [
+    "Scope capacity remains 128 observations and 32 KiB; bulk scale is unproved.",
+    "Marker and evidence inputs retain the 64 KiB Inspector limit.",
+    "Full Cargo integration runtime, native faults and installed acceptance remain open.",
+    "The remaining applying adapters, lifetime activation, conversion and native archives remain open.",
+    "No product, operator guide, conversion or conversation-source prune was activated."
+  ],
+  "activation": false,
+  "full_goal_complete": false
+}
