@@ -83,7 +83,8 @@
     "Installed preservation/workspace, native fault, guide and fleet gates remain open.",
     "No product installation, operator-guide deployment, live conversion or conversation-source prune occurred.",
     "Default-KEEP creation, retained restoration, remaining legacy adapters/fences, fair efficient discovery and production conversation archives remain required.",
-    "Per-entry tree walks and whole-cleanup efficiency remain unproved."
+    "Per-entry tree walks and whole-cleanup efficiency remain unproved.",
+    "Linux cross-compilation is not native Linux runtime acceptance. The macOS-only fixture cases are absent on Linux, not passing there."
   ],
   "artifacts": {
     "unit": {
@@ -125,6 +126,72 @@
     "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/identity-post.json": "055ce76361def0d3ce441a19604d41fb40f18a0d2ac1e169941a74b2eb699100",
     "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/identity-pre.json": "055ce76361def0d3ce441a19604d41fb40f18a0d2ac1e169941a74b2eb699100",
     "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/focused.log": "5eaacaa74618fda7791d28334ace1888a21656b2c4eb4bfca1d2ad1a28f34930",
-    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/cargo-positive.log": "6b42ecc087bf16188b2e35f81852d658ad2b5f510f3bb403ac5683c178717d4b"
+    "target/control-t13/mutation-bridge/keep-boundary-mini-receipts-v1/cargo-positive.log": "6b42ecc087bf16188b2e35f81852d658ad2b5f510f3bb403ac5683c178717d4b",
+    "target/control-t13/mutation-bridge/keep-boundary-platform-review-source-v2.json": "ec81b9d50a5761691bf8a6362c92e589bac4b173fee46892cbaedfe3ca1f44dd",
+    "target/control-t13/mutation-bridge/keep-boundary-platform-review-launch-v2.json": "8295ce85f43594492d2003341b2f0a2aaeb7adcdc90923b93a7cc0d3f24391c3",
+    "target/control-t13/mutation-bridge/keep-boundary-platform-review-wait-v2.json": "757514f9598d97c07ec5d33ee6c95cc61dd2ad12a7e8f74b29cca63855e64cb4",
+    "target/control-t13/mutation-bridge/keep-boundary-platform-review-conversation-close-v2.json": "042927c666f9e0af61dd3e73d7cde67653473e68d3f6071bd3e5d1332359b636",
+    "target/control-t13/mutation-bridge/keep-boundary-platform-review-peer-close-v2.json": "637034d87f731b110d76cc8b7b580f75fc3691de550ca1d0749e4edcd59d215d",
+    "target/control-t13/mutation-bridge/keep-boundary-linux-check-v2.log": "689b897f32136e8a846d2d58decd0591c987ab62006ff556b6c6b18cc7d68c9a",
+    "target/control-t13/mutation-bridge/keep-boundary-build-v2.log": "9852e632725ca03b2365792c92a6ef5e83e2555e2739f85d625e53d50973375d",
+    "target/control-t13/mutation-bridge/keep-boundary-focused-v2.log": "de4225003b4e94d0facffa2a253d665633a1f550290318e4102a35fde22a122d",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-focused-v2.log": "e251e1f00ae61b7e7234b1eaf3c8132baceb20016a898d99f7b1562f467f8c08",
+    "target/control-t13/mutation-bridge/keep-boundary-platform-identity-post-v2.json": "ec4514c2dd0545824d616f47414010674a414a8f82518b97724082482eb17dd8",
+    "target/control-t13/mutation-bridge/keep-boundary-mini-identity-post-v2.json": "5a6989d637ba3f650c9ab3382390a97790fc9eef5c7d65c9068299086f64966c"
+  },
+  "platform_adjustment": {
+    "source": {
+      "base_revision": "da35e14cce77abe19ab1c973e9970f298944a374",
+      "files": {
+        "src/preservation.rs": "b759f0ce326cf800844d1a11488c21462543096eb904eb0e8577fe2dc0486abe"
+      },
+      "change": "Six macOS-only test-selection attributes; no runtime code change."
+    },
+    "runtime_code_unchanged": true,
+    "mac_test_bodies_unchanged": true,
+    "scope": "Six macOS-only test-selection attributes. The original full run precedes this adjustment.",
+    "artifacts": {
+      "unit": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/keep-boundary-platform-frozen-v2/unit",
+        "sha256": "ea52ed4ad9c2d0f1b5be871556b1ec7094ac4caa44aaa7e86da5e0e31bbc1aab",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap.native-tests",
+        "bytes": 37769584,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+      }
+    },
+    "root_focused": {
+      "passed": 15,
+      "failed": 0,
+      "elapsed_seconds": 0.35
+    },
+    "mini_focused": {
+      "passed": 15,
+      "failed": 0,
+      "elapsed_seconds": 0.15
+    },
+    "linux_cross_compile": {
+      "target": "aarch64-unknown-linux-gnu",
+      "all_test_targets": true,
+      "passed": true,
+      "elapsed_seconds": 44.84,
+      "runtime_proof": false
+    },
+    "native_build_seconds": 6.72,
+    "review": {
+      "peer": "peer-18e2ed1db691a318-598159",
+      "conversation": "conversation-18e2ed1dbaab4620-598163",
+      "request": "cmsg-18e2ed1dbb427d10-598166",
+      "provider": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "runtime": "2.1.311",
+      "execution_profile": "workspace",
+      "filesystem_boundary": "unknown",
+      "accepted": true,
+      "closed": true
+    }
   }
 }

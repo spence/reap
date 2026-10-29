@@ -643,6 +643,7 @@ mod tests {
     }
   }
 
+  #[cfg(target_os = "macos")]
   fn legacy_case(case: &str) {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
@@ -692,26 +693,31 @@ mod tests {
   }
 
   #[test]
+  #[cfg(target_os = "macos")]
   fn legacy_lifetime_guard_preserves_keep_descendants_and_independent_siblings() {
     legacy_case("boundaries");
   }
 
   #[test]
+  #[cfg(target_os = "macos")]
   fn legacy_lifetime_guard_allows_cargo_below_workspace_keep_but_not_target_keep() {
     legacy_case("cargo");
   }
 
   #[test]
+  #[cfg(target_os = "macos")]
   fn legacy_lifetime_guard_ignores_out_of_scope_and_tracked_policy() {
     legacy_case("inert");
   }
 
   #[test]
+  #[cfg(target_os = "macos")]
   fn legacy_lifetime_guard_refuses_unknown_configuration_and_git() {
     legacy_case("unknown");
   }
 
   #[test]
+  #[cfg(target_os = "macos")]
   fn legacy_lifetime_child_entry() {
     let Ok(case) = std::env::var("REAP_LEGACY_LIFETIME_CASE") else {
       return;

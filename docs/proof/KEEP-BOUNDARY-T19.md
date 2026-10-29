@@ -45,6 +45,18 @@ The previous signed binary reproduces three representative failures with that ov
 The unchanged new binary passes those three cases with the existing isolated-fixture defaults.
 The corrected full run passes with those defaults. No Git or KEEP guard was weakened.
 
+## Final platform selection
+
+The final source adds six macOS-only selection attributes around the new native fixture cases.
+Those fixtures require the macOS physical-volume and persistent-identity backends.
+No runtime code or Mac test body changes. A separate review accepts the exact adjusted file hash.
+The complete binary-unit run above precedes this adjustment.
+A fresh signed driver passes the focused selection again: 15 cases on each Mac.
+Catalyst takes 0.35 seconds; the Mini takes 0.15 seconds. Native identities and bytes match.
+All test targets cross-compile for `aarch64-unknown-linux-gnu` in 44.84 seconds.
+The fresh native build completes in 6.72 seconds.
+The excluded fixture cases do not count as Linux passes. Native Linux runtime acceptance remains open.
+
 ## Remaining delivery
 
 Full Cargo integration runtime, installed preservation/workspace behavior, native faults, guides, and fleet cutover remain required.
