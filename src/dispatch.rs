@@ -884,15 +884,17 @@ impl Inspector<'_> {
 
   /// Follow only the exact payload renames already observed by this job's unit journal.
   fn revalidate_renamed(&self, moved: &[(PathBuf, PathBuf)]) -> io::Result<()> {
-    self.revalidate_effects(moved, &[], &[])
+    self.revalidate_effects(moved, &[], &[], &[])
   }
 
   /// Advance only exact native effects already observed through the unit journal.
+  /// Created directories retain the original absent path's ancestor binding.
   fn revalidate_effects(
     &self,
     moved: &[(PathBuf, PathBuf)],
     removed: &[PathBuf],
     published: &[crate::mutation::FileVersion],
+    created: &[crate::mutation::Object],
   ) -> io::Result<()> {
     for original in &self.objects {
       let mut current = original.clone();
@@ -914,6 +916,16 @@ impl Inspector<'_> {
       } else {
         match std::fs::symlink_metadata(&object.path) {
           Err(reason) if reason.kind() == io::ErrorKind::NotFound => {}
+          Ok(metadata) if metadata.is_dir() => {
+            let owned = created
+              .iter()
+              .find(|created| created.path == object.path)
+              .ok_or_else(|| invalid("dependency absence is no longer proved"))?;
+            let file = crate::files::open_physical(&object.path)?;
+            if ObjectIdentity::read(&file)? != owned.identity {
+              return Err(invalid("created dependency directory changed identity"));
+            }
+          }
           _ => return Err(invalid("dependency absence is no longer proved")),
         }
         let mut path = object.path.clone();

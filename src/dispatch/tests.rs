@@ -4853,3 +4853,56 @@ fn durable_resolver_and_bulk_results_recover_across_each_publication_boundary() 
 #[cfg(target_os = "macos")]
 #[path = "tests/stores.rs"]
 mod stores;
+
+#[cfg(target_os = "macos")]
+#[test]
+fn observed_created_directory_advances_only_its_exact_absence_and_keeps_ancestor_binding() {
+  let fixture = Fixture::new();
+  let parent = fixture.0.join("parent");
+  fs::create_dir(&parent).unwrap();
+  let directory = parent.join("created");
+  let mut inspector = Inspector {
+    allowed: None,
+    objects: vec![],
+    physical: BTreeSet::new(),
+    nofollow: BTreeSet::new(),
+  };
+  inspector.absent(&directory).unwrap();
+  fs::create_dir(&directory).unwrap();
+  fs::write(directory.join("payload"), b"owned directory payload").unwrap();
+  let created = crate::mutation::Object {
+    path: directory.clone(),
+    identity: ObjectIdentity::read(&crate::files::open_physical(&directory).unwrap()).unwrap(),
+  };
+  assert!(inspector.revalidate_effects(&[], &[], &[], &[]).is_err());
+  inspector
+    .revalidate_effects(&[], &[], &[], std::slice::from_ref(&created))
+    .unwrap();
+
+  let retained = parent.join("retained");
+  fs::rename(&directory, &retained).unwrap();
+  fs::create_dir(&directory).unwrap();
+  fs::write(directory.join("valuable"), b"replacement directory payload").unwrap();
+  assert!(inspector
+    .revalidate_effects(&[], &[], &[], std::slice::from_ref(&created))
+    .is_err());
+  let replacement = parent.join("replacement");
+  fs::rename(&directory, &replacement).unwrap();
+  fs::rename(&retained, &directory).unwrap();
+
+  let original_parent = fixture.0.join("original-parent");
+  fs::rename(&parent, &original_parent).unwrap();
+  fs::create_dir(&parent).unwrap();
+  fs::rename(original_parent.join("created"), &directory).unwrap();
+  assert!(inspector
+    .revalidate_effects(&[], &[], &[], std::slice::from_ref(&created))
+    .is_err());
+  assert_eq!(
+    fs::read(directory.join("payload")).unwrap(),
+    b"owned directory payload"
+  );
+  assert_eq!(
+    fs::read(original_parent.join("replacement/valuable")).unwrap(),
+    b"replacement directory payload"
+  );
+}

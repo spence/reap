@@ -1,0 +1,167 @@
+{
+  "status": "installed component checkpoint; full combined goal and final current unit/integration gates remain open",
+  "base": "370c3d87e41b0f21dccda62fe100a0a4f4675333",
+  "source": {
+    "src/dispatch.rs": "4a022bc8f62a08f6be4f5ae2fa90d55d3f3278961bbbb0083c4492afb6dc3c27",
+    "src/dispatch/lease_job.rs": "f383de805d8743f96bfaf00300c5fe2e1cb66fa79557f3d69237a7fd39a44c1e",
+    "src/dispatch/tests.rs": "2049886f01c2a41255732c7f1adf0d39643d6707e8e209480b1adf4fd269fc93",
+    "tests/lifecycle_state.rs": "5ad151f623d0e3b237a4c034630b5d4d9e91855245a36247fd42ab8563780661"
+  },
+  "installed_root": {
+    "path": "/Users/spencer/.cargo/bin/reap",
+    "sha256": "0a4099c8c85fc8ecf40e70c3573f613061ff66bfcb400979d5e7de6b8908f848",
+    "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+    "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+    "identifier": "dev.micro.reap",
+    "bytes": 28802512,
+    "storage_device": 16777232
+  },
+  "mini": {
+    "command": [
+      "/usr/bin/env",
+      "-u",
+      "CARGO_HOME",
+      "TMPDIR=/private/tmp",
+      "/private/tmp/reap-cores-transport-8yjfimnx/restore-copy-v5-5ao0pxam/install.sh",
+      "--binary",
+      "/private/tmp/reap-cores-transport-8yjfimnx/restore-copy-v5-5ao0pxam/created-directory-v1/app"
+    ],
+    "install_exit": 0,
+    "install_seconds": 2.441,
+    "native_installed": {
+      "path": "/Users/spencer/.cargo/bin/reap",
+      "sha256": "0a4099c8c85fc8ecf40e70c3573f613061ff66bfcb400979d5e7de6b8908f848",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 28802512,
+      "storage_device": 16777234
+    },
+    "test_command": [
+      "/private/tmp/reap-cores-transport-8yjfimnx/restore-copy-v5-5ao0pxam/created-directory-v1/cli/unit",
+      "automatic_maintenance_preserves_held_and_marker_protected_quarantine_entries",
+      "--exact",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "test_exit": 0,
+    "test_seconds": 15.374,
+    "scope": "one actual installed first-use quarantine check; all fixtures and executables on internal storage"
+  },
+  "operator_guides": {
+    "exit": 0,
+    "stdout": "{\"skills_revision\": \"4f42de74ef9247df1fc688f229882665912db020\", \"skill_delivery\": [{\"skill\": \"reap\", \"exit\": 0, \"stdout\": \"claude reap: in sync\\ncodex reap: in sync\\n\", \"stderr\": \"\"}, {\"skill\": \"artifacts\", \"exit\": 0, \"stdout\": \"claude artifacts: in sync\\ncodex artifacts: in sync\\n\", \"stderr\": \"\"}], \"native_installed\": {\"path\": \"/Users/spencer/.cargo/bin/reap\", \"sha256\": \"06f35491796b2b611cef93d8275d1788bf595f88ea2f9e65a2ee0a22c5345d84\", \"micro_leaf_sha1\": \"EBBF6FBFFB95D2DD5925180B4441F6D29E45255E\", \"designated_requirement\": \"designated => identifier \\\"dev.micro.reap\\\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \\\"35A87BDK48\\\"\", \"identifier\": \"dev.micro.reap\", \"bytes\": 28801344, \"storage_device\": 16777234}}\n",
+    "stderr": "",
+    "directory": "/private/tmp/reap-cores-transport-8yjfimnx/restore-copy-v5-5ao0pxam",
+    "skills_revision": "4f42de74ef9247df1fc688f229882665912db020"
+  },
+  "evidence": {
+    "created-directory-source-v4.json": {
+      "path": "target/native-profile-t20/created-directory-source-v4.json",
+      "sha256": "158dba240bcb34f4decf16403604d1d49b42c847f50d0038d82728fa7da78e5c",
+      "bytes": 384
+    },
+    "created-directory-regression-v1.log": {
+      "path": "target/native-profile-t20/created-directory-regression-v1.log",
+      "sha256": "f2b0788cdfd8213b5c0d78305ba77e335dce6fb3baf05cac966cfbeeae2b7ca3",
+      "bytes": 229
+    },
+    "created-directory-cli-regression-v2.json": {
+      "path": "target/native-profile-t20/created-directory-cli-regression-v2.json",
+      "sha256": "7e7ffc33e9a394c21193c1826e58aafa253d91cb70eb57fce7ed60a7cc46a7fe",
+      "bytes": 528
+    },
+    "created-directory-cli-regression-v2.log": {
+      "path": "target/native-profile-t20/created-directory-cli-regression-v2.log",
+      "sha256": "02279ff81114796e47884f49eaa90c55b9d8e2a8108bb4cd856a5f0e6470a2c8",
+      "bytes": 203
+    },
+    "created-directory-nested-cli-v4.log": {
+      "path": "target/native-profile-t20/created-directory-nested-cli-v4.log",
+      "sha256": "09c1f4077ad91ed3f38ea3b568ed45fe1a1326ccf64dde994bbd0719334201c8",
+      "bytes": 181
+    },
+    "created-directory-nested-preview-v3.json": {
+      "path": "target/native-profile-t20/created-directory-nested-preview-v3.json",
+      "sha256": "741bdf6afebeaae2e945b75b9270b259e37256e0e283d0afc094f25718757e66",
+      "bytes": 1830
+    },
+    "created-directory-concurrent-cli-v4.log": {
+      "path": "target/native-profile-t20/created-directory-concurrent-cli-v4.log",
+      "sha256": "612ec0d346de609324563bd34952b7d647f1bc210b3013d9679258db8fe14882",
+      "bytes": 5791
+    },
+    "created-directory-concurrent-observation-v4.json": {
+      "path": "target/native-profile-t20/created-directory-concurrent-observation-v4.json",
+      "sha256": "3a60f038bc38ae427432240c5791c6497130613292a70b240a0d48c1fff3096b",
+      "bytes": 526
+    },
+    "created-directory-review-messages-v1.json": {
+      "path": "target/native-profile-t20/created-directory-review-messages-v1.json",
+      "sha256": "9c257f0478324a747f58980ebea8853136f10947d8cd344f69123a359c2c5db4",
+      "bytes": 10076
+    },
+    "created-directory-review-messages-v3.json": {
+      "path": "target/native-profile-t20/created-directory-review-messages-v3.json",
+      "sha256": "843380221fe7ab1301ee66804e8bfda807a80428fe7f2679722e6502f42fab89",
+      "bytes": 4952
+    },
+    "created-directory-review-messages-v4.json": {
+      "path": "target/native-profile-t20/created-directory-review-messages-v4.json",
+      "sha256": "500ad88cb4f71b9c9a91ec1d640ed69e453ebd63fa9f90919beb00786aecbc99",
+      "bytes": 5811
+    },
+    "created-directory-install-root-v1.json": {
+      "path": "target/native-profile-t20/created-directory-install-root-v1.json",
+      "sha256": "0748698fc82e9673f0bf6f2e6daaef229becef95c51542838250bf9025bf48bb",
+      "bytes": 392
+    },
+    "created-directory-install-root-v1.log": {
+      "path": "target/native-profile-t20/created-directory-install-root-v1.log",
+      "sha256": "d60e1be799e1af0a816647ba2e5bc2c0642746f1e01f7bde8b42c67e160e9da5",
+      "bytes": 626
+    },
+    "created-directory-installed-root-native-v1.json": {
+      "path": "target/native-profile-t20/created-directory-installed-root-native-v1.json",
+      "sha256": "9baafbaf1514a49f4f8bb42f9b4f29395b15ef2ac86987586d1e91efe4508105",
+      "bytes": 557
+    },
+    "created-directory-mini-v1/result.json": {
+      "path": "target/native-profile-t20/created-directory-mini-v1/result.json",
+      "sha256": "2a8237138895c799a9364a4d18587ac65351d3db1e67ef48e94bbd32054428df",
+      "bytes": 1371
+    },
+    "created-directory-mini-v1/cli-regression.log": {
+      "path": "target/native-profile-t20/created-directory-mini-v1/cli-regression.log",
+      "sha256": "9d86fcc50f84fd8a189c74acf823271178428616de92da97b73784e4827034ba",
+      "bytes": 203
+    },
+    "restore-copy-mini-guide-delivery-v5.json": {
+      "path": "target/native-profile-t20/restore-copy-mini-guide-delivery-v5.json",
+      "sha256": "c095c18c162134b5f757894999e0c20157d8e74fc0590c8ddf0ff5dedc812357",
+      "bytes": 1135
+    },
+    "reap-operator-guide-review-messages-v1.json": {
+      "path": "target/native-profile-t20/reap-operator-guide-review-messages-v1.json",
+      "sha256": "bf6178aa3bb8ce3ca7448483f32b835af77959a5e04d75cdd7058bb998f8a27c",
+      "bytes": 8301
+    },
+    "reap-operator-guide-candidate-v1.json": {
+      "path": "target/native-profile-t20/reap-operator-guide-candidate-v1.json",
+      "sha256": "34eb1ed339f9133b341490c93569e98623dbcff863ba3c6f98e6fac84900b635",
+      "bytes": 576
+    },
+    "created-directory-lifecycle-failfast-v3.json": {
+      "path": "target/native-profile-t20/created-directory-lifecycle-failfast-v3.json",
+      "sha256": "7feed151d638ba03e728b98cfc82a8aec72af8f87de7293d0d317ca58d6a6be7",
+      "bytes": 610
+    }
+  },
+  "remaining": [
+    "final whole unit run for the changed shared guard",
+    "complete existing CLI integration including 16-caller admission reconciliation",
+    "supported physical-layout cross-volume acceptance",
+    "other T19 families, lifetime conversion and old-reader gates",
+    "native conversation production and source-release gates"
+  ]
+}

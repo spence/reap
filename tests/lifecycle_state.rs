@@ -74,12 +74,25 @@ impl TestRoot {
       .env_remove("REAP_SESSION")
       .current_dir(&self.root);
     if args.first().is_some_and(|operation| {
-      matches!(operation.as_str(), "lease" | "stores" | "purge" | "doctor")
-        || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
+      matches!(
+        operation.as_str(),
+        "check"
+          | "files"
+          | "plan"
+          | "sweep"
+          | "clean"
+          | "lease"
+          | "stores"
+          | "retire"
+          | "purge"
+          | "doctor"
+      ) || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
     }) {
       self.unconfirmed.fetch_add(1, Ordering::SeqCst);
-      command.args(["--wait", "30"]);
+      if !args.iter().any(|argument| argument == "--wait") {
+        command.args(["--wait", "30"]);
+      }
     }
     command
   }
@@ -102,8 +115,19 @@ impl TestRoot {
   fn run(&self, args: Vec<String>) -> Output {
     let output = self.command(&args).output().unwrap();
     if args.first().is_some_and(|operation| {
-      matches!(operation.as_str(), "lease" | "stores" | "purge" | "doctor")
-        || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
+      matches!(
+        operation.as_str(),
+        "check"
+          | "files"
+          | "plan"
+          | "sweep"
+          | "clean"
+          | "lease"
+          | "stores"
+          | "retire"
+          | "purge"
+          | "doctor"
+      ) || operation == "parents" && args.get(1).is_some_and(|action| action == "arm")
         || operation == "quarantine"
     }) {
       self.confirm_job(&output);
@@ -1637,14 +1661,14 @@ fn quarantined_store_files_and_dirs_restore_only_to_explicit_safe_paths() {
     set_file_mtime(&dir, old).unwrap();
   }
   fs::create_dir_all(root.quarantine()).unwrap();
-  fs::create_dir(root.quarantine().join("index.tmp")).unwrap();
+  fs::create_dir(root.quarantine().join("index.json")).unwrap();
   assert!(!root
     .run(args(&["stores", "--apply", "{path}"], &project))
     .status
     .success());
   assert!(store.join("run.old.log").is_file());
   assert!(store.join("report.old/report.txt").is_file());
-  fs::remove_dir(root.quarantine().join("index.tmp")).unwrap();
+  fs::remove_dir(root.quarantine().join("index.json")).unwrap();
 
   success(root.run(args(&["stores", "--apply", "{path}"], &project)));
   assert!(!store.join("run.old.log").exists());
@@ -2805,7 +2829,7 @@ fn blocked_nested_child_keeps_parent_after_sibling_retires() {
     "0".to_string(),
   ]);
   assert!(!dry.status.success());
-  assert!(String::from_utf8_lossy(&dry.stdout).contains("no-nested-lease"));
+  assert!(String::from_utf8_lossy(&dry.stdout).contains("a descendant failed retirement"));
   assert!(good.join("payload").is_file());
   assert!(blocked.join("payload").is_file());
 

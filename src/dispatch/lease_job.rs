@@ -158,10 +158,12 @@ impl Applying<'_, '_> {
         ));
       }
     }
-    self
-      .context
-      .inspector
-      .revalidate_effects(&self.moved, &self.removed, &self.published)?;
+    self.context.inspector.revalidate_effects(
+      &self.moved,
+      &self.removed,
+      &self.published,
+      &self.created,
+    )?;
     crate::invocation::fresh_with_state_prefix(self.input, &self.namespace_prefix)?;
     for object in &self.created {
       if self
