@@ -44,7 +44,12 @@ The earlier full V7 unit run has 482 passes and one failure, with no ignored cas
 The failing restore case refused incomplete mapped-region activity evidence for PID 54960.
 Its cause remains unresolved in `ISS-CLASSIFY-NATIVE-ACTIVITY-REFUSALS-WITHOU`.
 A later missing PID and passing focused runs do not establish a repair.
-The current 485-case V12 unit run remains pending at this checkpoint, including native fault and inventory-cost cases.
+The full V12 unit run has 484 passes and one Git-dependency refusal, with no ignored cases, in 1525.61 seconds.
+Its default fixture is beneath this repository; checkpoint commits changed the enclosing Git metadata during the run.
+This suggests verification interference, not a reason to relax the guard.
+The same signed binary passes the exact failed case with a private-temp fixture in 23.32 seconds.
+This establishes no cause repair. The unchanged full suite is now running with private-temp fixtures.
+The full unit gate remains open; no guard or source code changed for this run.
 
 The late-tracking negative control first confirms the changed Git index, then demonstrates the old guard's unsafe success.
 The corrected guard passes the same regression.

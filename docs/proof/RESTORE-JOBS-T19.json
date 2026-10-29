@@ -137,9 +137,15 @@
     "mini/public-v12.log": "Direct Python file invocation ran no unittest cases."
   },
   "current_full_unit_v12": {
-    "state_at_checkpoint": "running",
+    "state": "failed",
+    "passed": 484,
+    "failed": 1,
+    "ignored": 0,
+    "seconds": 1525.61,
     "log": "restore-unit-full-v12.log",
-    "scope": "485 binary-unit cases, including ignored native faults and inventory-cost case; terminal result not yet available."
+    "case": "dispatch::tests::native_files_apply_deletes_the_permitted_tree_without_touching_link_targets",
+    "reason": "Git tracking dependency changed. The default fixture is beneath the source repository; checkpoint commits changed its enclosing Git metadata during this run.",
+    "cause_status": "Known verification interference is plausible; no guard relaxation or product repair is inferred. A private-temp fixture run remains required."
   },
   "raw_evidence": {
     "restore-build-v12.log": "5fa75ec5495139a466c67b5cc29ef3ac4625362f914af4594b508aa58e45383a",
@@ -159,7 +165,9 @@
     "restore-focused-v9.log": "81ce1c3117fca09dc3f387c9c25cd995aa64fb8911fc498162e6c8cef37f9a12",
     "restore-focused-v11.log": "8912d8465cb3d337e1530cc1398cae355500f74eb320bd34e4ec42886f812536",
     "restore-metadata-v12.log": "053f0c9ac2a003c00e345d8cb2addf422dd95598d574a94df338642695290c39",
-    "restore-store-integration-v12.log": "6c1cc6472cd05969c41210c04c066226dd2daa008166c8f2f13e2179347a1787"
+    "restore-store-integration-v12.log": "6c1cc6472cd05969c41210c04c066226dd2daa008166c8f2f13e2179347a1787",
+    "restore-unit-full-v12.log": "45c8d8edbe959931dbe97ec910bc025e7c67eecb544391547ba22647b28fef4c",
+    "restore-isolated-files-v12.log": "85198be757cf66374c7844e6544b7b7065452d99acb93a20f3f66eb687f18e48"
   },
   "remaining": [
     "Green full Cargo runtime, including integration targets.",
@@ -169,5 +177,22 @@
     "Fair useful execution and three paired native efficiency runs.",
     "Production native conversation capture, independent retrieval and separate fail-closed source release."
   ],
-  "preservation": "No product installation, operator-guide deployment, live conversion, production conversation capture or source prune. Quick-check executables, inputs, fixtures, temporary files, working directories and logs remain internal. Foreign agents, hosts and Zed were not stopped."
+  "preservation": "No product installation, operator-guide deployment, live conversion, production conversation capture or source prune. Quick-check executables, inputs, fixtures, temporary files, working directories and logs remain internal. Foreign agents, hosts and Zed were not stopped.",
+  "isolated_files_case_v12": {
+    "passed": 1,
+    "failed": 0,
+    "seconds": 23.32,
+    "fixture_root": "/private/tmp",
+    "same_frozen_binary": true,
+    "scope": "Confirms this case can pass outside the enclosing source repository. It does not establish the cause of the earlier refusal."
+  },
+  "isolated_full_unit_v12": {
+    "state_at_update": "running",
+    "log": "restore-unit-isolated-full-v12.log",
+    "fixture_root": "/private/tmp",
+    "same_frozen_binary": true,
+    "includes_ignored": true,
+    "source_changed": false,
+    "guard_relaxed": false
+  }
 }
