@@ -1,0 +1,320 @@
+{
+  "work": "MS-LIFETIME-ENFORCE.T19",
+  "status": "held source checkpoint; not fleet delivery or full Task completion",
+  "source": {
+    "base": "fc615dffda649cbd55d4c5ecf4da25a91eb465e1",
+    "files": [
+      {
+        "path": "src/worker.rs",
+        "sha256": "3ba4b81dd67242958db8eb213de98ae3543b6a85fd39da03eabe743054f7bcc7"
+      },
+      {
+        "path": "src/worker/tests.rs",
+        "sha256": "85287a5b8ae6bda9b1c7b23c9671861e5923aafa093fc63272591db1c3e1f7b3"
+      },
+      {
+        "path": "src/dispatch/tests/purge.rs",
+        "sha256": "f3f255686e1e7219ed64a9b3fbb693499185af88ad3a00cb224be1060da1c8db"
+      },
+      {
+        "path": "docs/specs/worker-grants.md",
+        "sha256": "6313794a344d6a6522bfc9a91fa2f135d40d4bcf22975bf9e0f9302cefe9e06d"
+      },
+      {
+        "path": "README.md",
+        "sha256": "5fe35632b6649713c0b024879bcca86203e4306d2dea8a5ebaa13ea929ef6de5"
+      },
+      {
+        "path": "skill/SKILL.md",
+        "sha256": "4f0c14666d505bc7bf2a419fe4d9a0a14f6551bc6e7d8126c6bd72b108832efe"
+      },
+      {
+        "path": "src/launch.rs",
+        "sha256": "e30bff6dd29cd1e60ec959bd50ab5a97aeb778b437d79667889b23950e1ae70d"
+      },
+      {
+        "path": "src/launch/tests.rs",
+        "sha256": "88fba13111b77d00554a5d77f5ff48d8c5f0a45ab2a1d56900be33d2677c960e"
+      }
+    ]
+  },
+  "binaries": {
+    "artifacts": {
+      "app": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-green-v6/app",
+        "sha256": "846690445502653eb92f4cbd4e20caf59fdc8195f4e6edcb0b2339b892cb0952",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap",
+        "bytes": 28279392,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+      },
+      "unit": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-green-v6/unit",
+        "sha256": "7b5cb42c1d00af705e52a549c4cf05e5cf481f308a41257552b42d086c01d2b6",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap.native-tests",
+        "bytes": 38751184,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+      }
+    }
+  },
+  "fault_binary": {
+    "artifacts": {
+      "fault": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-fault-v1/fault",
+        "sha256": "56f694f4e5d59ed2185c6896561802dfcb3086211b8aa881c90e616248f1107e",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap.native-faults",
+        "bytes": 52384,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/restore-frozen-v12/fault"
+      }
+    }
+  },
+  "observations": {
+    "probe-wait-red-v1.log": {
+      "path": "target/native-profile-t20/probe-wait-red-v1.log",
+      "sha256": "20e8a47bccf96ff214045ef86874b8180a12e6e4ac54a1e0b8429f9cb7fd78e0",
+      "results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 493 filtered out; finished in 8.01s"
+      ]
+    },
+    "closed-peer-red-v1.log": {
+      "path": "target/native-profile-t20/closed-peer-red-v1.log",
+      "sha256": "28a30742f3f4b289d24dbf7688cb0aeba963ed40e9faf37fe38951cfeba819e3",
+      "results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s"
+      ]
+    },
+    "closed-peer-green-v6.log": {
+      "path": "target/native-profile-t20/closed-peer-green-v6.log",
+      "sha256": "d9570a948f444333153bce79bba670eeb8c66904d083e7c1d3db23b3464229e2",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s"
+      ]
+    },
+    "closed-peer-semantic-refusal-repeat-v6.log": {
+      "path": "target/native-profile-t20/closed-peer-semantic-refusal-repeat-v6.log",
+      "sha256": "637e1fb4e7354e857cac8f43124e4a926fdfb241337944f123f0eb0999363cf3",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.00s"
+      ]
+    },
+    "probe-wait-workers-v6.log": {
+      "path": "target/native-profile-t20/probe-wait-workers-v6.log",
+      "sha256": "1ad0dc89dd3218cefde1def45306fbf7c80748cdad46702270a9e7d541f6e8ea",
+      "results": [
+        "test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 465 filtered out; finished in 23.58s"
+      ]
+    },
+    "probe-wait-launch-v6.log": {
+      "path": "target/native-profile-t20/probe-wait-launch-v6.log",
+      "sha256": "78b588123817a6efb9c1dc1a7cc354b44de1b959fffab52c9d64dcd4cd27be10",
+      "results": [
+        "test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 481 filtered out; finished in 0.90s"
+      ]
+    },
+    "probe-wait-production-purge-root-v6.log": {
+      "path": "target/native-profile-t20/probe-wait-production-purge-root-v6.log",
+      "sha256": "6996d1886408ae0e0307725052a6c6a009add885576e6382b5ef5bc395615329",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 23.71s"
+      ]
+    },
+    "probe-wait-mini-workers-log-v6": {
+      "path": "target/native-profile-t20/probe-wait-mini-workers-log-v6",
+      "sha256": "63541b9d3e9f9f0e25900b96b887b85462ec154cc6b389913c965277698cb950",
+      "results": [
+        "test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 465 filtered out; finished in 18.93s"
+      ]
+    },
+    "probe-wait-mini-launch-log-v6": {
+      "path": "target/native-profile-t20/probe-wait-mini-launch-log-v6",
+      "sha256": "fc4e9036866052d1dcde5d1ce8eda494d807ea1f8ec71bd6a3d15151afa431e2",
+      "results": [
+        "test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 481 filtered out; finished in 0.66s"
+      ]
+    },
+    "probe-wait-production-purge-mini-v6.log": {
+      "path": "target/native-profile-t20/probe-wait-production-purge-mini-v6.log",
+      "sha256": "3021065d802f61446e0e36ad7b80a681433ccfb642cd08c8f97e5b88931412e0",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 9.66s"
+      ]
+    },
+    "probe-wait-mini-launch-fault-v1.log": {
+      "path": "target/native-profile-t20/probe-wait-mini-launch-fault-v1.log",
+      "sha256": "e3301c7351e292fde0125148e39e787c5c9976a6d1525d842c7d56a034ae5008",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.58s"
+      ]
+    },
+    "probe-wait-install-signing-v6.log": {
+      "path": "target/native-profile-t20/probe-wait-install-signing-v6.log",
+      "sha256": "557e63c4d9ef3ce6912d8725ba481f00cd30a712744f04776cb6f54741ab65d4",
+      "results": []
+    },
+    "public-prepare-diagnosis-v1.json": {
+      "path": "target/native-profile-t20/public-prepare-diagnosis-v1.json",
+      "sha256": "961499a453b781f680a795b9cfb26b374499370d6e78131cfdc13831cfc9fcae",
+      "results": []
+    },
+    "probe-wait-full-unit-v6.log": {
+      "path": "target/native-profile-t20/probe-wait-full-unit-v6.log",
+      "sha256": "02ccc39a44159519a39494f8db86a61bcfd67d4798d0bf435cea01b7e6272006",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.05s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 4.14s",
+        "test result: ok. 495 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1517.54s"
+      ]
+    },
+    "probe-wait-full-unit-v6.json": {
+      "path": "target/native-profile-t20/probe-wait-full-unit-v6.json",
+      "sha256": "a25d813a8b6c07f7b699b149f259dcfec1b2cdd8a49ff7d803cf3d44421a4197",
+      "results": []
+    },
+    "probe-wait-review-wait-v3.json": {
+      "path": "target/native-profile-t20/probe-wait-review-wait-v3.json",
+      "sha256": "42ee3ff45d5a02739bc933168e2285d5791205dcd7b1fdca42a72ba6aa086382",
+      "results": []
+    },
+    "probe-wait-mini-launch-fault-native-log-v1": {
+      "path": "target/native-profile-t20/probe-wait-mini-launch-fault-native-log-v1",
+      "sha256": "e2a1329fac65023be3047cb8abfd4df1faf81407e3d59076b7af21a9161f1770",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 494 filtered out; finished in 0.58s"
+      ]
+    },
+    "probe-wait-mini-launch-fault-native-pre-json-v1": {
+      "path": "target/native-profile-t20/probe-wait-mini-launch-fault-native-pre-json-v1",
+      "sha256": "fa2249a743368aa9bac3b98b5a5799a26a3428c234710fccacd98dc93bd5b22d",
+      "results": []
+    },
+    "probe-wait-mini-launch-fault-native-post-json-v1": {
+      "path": "target/native-profile-t20/probe-wait-mini-launch-fault-native-post-json-v1",
+      "sha256": "fa2249a743368aa9bac3b98b5a5799a26a3428c234710fccacd98dc93bd5b22d",
+      "results": []
+    }
+  },
+  "limits": [
+    "This record does not establish the cause of the preceding full-run Purge failures.",
+    "Complete Cargo integration and actual installed fleet behavior remain open.",
+    "The existing cohort refuses the newer Store operation; a successful Check control confirms that preparation can recover.",
+    "No lifetime conversion, archive activation, source pruning, provider-home change or foreign-process action occurred.",
+    "Cross-volume restoration is still refused. The candidate remains held until recovery compatibility is complete.",
+    "The release candidate is built and signed, not installed or covered by the earlier debug-worker observations."
+  ],
+  "source_revision": "8c081c3b62c933fef8268e181658999396706677",
+  "release_candidate": {
+    "artifacts": {
+      "app": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-release-v1/app",
+        "sha256": "34d4ab8f53a2abb391fee5029b17ed0bfe8ae63f063f390448c044b00efdde46",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap",
+        "bytes": 5675536,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/release/reap"
+      },
+      "unit": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-release-v1/unit",
+        "sha256": "0b002edf7b87af5b2dbbf09bac2db95d541f76bd0e53feb65faef8a266de84a7",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap.native-tests",
+        "bytes": 38751184,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-green-v6/unit"
+      },
+      "fault": {
+        "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-release-v1/fault",
+        "sha256": "9e0fa4a961457c1ce8579a769de2a3241ba8232bd7c032dcd41f17b8f423fd1d",
+        "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+        "designated_requirement": "designated => identifier \"dev.micro.reap.native-faults\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+        "identifier": "dev.micro.reap.native-faults",
+        "bytes": 52384,
+        "storage_device": 16777232,
+        "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/probe-wait-fault-v1/fault"
+      }
+    }
+  },
+  "release_build": {
+    "source_revision": "8c081c3b62c933fef8268e181658999396706677",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--release",
+      "--target-dir",
+      "target/control-t13/mutation-bridge/private-target"
+    ],
+    "build_jobs": 1,
+    "start_epoch": 1793299181.102495,
+    "planned_growth_bytes": 2000000000,
+    "exit": 0,
+    "elapsed_seconds": 158.0050859451294
+  },
+  "full_frozen_unit": {
+    "passed": 495,
+    "failed": 0,
+    "ignored": 0,
+    "elapsed_seconds": 1517.54,
+    "fixture_root": "/private/tmp",
+    "native_fault_library": true,
+    "source_manifest_unchanged": true,
+    "not_cargo_integration": true,
+    "entrypoint_without_provider_fixture_is_not_provider_proof": true
+  },
+  "installer_cases": {
+    "passed": 19,
+    "product_installation_performed": false
+  },
+  "native_preflight": {
+    "catalyst": {
+      "path": "target/native-profile-t20/probe-wait-install-preflight-root-v6.json",
+      "sha256": "08f36bc432d68498199052feaf17e0b8e8b02a594c02e20b00bbb35ec8eae3d1",
+      "state": "preflight-complete",
+      "applied": false,
+      "candidate_kind": "debug"
+    },
+    "catalyst-mini": {
+      "path": "target/native-profile-t20/probe-wait-install-preflight-mini-v6.json",
+      "sha256": "bcdc58ec12552bf99882822add164d74a1c5f8939b9d3966158928be5206785d",
+      "state": "preflight-complete",
+      "applied": false,
+      "candidate_kind": "debug"
+    }
+  },
+  "proof_review_attempt": {
+    "path": "target/native-profile-t20/probe-wait-proof-review-wait-v1.json",
+    "sha256": "249bb4b54f1370e3bbddc748def975241a4a02663da0320d173381671a88c2b4",
+    "state": "dispatch_failed",
+    "reason": "exact_cwd_mismatch; the follow-up did not execute",
+    "independent_source_acceptance": "The eight source hashes retain the separate V3 acceptance."
+  }
+}
