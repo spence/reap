@@ -280,6 +280,8 @@ pending. No observed handle is not proof that work is finished.
 Raw diagnostic capture has a combined 512 KiB limit. Open-file evidence uses a bounded
 field parser with complete output and EOF. Oversized or invalid fields and unavailable vnode
 paths refuse the move. Large host inventories do not require a large output buffer.
+Use the path-free error class and PID hint for diagnosis, not cleanup permission or process ownership.
+Permission failures remain protective. Valid native closed-descriptor messages do not replace complete remaining evidence.
 If a kernel-blocked `lsof` is already present, Reap refuses without spawning
 another one. Renewal remains available; do not bypass that activity refusal.
 Reap verifies the expected child removal before discounting its directory mtime from the

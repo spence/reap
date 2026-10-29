@@ -729,6 +729,9 @@ pub(crate) struct ActivityFields {
   process: bool,
   file: bool,
   kind: Option<Vec<u8>>,
+  /// A report hint, not a native process ownership proof.
+  pid_hint: Option<i32>,
+  descriptor: &'static str,
   #[cfg(test)]
   diagnostic_pid: Vec<u8>,
   #[cfg(test)]
@@ -749,6 +752,8 @@ impl ActivityFields {
       process: false,
       file: false,
       kind: None,
+      pid_hint: None,
+      descriptor: "none",
       #[cfg(test)]
       diagnostic_pid: Vec::new(),
       #[cfg(test)]
@@ -772,6 +777,11 @@ impl ActivityFields {
       let field = field.strip_prefix(b"\n").unwrap_or(field);
       match field.split_first() {
         Some((b'p', pid)) if !pid.is_empty() && pid.iter().all(u8::is_ascii_digit) => {
+          self.pid_hint = std::str::from_utf8(pid)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|pid| *pid > 0);
+          self.descriptor = "none";
           #[cfg(test)]
           {
             self.diagnostic_pid = pid.to_vec();
@@ -788,6 +798,15 @@ impl ActivityFields {
         Some((b'f', descriptor)) if self.process && !descriptor.is_empty() => {
           self.file = true;
           self.kind = None;
+          self.descriptor = match descriptor {
+            b"txt" => "text",
+            b"cwd" => "cwd",
+            b"rtd" => "root",
+            b"twd" => "thread_cwd",
+            b"err" => "error",
+            value if value.iter().all(u8::is_ascii_digit) => "numeric",
+            _ => "other",
+          };
         }
         Some((b't', kind)) if self.file && !kind.is_empty() && kind.len() <= 32 => {
           self.kind = Some(kind.to_vec());
@@ -809,11 +828,22 @@ impl ActivityFields {
             || (!path.is_absolute()
               && (kind.is_none() || matches!(kind, Some(b"REG" | b"DIR" | b"LINK" | b"FIFO"))))
           {
+            let class = match (self.descriptor, kind, name) {
+              ("text", None, b"region info error: Operation not permitted") => {
+                "mapped_region_permission_denied"
+              }
+              _ => "unavailable_path",
+            };
+            let pid = self
+              .pid_hint
+              .map_or_else(|| "unknown".into(), |pid| pid.to_string());
             return Err(io::Error::new(
               io::ErrorKind::InvalidData,
               format!(
-                "activity path is unavailable (type {kind:?}, name bytes {})",
-                name.len()
+                "activity path is unavailable (type {kind:?}, name bytes {}, \
+                 class {class}, pid {pid}, descriptor {})",
+                name.len(),
+                self.descriptor
               ),
             ));
           }
@@ -876,7 +906,7 @@ impl ActivityFields {
   }
 }
 
-/// Decode the native `err2nm` terminal errors; the identifier names its probe domain.
+/// Decode native `err2nm` terminal errors for vanished handles and processes.
 fn closed_native_handle(name: &[u8]) -> bool {
   let Some(colon) = name.iter().position(|byte| *byte == b':') else {
     return false;
@@ -884,9 +914,10 @@ fn closed_native_handle(name: &[u8]) -> bool {
   let (domain, status) = name.split_at(colon);
   !domain.is_empty()
     && domain.len() <= 32
-    && domain
-      .iter()
-      .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(byte))
+    && (domain == b"POSIX shared memory"
+      || domain
+        .iter()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(byte)))
     && matches!(status, b": FD unavailable" | b": process unavailable")
 }
 
@@ -1804,7 +1835,7 @@ mod tests {
   #[test]
   fn activity_stream_accepts_native_closed_descriptors_but_preserves_later_live_paths() {
     for terminal in ["FD unavailable", "process unavailable"] {
-      for domain in ["vnode", "socket", "pipe", "kqueue"] {
+      for domain in ["vnode", "socket", "pipe", "kqueue", "POSIX shared memory"] {
         let terminal = format!("{domain}: {terminal}");
         let mut fields = ActivityFields::new(Path::new("/owned"));
         fields
@@ -1823,6 +1854,8 @@ mod tests {
       "vnode: Operation timed out",
       "vnode: unknown failure",
       "not a domain: FD unavailable",
+      "POSIX shared memory: Operation not permitted",
+      "POSIX shared memory unknown: FD unavailable",
     ] {
       assert!(ActivityFields::new(Path::new("/owned"))
         .push(format!("p123\0\nf4\0n{unknown}\0\n").as_bytes())
@@ -1836,6 +1869,36 @@ mod tests {
       fields.finish().unwrap(),
       Some(PathBuf::from("/owned/vnode: FD unavailable"))
     );
+    let mut fields = ActivityFields::new(Path::new("/owned"));
+    fields
+      .push(b"p123\0\nf4\0n/owned/POSIX shared memory: FD unavailable\0\n")
+      .unwrap();
+    assert_eq!(
+      fields.finish().unwrap(),
+      Some(PathBuf::from("/owned/POSIX shared memory: FD unavailable"))
+    );
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn activity_stream_refusals_classify_native_errors_without_disclosing_raw_names() {
+    let error = ActivityFields::new(Path::new("/owned"))
+      .push(b"p123\0\nftxt\0nregion info error: Operation not permitted\0\n")
+      .unwrap_err()
+      .to_string();
+    assert!(error.contains("mapped_region_permission_denied"), "{error}");
+    assert!(error.contains("pid 123"), "{error}");
+    assert!(error.contains("descriptor text"), "{error}");
+    assert!(error.contains("name bytes 42"), "{error}");
+    assert!(!error.contains("region info error"), "{error}");
+    let error = ActivityFields::new(Path::new("/owned"))
+      .push(b"p123\0\nf4\0tREG\0nrelative/SECRET\0")
+      .unwrap_err()
+      .to_string();
+    assert!(error.contains("class unavailable_path"), "{error}");
+    assert!(error.contains("descriptor numeric"), "{error}");
+    assert!(!error.contains("SECRET"), "{error}");
+    assert!(error.len() < 512);
   }
 
   fn tmp() -> PathBuf {

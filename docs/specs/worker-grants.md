@@ -42,6 +42,12 @@
   It replaces its executable without creating another process, after its exact identity-bound grant.
   Output uses a bounded health capture or streaming activity fields, separate from stderr.
   Nonempty stderr, invalid or incomplete output, missing EOF, unsuccessful exit, or uncertain release refuses evidence.
+  Native closed-descriptor records include `err2nm`'s exact `POSIX shared memory` prefix and retain complete remaining-output requirements.
+  Permission failures remain refusals. Path-free classification and PID hints grant neither cleanup permission nor process ownership.
+  Native-format grounding: Apple's [Darwin file collector](https://github.com/apple-oss-distributions/lsof/blob/main/lsof/dialects/darwin/libproc/dfile.c)
+  maps `EBADF` and `ESRCH` to closed-object labels and uses the shared-memory prefix.
+  Its [process collector](https://github.com/apple-oss-distributions/lsof/blob/main/lsof/dialects/darwin/libproc/dproc.c)
+  reports mapped-region access errors as text records; those errors do not prove inactivity.
   A selection batches at most 1024 removal paths into one open-handle scan; excess capacity refuses the whole batch.
   The 64 KiB private-request bound also applies; long paths can require an earlier capacity refusal.
   Text-vnode requests contain at most 32,768 unique positive PIDs and retain the same request bound.
@@ -116,6 +122,7 @@ The synchronization fault case also requires `REAP_NATIVE_CONTROL_FAULT_LIBRARY`
 | --- | --- |
 | C9 | `native_probe_requires_helper_grant_both_eofs_and_clean_complete_evidence`; `native_files_batches_activity_helpers_and_preserves_open_and_retained_work`; `activity::tests` |
 | C9 | `process_scoped_vnodes_require_complete_coverage_and_bounded_evidence`; `helper_probe_deadline_retains_sequence_after_a_partial_reply` |
+| C9 | `activity_stream_accepts_native_closed_descriptors_but_preserves_later_live_paths`; `activity_stream_refusals_classify_native_errors_without_disclosing_raw_names` |
 | C1, C2, C5 | `unresolved_launch_reserves_all_volumes_across_restart_without_blocking_other_volumes` |
 | C2 | `resource_sets_require_sorted_unique_safe_keys`; `worker::tests::granted_native_resolver_returns_complete_identity_and_physical_resources_without_mutation` |
 | C1, C3 | `ungranted_child_exits_without_effects_and_ambiguous_intent_is_not_replaced` |

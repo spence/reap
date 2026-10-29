@@ -902,6 +902,10 @@ refuses cleanup, including later assessments in that invocation.
 Raw diagnostic capture has a combined 512 KiB limit. The open-file scan uses a bounded
 field parser and consumes complete output. Large host inventories do not require a large buffer.
 Malformed fields, unavailable vnode paths, oversized fields, or missing EOF refuse cleanup.
+Activity refusals include a path-free class, PID hint, descriptor class, type, and name length.
+A PID hint is not process ownership proof. Permission failures remain protective.
+Native closed-descriptor messages include the exact `POSIX shared memory` prefix.
+Collection still requires complete remaining evidence.
 An already kernel-blocked `lsof` causes refusal without starting another
 `lsof`, preventing repeated maintenance from accumulating stuck probes.
 This is an additional brake, not proof that a tree without open handles is
