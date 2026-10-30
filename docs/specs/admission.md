@@ -34,6 +34,12 @@
   It cannot change the immutable input, phase, process ownership, or an existing result.
   Recovery and exact replay retain the cancellation request. Cancellation cannot admit a missing key.
   A healthy busy writer accepts bounded queued requests. Startup and unavailable states do not dispatch them.
+- **C10** — The fixed writer alternates bounded ingress bursts with scheduler progress.
+  At most 32 queued requests precede the next scheduler round while executable jobs remain.
+  Quiet ingress waits use the existing 20 ms idle quantum.
+  Ready worker and helper channels precede those quiet waits.
+  While service operations finish, continuous observations cannot prevent worker progress.
+  Neither request priority nor scheduler progress changes durable acceptance requirements.
 
 ## Boundary
 
@@ -95,6 +101,7 @@ No production fault switch or injected library is installed.
 | C8 | `native_resolved_admission_binds_caller_namespace_and_replays_after_ticket_expiry`; `native_invalid_namespaces_and_untrusted_receipts_never_create_jobs` |
 | C8 | `native_prepare_capacity_recovers_after_idle_ticket_expiry`; `tools/verify_ingress_macos.py` at the actual installed executable |
 | C9 | `cancellation_is_durable_monotonic_and_never_admits_a_key`; `pending_cancellation_recovers_before_lookup_without_losing_ownership`; cancellation transaction guards; native blocked-sync cancellation cases |
+| C10 | `native_burst_admission_preserves_all_keys_and_execution_progress` uses 16 simultaneous submissions and continuous same-key observations |
 
 The [T13 evidence](../proof/ADMISSION-T13.md) identifies completed component proof and remaining gates.
 The later [native ingress evidence](../proof/NATIVE-INGRESS-T13.md) proves preparation and admission

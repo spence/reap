@@ -569,8 +569,31 @@ fn write_state(
   };
   ready(&shared, journal.epoch());
   let mut failed = false;
+  let mut ingress_burst = 0;
+  let idle = std::time::Duration::from_millis(20);
   loop {
-    if !failed && scheduler.pending() {
+    if !scheduler.pending() {
+      ingress_burst = 0;
+    }
+    // bound ingress priority; the relay can deliver its next request between worker rounds.
+    let queued = if !failed
+      && scheduler.pending()
+      && ingress_burst > 0
+      && ingress_burst < MAX_PENDING_REPLIES
+      && !scheduler
+        .wait_for_activity(std::time::Duration::ZERO)
+        .unwrap_or(true)
+    {
+      match receiver.recv_timeout(idle) {
+        Ok(work) => Some(work),
+        Err(mpsc::RecvTimeoutError::Timeout) => None,
+        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+      }
+    } else {
+      None
+    };
+    if queued.is_none() && !failed && scheduler.pending() {
+      ingress_burst = 0;
       busy(&shared);
       if let Err(reason) = scheduler.tick(&mut journal, now()) {
         failed = true;
@@ -579,12 +602,13 @@ fn write_state(
         ready(&shared, journal.epoch());
       }
     }
-    let work = if !failed && scheduler.pending() {
+    let work = if let Some(work) = queued {
+      work
+    } else if !failed && scheduler.pending() {
       match receiver.try_recv() {
         Ok(work) => work,
         Err(mpsc::TryRecvError::Disconnected) => break,
         Err(mpsc::TryRecvError::Empty) => {
-          let idle = std::time::Duration::from_millis(20);
           let started = Instant::now();
           if scheduler.wait_for_activity(idle).is_ok() {
             continue;
@@ -603,6 +627,7 @@ fn write_state(
         Err(_) => break,
       }
     };
+    ingress_burst = (ingress_burst + 1).min(MAX_PENDING_REPLIES);
     if failed || Instant::now() >= work.deadline {
       send_deferred(
         work.reply,

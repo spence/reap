@@ -557,6 +557,110 @@ mod native {
   }
 
   #[test]
+  fn native_burst_admission_preserves_all_keys_and_execution_progress() {
+    use crate::client::{Client, State};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Barrier};
+
+    let fixture = Fixture::new();
+    fixture.install(Role::ContextResolver);
+    fixture.epoch();
+    fixture.call(Role::ContextResolver, Request::Ping);
+    let input = intent(&fixture);
+    let barrier = Arc::new(Barrier::new(16));
+    let mut handles = Vec::new();
+    let mut projects = Vec::new();
+    for index in 0..16 {
+      let project = fixture.root.join(format!("project-{index}"));
+      fs::create_dir(&project).unwrap();
+      fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+      fs::write(project.join("valuable"), b"burst protected survivor").unwrap();
+      let mut input = input.clone();
+      input.argv = vec!["check".into(), project.to_str().unwrap().into()];
+      projects.push(project);
+      let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+      let barrier = Arc::clone(&barrier);
+      handles.push(thread::spawn(move || {
+        barrier.wait();
+        let started = Instant::now();
+        let receipt = client.submit(input, None);
+        (receipt, started.elapsed().as_micros())
+      }));
+    }
+    let results: Vec<_> = handles.into_iter().map(|handle| handle.join()).collect();
+    let receipts: Vec<_> = results.into_iter().map(Result::unwrap).collect();
+    fs::write(
+      fixture.root.join("burst-receipts.json"),
+      serde_json::to_vec_pretty(&receipts).unwrap(),
+    )
+    .unwrap();
+    println!(
+      "native burst receipt states: {:?}; fixture {}",
+      receipts
+        .iter()
+        .map(|(receipt, micros)| (receipt.state, *micros))
+        .collect::<Vec<_>>(),
+      fixture.root.display()
+    );
+    assert!(
+      receipts
+        .iter()
+        .all(|(receipt, _)| matches!(receipt.state, State::Pending | State::Completed)),
+      "native burst refused admission; fixture {}",
+      fixture.root.display()
+    );
+
+    // repeated same-key lookups must not starve the admitted read-only jobs.
+    let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let keys: Vec<_> = receipts
+      .into_iter()
+      .map(|(receipt, _)| receipt.key.unwrap())
+      .collect();
+    let observing = AtomicBool::new(true);
+    let observer = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
+    let observer_key = keys.last().unwrap();
+    let completed = thread::scope(|threads| {
+      threads.spawn(|| {
+        while observing.load(Ordering::Relaxed) && Instant::now() < deadline {
+          let _ = observer.show(observer_key.clone());
+        }
+      });
+      let mut completed = Vec::new();
+      for key in &keys {
+        if Instant::now() >= deadline {
+          break;
+        }
+        completed.push(client.wait(
+          key.clone(),
+          deadline.saturating_duration_since(Instant::now()),
+        ));
+      }
+      observing.store(false, Ordering::Relaxed);
+      completed
+    });
+    assert_eq!(
+      completed.len(),
+      keys.len(),
+      "native burst execution deadline elapsed"
+    );
+    for (done, key) in completed.into_iter().zip(keys) {
+      assert_eq!(done.state, State::Completed, "{done:?}");
+      assert_eq!(done.key, Some(key));
+      assert_eq!(
+        done.job.as_ref().unwrap().result.as_ref().unwrap().effects,
+        0
+      );
+    }
+    for project in projects {
+      assert_eq!(
+        fs::read(project.join("valuable")).unwrap(),
+        b"burst protected survivor"
+      );
+    }
+  }
+
+  #[test]
   fn native_cargo_client_applies_each_operation_and_replays_after_writer_restart() {
     use crate::client::{Client, State};
 

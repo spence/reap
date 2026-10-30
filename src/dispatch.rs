@@ -245,12 +245,12 @@ impl Scheduler {
   }
 
   /// Wait once for all owned channels; the next tick retains its bounded per-job read budget.
-  pub(crate) fn wait_for_activity(&self, timeout: Duration) -> io::Result<()> {
+  /// True means an owned channel is ready. This does not consume bytes or publish evidence.
+  pub(crate) fn wait_for_activity(&self, timeout: Duration) -> io::Result<bool> {
     worker::wait_for_activity(
       self.jobs.iter().filter_map(|job| job.owned.as_ref()),
       timeout,
     )
-    .map(|_| ())
   }
 
   /// Poll each owned child once; only the writer performs durable metadata I/O.
