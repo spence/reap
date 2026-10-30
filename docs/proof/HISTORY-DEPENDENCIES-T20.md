@@ -27,6 +27,18 @@ The Codex profile must resolve `history_base` dependencies, including required a
 Database spawn edges do not replace that native metadata.
 A readable fork index or a readable current rollout does not prove complete preservation.
 
+## Archived parent
+
+Native `thread/archive` moves the private copied parent into flat `archived_sessions`.
+The fork remains active under dated `sessions` and still depends on that parent.
+Both rollout files retain their byte counts and hashes.
+The native reader returns the same fork turn IDs, item IDs, and content digests.
+The copied index marks only the parent as archived.
+The original seven capture inputs remain unchanged.
+
+This single catalyst case establishes an archived-parent dependency, not a complete capture profile.
+An independent reviewer accepts the probe source and this narrow result.
+
 ## Retained failed experiment
 
 A separate pending-state probe did not produce a valid positive case.

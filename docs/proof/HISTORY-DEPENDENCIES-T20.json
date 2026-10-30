@@ -184,5 +184,64 @@
     "Explicit path denials are not general write confinement",
     "No positive pending-queue preservation proof",
     "No source-release permission or implementation"
-  ]
+  ],
+  "archived_parent": {
+    "result": {
+      "thread_id": "01a18a0f-420d-7c73-aee8-0b91f76d9c57",
+      "turn_ids": [
+        "01a16bec-9ab4-7f71-aacd-d6658e463a53"
+      ],
+      "turn_count": 1,
+      "item_count": 10,
+      "turn_digest": "eb375023ff7bd4d51ccdaff197a6a45b2a04780d20c02f316a40ef701409c497",
+      "item_digest": "591b35d0b913572473faa33c665cafe97de96f175fa31475a449c6296754653c",
+      "original": {
+        "01a16bec-9474-7552-87e2-ec4f9e532a16": {
+          "relative": "sessions/2026/10/23/rollout-2026-10-23T20-20-29-01a16bec-9474-7552-87e2-ec4f9e532a16.jsonl",
+          "bytes": 204591,
+          "sha256": "668556a6904071fedc7d673382a9d447fb78b06c07c1c979c78ef97c5e04a60f"
+        },
+        "01a18a0f-420d-7c73-aee8-0b91f76d9c57": {
+          "relative": "sessions/2026/10/29/rollout-2026-10-29T16-46-58-01a18a0f-420d-7c73-aee8-0b91f76d9c57.jsonl",
+          "bytes": 19293,
+          "sha256": "45f3585b9b62888871a353c5df0c28a5552198a4191b651e528085d4aab6f904"
+        }
+      },
+      "current": {
+        "01a16bec-9474-7552-87e2-ec4f9e532a16": "archived_sessions/rollout-2026-10-23T20-20-29-01a16bec-9474-7552-87e2-ec4f9e532a16.jsonl",
+        "01a18a0f-420d-7c73-aee8-0b91f76d9c57": "sessions/2026/10/29/rollout-2026-10-29T16-46-58-01a18a0f-420d-7c73-aee8-0b91f76d9c57.jsonl"
+      },
+      "archived_ids": [
+        "01a16bec-9474-7552-87e2-ec4f9e532a16"
+      ],
+      "index": [
+        {
+          "id": "01a16bec-9474-7552-87e2-ec4f9e532a16",
+          "archived": true,
+          "relative": "archived_sessions/rollout-2026-10-23T20-20-29-01a16bec-9474-7552-87e2-ec4f9e532a16.jsonl"
+        },
+        {
+          "id": "01a18a0f-420d-7c73-aee8-0b91f76d9c57",
+          "archived": false,
+          "relative": "sessions/2026/10/29/rollout-2026-10-29T16-46-58-01a18a0f-420d-7c73-aee8-0b91f76d9c57.jsonl"
+        }
+      ],
+      "original_capture_unchanged": true,
+      "native_parent_archived": true,
+      "scope": "one archived-parent fork; not a complete capture profile or source release"
+    },
+    "host": "catalyst",
+    "native_version": "0.163.0",
+    "source": "target/native-profile-t20/probe_codex_archived_parent.py",
+    "source_sha256": "0eb56a02b97adec91210f8babe6af8ead06b2f66b0f44ca1a2ea3bed9380254b",
+    "result_path": "target/native-profile-t20/codex-archived-parent-v1/result.json",
+    "result_sha256": "3f07693f658a19482317e679f464aa715e4843610b42280155c2aa81fe8727e8",
+    "review": {
+      "receipt": "target/native-profile-t20/archived-parent-review-messages-v1.json",
+      "peer_id": "peer-18e328ce8826d650-633833",
+      "conversation_id": "conversation-18e328ce8976ddc0-633837",
+      "request_message_id": "cmsg-18e329c873d65248-635112",
+      "verdict": "accepted one private archived-parent dependency case; no production verifier, source release, or both-Mac claim"
+    }
+  }
 }
