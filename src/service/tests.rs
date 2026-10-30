@@ -2520,6 +2520,58 @@ mod native {
         );
         thread::sleep(Duration::from_millis(10));
       }
+      if mode == "file" && !cancel {
+        // observe the uncertain admission after its native sync completes, without resubmission.
+        let uncertain = serde_json::from_value(serde_json::json!({
+          "protocol": PROTOCOL, "state": "acceptance_unknown", "key": key,
+        }))
+        .unwrap();
+        let started = Instant::now();
+        let observed = page_client.observe_until(uncertain, started + Duration::from_millis(100));
+        assert!(
+          observed.state == crate::client::State::Pending
+            || observed.state == crate::client::State::Unknown
+              && observed.reason.as_deref()
+                == Some("wait deadline elapsed; result is not confirmed"),
+          "{observed:?}"
+        );
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        assert_eq!(observed.key, Some(key.clone()));
+        assert_ne!(observed.exit_code(), 0);
+        let retained = page_client.show(key.clone());
+        assert_eq!(
+          retained.state,
+          crate::client::State::Pending,
+          "{retained:?}"
+        );
+        assert_eq!(retained.job_id, Some(crate::client::job_id(&key)));
+        println!("uncertain receipt finite observation: {:?}; reason {:?}; original retained job confirmed", observed.state, observed.reason);
+
+        let missing = Key {
+          nonce: crate::journal::random_token().unwrap(),
+          ..key.clone()
+        };
+        let uncertain = serde_json::from_value(serde_json::json!({
+          "protocol": PROTOCOL, "state": "acceptance_unknown", "key": missing,
+        }))
+        .unwrap();
+        let observed = page_client.observe_until(uncertain, Instant::now() + RESPONSE_BUDGET);
+        assert_eq!(
+          observed.state,
+          crate::client::State::NotAccepted,
+          "{observed:?}"
+        );
+        assert_eq!(observed.key, Some(missing));
+        assert_ne!(observed.exit_code(), 0);
+        assert_eq!(
+          fs::read_dir(fixture.root.join("state/reap/admission"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".json"))
+            .count(),
+          1
+        );
+      }
       assert_eq!(fixture.epoch(), epoch);
       samples.sort();
       let p99 = samples[256 * 99 / 100];

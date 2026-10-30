@@ -24,6 +24,8 @@
   Epoch, preparation, and admission share the original deadline.
 - **C5** — A wait has a positive finite caller-selected deadline. It polls only the same key and
   does not cancel or resubmit work. A deadline without confirmed completion cannot return success.
+  A submission observes a pending or acceptance-unknown receipt while its response or explicit wait budget remains.
+  A definitive non-admission result ends the wait; it does not trigger another submission.
   `job wait ID --timeout SECONDS` defaults to 30 seconds and accepts positive finite representable values.
 - **C6** — A public job identifier is `generation:epoch:nonce`. The generation and nonce each have
   32 lowercase hexadecimal digits. Epoch is positive canonical decimal with no prefix or leading zero.
@@ -105,6 +107,7 @@ These are named code bindings, not an automated specification-fixture registrati
 | C1, C2, C8, C9 | `native_doctor_client_repairs_only_index_and_replays_after_writer_restart` |
 | C1, C8, C9 | `test_purge_commands_do_not_wait_for_configuration_fifo`; `purge_arguments_keep_selectors_modes_and_waits_separate`; `dispatch::tests::purge` |
 | C1, C8 | `native_client_waits_for_cold_writer_within_original_admission_budget` |
+| C5 | `native_blocked_sync_does_not_ack_early_or_replace_the_writer` observes an uncertain receipt and definitive non-admission without another submission |
 | C9 | `native_invocation_summary_survives_restart_and_exact_replay`; `test_actual_cwd_and_requested_scope_survive_public_lookup`; malformed-summary client cases |
 | C10 | `cancellation_acknowledgement_is_pending_and_missing_confirmation_never_succeeds`; native stalled-bulk cancellation and sync-fault cases |
 | C11 | `result_page_receipts_keep_the_original_outcome_and_reject_missing_or_changed_evidence`; native page service and installed ingress `--result-pages` |

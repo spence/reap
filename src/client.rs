@@ -226,12 +226,8 @@ fn run_argv(argv: Vec<String>, apply: bool, wait: Option<Duration>, entered: Ins
   };
   let summary = invocation::summary(&input);
   let client = Client::default();
-  let mut receipt = client.submit_until(input, None, deadline.min(entered + RESPONSE_BUDGET));
-  if receipt.state == State::Pending && Instant::now() < deadline {
-    if let Some(key) = receipt.key.clone() {
-      receipt = client.wait_until(key, deadline);
-    }
-  }
+  let receipt = client.submit_until(input, None, deadline.min(entered + RESPONSE_BUDGET));
+  let mut receipt = client.observe_until(receipt, deadline);
   if receipt.invocation.is_none() {
     receipt.invocation = summary;
   }
@@ -549,6 +545,18 @@ impl Client {
       );
     };
     self.wait_until(key, deadline)
+  }
+
+  /// Continue a submitted receipt's finite observation without another admission attempt.
+  pub(crate) fn observe_until(&self, mut receipt: Receipt, deadline: Instant) -> Receipt {
+    if matches!(receipt.state, State::Pending | State::AcceptanceUnknown)
+      && Instant::now() < deadline
+    {
+      if let Some(key) = receipt.key.clone() {
+        receipt = self.wait_until(key, deadline);
+      }
+    }
+    receipt
   }
 
   fn wait_until(&self, key: Key, deadline: Instant) -> Receipt {

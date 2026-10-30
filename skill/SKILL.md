@@ -80,6 +80,8 @@ Lease listing reads metadata only. It does not establish workspace availability.
 Use TTL only for expressly disposable work, not an estimated completion time. Do not add a lease over a co-located lifetime.
 `clean` implies apply. `plan` and `sweep` apply only with `--apply`; bare `reap` submits a read-only sweep.
 `--wait` without a value means 30 seconds. A pending receipt is not successful validation.
+Use `--wait` for a longer same-key observation of pending or acceptance-unknown admission.
+Definitive non-admission ends that wait without another submission.
 `reap job show GENERATION:EPOCH:NONCE` reads a retained job through bounded IPC.
 `reap job wait GENERATION:EPOCH:NONCE --timeout 30` explicitly waits for completion.
 If terminal detail has `paged_result`, use `reap job page ID INDEX` for each zero-based index.

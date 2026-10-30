@@ -1229,6 +1229,8 @@ reap job cancel GENERATION:EPOCH:NONCE
 ```
 
 These commands emit JSON. Exit 0 requires completed success; exit 75 means pending or unknown.
+Pending or acceptance-unknown admission uses same-key observation within the remaining response or explicit wait budget.
+Definitive non-admission ends that wait without another submission.
 Exit 1 means failure or an unavailable observation; exit 2 means invalid input.
 `check` and non-applying `files`, `plan`, and `sweep` submit read-only jobs.
 `files --apply`, `plan --apply`, `sweep --apply`, and `clean` submit mutation jobs.

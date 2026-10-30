@@ -157,7 +157,15 @@ impl TestRoot {
         assert!(receipt["job"]["result"].is_object(), "{receipt}");
       }
       Some("invalid") => assert!(receipt["reason"].is_string(), "{receipt}"),
-      _ => panic!("coordinated fixture needs completed execution or invalid input: {receipt}"),
+      Some("not_accepted") => {
+        assert_eq!(output.status.code(), Some(1), "{receipt}");
+        assert!(receipt["key"].is_object(), "{receipt}");
+        assert!(
+          receipt["job"].is_null() && receipt["job_id"].is_null(),
+          "{receipt}"
+        );
+      }
+      _ => panic!("coordinated fixture needs terminal execution or definitive refusal: {receipt}"),
     }
     self.unconfirmed.fetch_sub(1, Ordering::SeqCst);
   }
@@ -290,10 +298,18 @@ fn parallel(root: Arc<TestRoot>, commands: Vec<Vec<String>>) -> Vec<Output> {
       })
     })
     .collect();
-  handles
-    .into_iter()
-    .map(|handle| handle.join().unwrap())
-    .collect()
+  let results: Vec<_> = handles.into_iter().map(|handle| handle.join()).collect();
+  let outputs: Vec<Output> = results.into_iter().map(Result::unwrap).collect();
+  eprintln!(
+    "parallel receipt states: {:?}",
+    outputs
+      .iter()
+      .map(|output| serde_json::from_slice::<Value>(&output.stdout)
+        .ok()
+        .and_then(|receipt| receipt["state"].as_str().map(str::to_string)))
+      .collect::<Vec<_>>()
+  );
+  outputs
 }
 
 fn make_tree_quiet(root: &Path) {

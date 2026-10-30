@@ -1,0 +1,236 @@
+{
+  "format": 1,
+  "work": "MS-LIFETIME-ENFORCE.T13",
+  "status": "held source checkpoint; full acceptance remains open",
+  "sources": [
+    {
+      "path": "src/client.rs",
+      "sha256": "2a106622e890cf83472453573627ab5ac438c88d79297d436c7cd14ca1bb50a0"
+    },
+    {
+      "path": "src/service/tests.rs",
+      "sha256": "d892f7309eea9b620183f5e0c2937160526da0b49b9caf2521beb00fac1ec22a"
+    },
+    {
+      "path": "tests/lifecycle_state.rs",
+      "sha256": "ce5f464253c27117aa8d831d6e838ed4a28c68fad982035e8c04d4fbc5cd2c5f"
+    },
+    {
+      "path": "docs/specs/job-client.md",
+      "sha256": "4b798ee9feed4d45f35d4ad0b962f9f08bd2aa562018e72ed6cc679dd04484f1"
+    },
+    {
+      "path": "README.md",
+      "sha256": "007641fe19260021838fa9e1ebf53722555c57343eeed7bf1fcd5010592779f3"
+    },
+    {
+      "path": "skill/SKILL.md",
+      "sha256": "183619490cf4277edb4b4f43783475a11c272c320870619fd54bd501da4292cb"
+    }
+  ],
+  "artifacts": {
+    "unit": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/wait-observe-green-v2/unit",
+      "sha256": "d59377f6853ed66fe9b296e8dbd58b087ca54c9d7979a9d5c2c15917cf4aec7b",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap.native-tests\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap.native-tests",
+      "bytes": 39593488,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/deps/reap-b474d274394e83a9"
+    },
+    "app": {
+      "path": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/wait-observe-green-v2/app",
+      "sha256": "dbe624d27e58c13ac412ef817d1cc2a51e03d65e96637f23c630feecb448b12f",
+      "micro_leaf_sha1": "EBBF6FBFFB95D2DD5925180B4441F6D29E45255E",
+      "designated_requirement": "designated => identifier \"dev.micro.reap\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"35A87BDK48\"",
+      "identifier": "dev.micro.reap",
+      "bytes": 28802688,
+      "storage_device": 16777232,
+      "source": "/Users/spencer/src/reap/target/control-t13/mutation-bridge/private-target/debug/reap"
+    }
+  },
+  "red": {
+    "path": "target/native-profile-t20/wait-observe-red-v1.log",
+    "sha256": "42dda281547d4dcdb90356ee402fa7e0e4f57e0631e939b190f9f68b74db7bf1",
+    "exit_code": 101,
+    "condition": "Pending only",
+    "failure": "AcceptanceUnknown != Pending",
+    "elapsed_seconds": 2.77,
+    "source_diff": "target/native-profile-t20/wait-observe-red-v1.diff"
+  },
+  "native": {
+    "catalyst": {
+      "path": "target/native-profile-t20/wait-observe-green-v2.log",
+      "sha256": "51989881366fdeb65ae459def8c96ffb8cf2d8cf5fd3150bee0ad9a17a85935e",
+      "native_four_modes_passed": true,
+      "ping_p99": [
+        "1.286459ms",
+        "3.355708ms",
+        "2.094709ms",
+        "2.0595ms"
+      ],
+      "finite_wait_retained_job_confirmed": true,
+      "summary": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 506 filtered out; finished in 8.97s"
+    },
+    "catalyst-mini": {
+      "path": "target/native-profile-t20/wait-observe-mini-fault-v2.log",
+      "sha256": "cdea1056e5c908208b9e97b3f9d25899585f00c26e79700059baa2fbd760adcd",
+      "native_four_modes_passed": true,
+      "ping_p99": [
+        "587.875\u00b5s",
+        "919.542\u00b5s",
+        "918\u00b5s",
+        "432.833\u00b5s"
+      ],
+      "finite_wait_retained_job_confirmed": true,
+      "summary": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 506 filtered out; finished in 7.63s"
+    },
+    "mini_before": "target/native-profile-t20/wait-observe-mini-native-before-v2.json",
+    "mini_after": "target/native-profile-t20/wait-observe-mini-native-after-v2.json",
+    "same_bytes_and_micro_identity": true
+  },
+  "client_selection": {
+    "path": "target/native-profile-t20/wait-observe-client-v2.log",
+    "passed": 12,
+    "failed": 0
+  },
+  "review": {
+    "peer_id": "peer-18e32516b6a7f858-624066",
+    "conversation_id": "conversation-18e32516b82f6378-624071",
+    "model": "claude-sonnet-5-5",
+    "effort": "medium",
+    "product_request": "cmsg-18e3261c1f42a718-629766",
+    "product_receipt": "target/native-profile-t20/wait-observe-review-messages-v2.json",
+    "fixture_request": "cmsg-18e326a98875cf20-631297",
+    "fixture_receipt": "target/native-profile-t20/wait-observe-fixture-review-messages-v1.json",
+    "verdict": "accepted exact current source hashes; runtime gates remain separate"
+  },
+  "original_concurrency": {
+    "path": "target/native-profile-t20/wait-observe-concurrent-all-joined-v1.log",
+    "status": "failed; not waived",
+    "all_first_phase_callers_joined": 16,
+    "states": [
+      "not_accepted",
+      "not_accepted",
+      "not_accepted",
+      "not_accepted",
+      "failed",
+      "not_accepted",
+      "not_accepted",
+      "not_accepted",
+      "failed",
+      "not_accepted",
+      "failed",
+      "completed",
+      "failed",
+      "not_accepted",
+      "not_accepted",
+      "not_accepted"
+    ],
+    "durable_jobs": [
+      {
+        "key": {
+          "generation": "facaf800834c0aaf144d16c28900ac07",
+          "epoch": 1,
+          "nonce": "651770957e3d3a7476a0dc7018754756"
+        },
+        "argv": [
+          "lease",
+          "add",
+          "--ttl=0",
+          "--scratch",
+          "--",
+          "/private/tmp/reap-lifecycle-82209-1793319612096929000-0/bench-12"
+        ],
+        "completed_at": 1793319613,
+        "exit": 1,
+        "detail": "refused/incomplete: admitted namespace or configuration changed"
+      },
+      {
+        "key": {
+          "generation": "facaf800834c0aaf144d16c28900ac07",
+          "epoch": 1,
+          "nonce": "2ee54c95a5254b475892ff92119dda42"
+        },
+        "argv": [
+          "lease",
+          "add",
+          "--ttl=0",
+          "--scratch",
+          "--",
+          "/private/tmp/reap-lifecycle-82209-1793319612096929000-0/bench-8"
+        ],
+        "completed_at": 1793319613,
+        "exit": 1,
+        "detail": "refused/incomplete: admitted namespace or configuration changed"
+      },
+      {
+        "key": {
+          "generation": "facaf800834c0aaf144d16c28900ac07",
+          "epoch": 1,
+          "nonce": "917c609125f30d0f164ced0f58825002"
+        },
+        "argv": [
+          "lease",
+          "add",
+          "--ttl=0",
+          "--scratch",
+          "--",
+          "/private/tmp/reap-lifecycle-82209-1793319612096929000-0/bench-11"
+        ],
+        "completed_at": 1793319613,
+        "exit": 0,
+        "detail": "{\"action\":\"add\",\"command\":\"lease\",\"error\":null,\"lease\":{\"created_unix\":1793319613,\"dev\":16777232,\"expires_unix\":1793319613,\"id\":\"1a70d2ac\",\"ino\":465517846,\"owner\":\"spencer@catalyst.local\",\"path\":\"/private/tmp/reap-lifecycle-82209-1793319612096929000-0/bench-11\",\"provenance\":{\"host\":\"catalyst.local\"},\"purpose\":\"\",\"renewed_unix\":1793319613,\"scratch\":true,\"token\":\"4126a5f2c8114b6d203eb87fca39e172\",\"ttl_secs\":0},\"worker_observation\":{\"completed_units\":5,\"unknown_effects\":false}}"
+      },
+      {
+        "key": {
+          "generation": "facaf800834c0aaf144d16c28900ac07",
+          "epoch": 1,
+          "nonce": "7af57746e7e10a7bec71db862c29746d"
+        },
+        "argv": [
+          "lease",
+          "add",
+          "--ttl=0",
+          "--scratch",
+          "--",
+          "/private/tmp/reap-lifecycle-82209-1793319612096929000-0/bench-4"
+        ],
+        "completed_at": 1793319613,
+        "exit": 1,
+        "detail": "refused/incomplete: admitted namespace or configuration changed"
+      },
+      {
+        "key": {
+          "generation": "facaf800834c0aaf144d16c28900ac07",
+          "epoch": 1,
+          "nonce": "9f38da85e06975439287940bef9ddafa"
+        },
+        "argv": [
+          "lease",
+          "add",
+          "--ttl=0",
+          "--scratch",
+          "--",
+          "/private/tmp/reap-lifecycle-82209-1793319612096929000-0/bench-10"
+        ],
+        "completed_at": 1793319613,
+        "exit": 1,
+        "detail": "refused/incomplete: admitted namespace or configuration changed"
+      }
+    ],
+    "surviving_exact_payloads": 16,
+    "lease_count": 1,
+    "mixed_32_caller_phase_reached": false,
+    "burst_nonadmission_cause": "unproved",
+    "prewarm_probe": "incomplete workload; no acceptance claim; temporary source edit reverted"
+  },
+  "limits": [
+    "Candidate applications held, not installed",
+    "Complete current unit and Cargo suites remain open",
+    "Installed-path and fleet-delivery gates remain open",
+    "Native ping measurements are not whole-command or whole-workload proof",
+    "No resubmission, weakened namespace guard, destructive migration or source release"
+  ]
+}
