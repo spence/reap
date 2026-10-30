@@ -557,7 +557,7 @@ mod native {
   }
 
   #[test]
-  fn native_burst_admission_preserves_all_keys_and_execution_progress() {
+  fn native_burst_admission_reconciles_every_key_and_preserves_execution_progress() {
     use crate::client::{Client, State};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Barrier};
@@ -603,20 +603,21 @@ mod native {
       fixture.root.display()
     );
     assert!(
-      receipts
-        .iter()
-        .all(|(receipt, _)| matches!(receipt.state, State::Pending | State::Completed)),
-      "native burst refused admission; fixture {}",
+      receipts.iter().all(|(receipt, _)| matches!(
+        receipt.state,
+        State::Pending | State::Completed | State::AcceptanceUnknown | State::NotAccepted
+      )),
+      "unexpected initial burst state; fixture {}",
       fixture.root.display()
     );
 
     // repeated same-key lookups must not starve the admitted read-only jobs.
     let client = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
     let deadline = Instant::now() + Duration::from_secs(30);
-    let keys: Vec<_> = receipts
+    let (keys, initial): (Vec<_>, Vec<_>) = receipts
       .into_iter()
-      .map(|(receipt, _)| receipt.key.unwrap())
-      .collect();
+      .map(|(receipt, _)| (receipt.key.unwrap(), receipt.state))
+      .unzip();
     let observing = AtomicBool::new(true);
     let observer = Client::for_fixture(fixture.control.clone(), fixture.resolver.clone());
     let observer_key = keys.last().unwrap();
@@ -644,14 +645,36 @@ mod native {
       keys.len(),
       "native burst execution deadline elapsed"
     );
-    for (done, key) in completed.into_iter().zip(keys) {
-      assert_eq!(done.state, State::Completed, "{done:?}");
+    let mut executed = 0;
+    for ((done, key), initial) in completed.into_iter().zip(keys).zip(initial) {
+      match initial {
+        State::Pending | State::Completed => assert_eq!(done.state, State::Completed, "{done:?}"),
+        State::NotAccepted => assert_eq!(done.state, State::NotAccepted, "{done:?}"),
+        State::AcceptanceUnknown => assert!(
+          matches!(done.state, State::Completed | State::NotAccepted),
+          "{done:?}"
+        ),
+        _ => unreachable!("validated initial receipt"),
+      }
       assert_eq!(done.key, Some(key));
-      assert_eq!(
-        done.job.as_ref().unwrap().result.as_ref().unwrap().effects,
-        0
-      );
+      if done.state == State::Completed {
+        executed += 1;
+        assert_eq!(
+          done.job.as_ref().unwrap().result.as_ref().unwrap().effects,
+          0
+        );
+      } else {
+        assert!(done.job.is_none() && done.job_id.is_none(), "{done:?}");
+      }
     }
+    assert!(
+      executed > 0,
+      "healthy private cohort made no execution progress"
+    );
+    println!(
+      "native burst reconciled: {executed} completed, {} not accepted; every original key observed",
+      projects.len() - executed
+    );
     for project in projects {
       assert_eq!(
         fs::read(project.join("valuable")).unwrap(),

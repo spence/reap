@@ -37,6 +37,9 @@
 - **C10** — The fixed writer alternates bounded ingress bursts with scheduler progress.
   At most 32 queued requests precede the next scheduler round while executable jobs remain.
   Quiet ingress waits use the existing 20 ms idle quantum.
+  Already queued requests can use that bounded priority.
+  Only epoch negotiation and admission allow a quiet ingress wait.
+  Job observations cannot prolong a quiet ingress wait.
   Ready worker and helper channels precede those quiet waits.
   While service operations finish, continuous observations cannot prevent worker progress.
   Neither request priority nor scheduler progress changes durable acceptance requirements.
@@ -101,7 +104,7 @@ No production fault switch or injected library is installed.
 | C8 | `native_resolved_admission_binds_caller_namespace_and_replays_after_ticket_expiry`; `native_invalid_namespaces_and_untrusted_receipts_never_create_jobs` |
 | C8 | `native_prepare_capacity_recovers_after_idle_ticket_expiry`; `tools/verify_ingress_macos.py` at the actual installed executable |
 | C9 | `cancellation_is_durable_monotonic_and_never_admits_a_key`; `pending_cancellation_recovers_before_lookup_without_losing_ownership`; cancellation transaction guards; native blocked-sync cancellation cases |
-| C10 | `native_burst_admission_preserves_all_keys_and_execution_progress` uses 16 simultaneous submissions and continuous same-key observations |
+| C10 | `native_burst_admission_reconciles_every_key_and_preserves_execution_progress` uses 16 simultaneous submissions and continuous same-key observations |
 
 The [T13 evidence](../proof/ADMISSION-T13.md) identifies completed component proof and remaining gates.
 The later [native ingress evidence](../proof/NATIVE-INGRESS-T13.md) proves preparation and admission

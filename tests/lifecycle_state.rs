@@ -165,6 +165,14 @@ impl TestRoot {
           "{receipt}"
         );
       }
+      Some("capacity") => {
+        assert_eq!(output.status.code(), Some(75), "{receipt}");
+        assert!(receipt["key"].is_object(), "{receipt}");
+        assert!(
+          receipt["job"].is_null() && receipt["job_id"].is_null(),
+          "{receipt}"
+        );
+      }
       _ => panic!("coordinated fixture needs terminal execution or definitive refusal: {receipt}"),
     }
     self.unconfirmed.fetch_sub(1, Ordering::SeqCst);
@@ -1000,7 +1008,9 @@ fn created_worktree_stays_usable_and_git_policy_blocks_dirty_retirement() {
     &worktree,
   ));
   assert!(!blocked.status.success());
-  assert!(String::from_utf8_lossy(&blocked.stdout).contains("git-clean"));
+  assert!(
+    String::from_utf8_lossy(&blocked.stdout).contains("Git worktree has untracked or ignored data")
+  );
   assert!(worktree.join("dirty").is_file());
   fs::remove_file(worktree.join("dirty")).unwrap();
   make_tree_quiet(&worktree);
@@ -1632,7 +1642,8 @@ fn pending_child_prevents_retirement_of_a_leased_parent() {
     &parent,
   ));
   assert!(!blocked.status.success());
-  assert!(String::from_utf8_lossy(&blocked.stdout).contains("pending creation intent"));
+  assert!(String::from_utf8_lossy(&blocked.stdout)
+    .contains("retirement overlaps protected state, quarantine, creation or managed parent"));
   assert!(parent.join("payload").is_file());
   assert!(!root
     .run(args(&["retire", "{path}", "--now", "--apply"], &child))
@@ -2324,7 +2335,9 @@ fn normal_worktree_retires_approved_cargo_output_without_cleaning_it() {
   let executable = checkout.join("target/debug/fixture");
   let plain = root.run(args(&["retire", "{path}", "--apply"], &checkout));
   assert!(!plain.status.success());
-  assert!(String::from_utf8_lossy(&plain.stdout).contains("git-ignored"));
+  assert!(
+    String::from_utf8_lossy(&plain.stdout).contains("Git worktree has untracked or ignored data")
+  );
   success(root.run(args(
     &["clean", "{path}", "--min-age-minutes", "0", "--wait", "30"],
     &checkout,
@@ -2449,7 +2462,12 @@ fn disposable_cargo_permission_preserves_other_ignored_and_dirty_data() {
   let note = checkout.join("local-notes/evidence.txt");
   fs::write(&note, b"required evidence").unwrap();
   make_tree_quiet(&checkout);
-  cargo_refusal(&root, &checkout, &["target"], "git-ignored");
+  cargo_refusal(
+    &root,
+    &checkout,
+    &["target"],
+    "Git worktree has untracked or ignored data",
+  );
   assert_eq!(fs::read(&note).unwrap(), b"required evidence");
   fs::remove_file(&note).unwrap();
   fs::remove_dir(checkout.join("local-notes")).unwrap();
@@ -2464,12 +2482,22 @@ fn disposable_cargo_permission_preserves_other_ignored_and_dirty_data() {
   );
   fs::write(&tracked, b"local changes").unwrap();
   make_tree_quiet(&checkout);
-  cargo_refusal(&root, &checkout, &["target"], "git-clean");
+  cargo_refusal(
+    &root,
+    &checkout,
+    &["target"],
+    "Git worktree differs from its index",
+  );
   assert_eq!(fs::read(&tracked).unwrap(), b"local changes");
   git(&checkout, &["add", "-f", "target/source.rs"]);
   git(&checkout, &["commit", "-qm", "local fixture"]);
   make_tree_quiet(&checkout);
-  cargo_refusal(&root, &checkout, &["target"], "git-head");
+  cargo_refusal(
+    &root,
+    &checkout,
+    &["target"],
+    "Git branch commits are not recoverable on a remote",
+  );
 }
 
 #[test]
@@ -2605,7 +2633,12 @@ fn disposable_cargo_permission_requires_each_target_to_be_approved() {
   .unwrap();
   fs::write(nested.join("build-executable"), b"W7 executable").unwrap();
   make_tree_quiet(&checkout);
-  cargo_refusal(&root, &checkout, &["target"], "git-ignored");
+  cargo_refusal(
+    &root,
+    &checkout,
+    &["target"],
+    "Git worktree has untracked or ignored data",
+  );
   success(root.run(args(
     &[
       "retire",
@@ -2688,7 +2721,9 @@ fn ignored_checkout_data_blocks_normal_retire_but_explicit_scratch_moves() {
     &checkout,
   ));
   assert!(!output.status.success());
-  assert!(String::from_utf8_lossy(&output.stdout).contains("git-ignored"));
+  assert!(
+    String::from_utf8_lossy(&output.stdout).contains("Git worktree has untracked or ignored data")
+  );
   assert!(checkout.join("logs/local.log").is_file());
   assert!(!root.quarantine().join("index.json").exists());
 
@@ -3008,8 +3043,10 @@ fn concurrent_nested_renewal_never_moves_an_active_child_inside_its_parent() {
 }
 
 #[test]
-fn concurrent_leases_and_retirements_keep_every_record_and_directory() {
+fn initialized_namespace_concurrent_leases_and_retirements_keep_every_record_and_directory() {
   let root = Arc::new(TestRoot::new());
+  // an existing namespace separates concurrent work from first-use identity changes.
+  fs::create_dir_all(root.quarantine().join("entries")).unwrap();
   let dirs: Vec<_> = (0..16)
     .map(|n| root.project(&format!("bench-{n}")))
     .collect();
@@ -3017,13 +3054,46 @@ fn concurrent_leases_and_retirements_keep_every_record_and_directory() {
     .iter()
     .map(|dir| args(&["lease", "add", "{path}", "--ttl", "0", "--scratch"], dir))
     .collect();
-  for output in parallel(Arc::clone(&root), additions) {
-    success(output);
+  let mut expected_leases = vec![];
+  for (dir, output) in dirs.iter().zip(parallel(Arc::clone(&root), additions)) {
+    let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let added = receipt["state"] == "completed";
+    if added {
+      success(output);
+      expected_leases.push(dir.to_string_lossy().into_owned());
+    } else {
+      assert!(
+        receipt["state"] == "capacity" || receipt["state"] == "not_accepted",
+        "{receipt}"
+      );
+    }
+    assert_eq!(dir.join(".reap-lease").is_file(), added);
+    assert_eq!(
+      fs::read(dir.join("payload")).unwrap(),
+      dir.file_name().unwrap().as_encoded_bytes()
+    );
   }
-  assert_eq!(
-    array(&root.state().join("leases.json"), "leases").len(),
-    dirs.len()
-  );
+  assert!(!expected_leases.is_empty());
+  let mut actual_leases: Vec<_> = array(&root.state().join("leases.json"), "leases")
+    .iter()
+    .map(|entry| entry["path"].as_str().unwrap().to_string())
+    .collect();
+  expected_leases.sort();
+  actual_leases.sort();
+  assert_eq!(actual_leases, expected_leases);
+
+  // retirement races use a separate namespace with every prerequisite lease complete.
+  let root = Arc::new(TestRoot::new());
+  fs::create_dir_all(root.quarantine().join("entries")).unwrap();
+  let dirs: Vec<_> = (0..16)
+    .map(|n| root.project(&format!("bench-{n}")))
+    .collect();
+  for dir in &dirs {
+    success(root.run(args(
+      &["lease", "add", "{path}", "--ttl", "0", "--scratch"],
+      dir,
+    )));
+  }
 
   let new_dirs: Vec<_> = (0..16)
     .map(|n| root.project(&format!("next-{n}")))
@@ -3049,32 +3119,102 @@ fn concurrent_leases_and_retirements_keep_every_record_and_directory() {
       .iter()
       .map(|dir| args(&["lease", "add", "{path}", "--ttl", "0", "--scratch"], dir)),
   );
-  for output in parallel(Arc::clone(&root), mixed) {
-    success(output);
-  }
-  assert_eq!(
-    array(&root.state().join("leases.json"), "leases").len(),
-    new_dirs.len()
-  );
-  let entries = array(&root.quarantine().join("index.json"), "entries");
-  assert_eq!(entries.len(), dirs.len());
+  let completed: Vec<_> = parallel(Arc::clone(&root), mixed)
+    .into_iter()
+    .map(|output| {
+      let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
+      if receipt["state"] == "capacity" || receipt["state"] == "not_accepted" {
+        assert_eq!(
+          output.status.code(),
+          Some(if receipt["state"] == "capacity" {
+            75
+          } else {
+            1
+          }),
+          "{receipt}"
+        );
+        false
+      } else {
+        success(output);
+        assert_eq!(receipt["state"], "completed", "{receipt}");
+        true
+      }
+    })
+    .collect();
+  assert!(completed.iter().any(|done| *done));
+  let mut expected_leases: Vec<_> = dirs
+    .iter()
+    .zip(&completed[..dirs.len()])
+    .filter(|(_, done)| !**done)
+    .chain(
+      new_dirs
+        .iter()
+        .zip(&completed[dirs.len()..])
+        .filter(|(_, done)| **done),
+    )
+    .map(|(dir, _)| dir.to_string_lossy().into_owned())
+    .collect();
+  let mut actual_leases: Vec<_> = array(&root.state().join("leases.json"), "leases")
+    .iter()
+    .map(|entry| entry["path"].as_str().unwrap().to_string())
+    .collect();
+  expected_leases.sort();
+  actual_leases.sort();
+  assert_eq!(actual_leases, expected_leases);
+  let index = root.quarantine().join("index.json");
+  let entries = if !completed[..dirs.len()].iter().any(|done| *done)
+    && fs::symlink_metadata(&index).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+  {
+    vec![]
+  } else {
+    array(&index, "entries")
+  };
+  let mut actual_retired: Vec<_> = entries
+    .iter()
+    .map(|entry| entry["original_path"].as_str().unwrap().to_string())
+    .collect();
+  let mut expected_retired: Vec<_> = dirs
+    .iter()
+    .zip(&completed[..dirs.len()])
+    .filter(|(_, done)| **done)
+    .map(|(dir, _)| dir.to_string_lossy().into_owned())
+    .collect();
+  actual_retired.sort();
+  expected_retired.sort();
+  assert_eq!(actual_retired, expected_retired);
   for entry in entries {
     let id = entry["id"].as_str().unwrap();
     let name = entry["name"].as_str().unwrap();
-    assert!(root
-      .quarantine()
-      .join("entries")
-      .join(id)
-      .join(name)
-      .join("payload")
-      .is_file());
+    let original = Path::new(entry["original_path"].as_str().unwrap());
+    assert_eq!(
+      fs::read(
+        root
+          .quarantine()
+          .join("entries")
+          .join(id)
+          .join(name)
+          .join("payload")
+      )
+      .unwrap(),
+      original.file_name().unwrap().as_encoded_bytes()
+    );
   }
-  for dir in dirs {
-    assert!(!dir.exists());
+  for (dir, retired) in dirs.iter().zip(&completed[..dirs.len()]) {
+    assert_eq!(!dir.exists(), *retired);
+    if !retired {
+      assert_eq!(
+        fs::read(dir.join("payload")).unwrap(),
+        dir.file_name().unwrap().as_encoded_bytes()
+      );
+      assert!(dir.join(".reap-lease").is_file());
+    }
   }
-  for dir in new_dirs {
-    assert!(dir.join("payload").is_file());
-    assert!(dir.join(".reap-lease").is_file());
+  for (dir, added) in new_dirs.iter().zip(&completed[dirs.len()..]) {
+    assert_eq!(
+      fs::read(dir.join("payload")).unwrap(),
+      dir.file_name().unwrap().as_encoded_bytes()
+    );
+    assert_eq!(dir.join(".reap-lease").is_file(), *added);
   }
 }
 

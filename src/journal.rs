@@ -568,6 +568,32 @@ impl Journal {
     Ok(Decision::Present { job: job.view })
   }
 
+  /// Report a known resource conflict without another launch attempt.
+  /// Exact retries and unresolved owning launches still require journal validation.
+  /// A false result gives no launch permission; the reservation path remains authoritative.
+  pub(crate) fn launch_known_busy(&self, key: &Key, sequence: u64, resources: &Resources) -> bool {
+    let Some(entry) = self.index.get(key) else {
+      return false;
+    };
+    let fresh = entry.launch.as_ref().map_or(sequence == 1, |launch| {
+      launch.released() && launch.sequence.checked_add(1) == Some(sequence)
+    });
+    if !fresh || entry.view.result.is_some() || entry.mutation_resources.is_some() {
+      return false;
+    }
+    self.index.iter().any(|(owner, entry)| {
+      owner != key
+        && (entry
+          .launch
+          .as_ref()
+          .is_some_and(|launch| !launch.released() && launch.resources.conflicts(resources))
+          || entry
+            .mutation_resources
+            .as_ref()
+            .is_some_and(|held| held.conflicts(resources)))
+    })
+  }
+
   /// Reserve all physical resources in one durable transaction before process creation.
   /// `None` means occupied capacity. A retained reservation is returned without replacement.
   /// Only the native target resolver may supply physical-volume keys here.

@@ -1027,6 +1027,9 @@ pub fn start(journal: &mut Journal, key: &Key, sequence: u64, mut task: Task) ->
       error.to_string().chars().take(2048).collect(),
     ));
   }
+  if journal.launch_known_busy(key, sequence, &task.resources()) {
+    return Ok(Start::Busy);
+  }
   if let Some(previous) = journal.launch(key)? {
     if previous.sequence == sequence || !previous.released() {
       return Ok(Start::Retained(previous));
